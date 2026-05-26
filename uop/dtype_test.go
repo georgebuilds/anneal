@@ -355,6 +355,55 @@ func TestDTypeStructuralHashUnique(t *testing.T) {
 	}
 }
 
+// TestDTypeStructuralHashGolden pins the exact StructuralHash values for key
+// dtypes. A stable golden value is the definitive proof that the hash is derived
+// from DType field values alone, not from the pointer's allocation address: any
+// address-based component would change across runs, invalidating the constant.
+//
+// If the DType field layout or StructuralHash algorithm intentionally changes,
+// update these constants and document the reason.
+func TestDTypeStructuralHashGolden(t *testing.T) {
+	cases := []struct {
+		name   string
+		dt     *uop.DType
+		golden uint64
+	}{
+		{"Float32", uop.Dtypes.Float32, 0x7f4278a474769c36},
+		{"Int32", uop.Dtypes.Int32, 0xfee909559c15d11a},
+		{"Float16", uop.Dtypes.Float16, 0x07091dd970d2d7c0},
+		{"Bool", uop.Dtypes.Bool, 0x7e387016041cc497},
+		{"Index", uop.Dtypes.Index, 0x7a131b2190c6940c},
+		{"Float32×4", uop.Dtypes.Float32.Vec(4), 0xc512b320f01638d4},
+		{"Float32.ptr(Global)", uop.Dtypes.Float32.Ptr(-1, uop.Global), 0x743ef066b1770e27},
+	}
+	for _, tc := range cases {
+		h := tc.dt.StructuralHash()
+		if h != tc.golden {
+			t.Errorf("%s: StructuralHash()=0x%016x, want golden 0x%016x — "+
+				"algorithm or field layout changed, or hash is no longer address-independent",
+				tc.name, h, tc.golden)
+		}
+	}
+}
+
+// TestStructuralKeysGolden pins the StructuralKeys value for a simple node to
+// prove cross-build stability: a const(1.0 f32) node always produces the same
+// key regardless of which address Float32 was allocated at in this process.
+func TestStructuralKeysGolden(t *testing.T) {
+	a := uop.NewArena(4)
+	c := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	keys := uop.StructuralKeys(a)
+
+	const golden uint64 = 0xd580b1967dd050b5
+	got := keys[c.Index()]
+	t.Logf("const(1.0 f32) structural key: 0x%016x (golden: 0x%016x)", got, golden)
+	if got != golden {
+		t.Errorf("StructuralKeys: 0x%016x != golden 0x%016x — "+
+			"dtype address-dependence reintroduced, or hash algorithm changed",
+			got, golden)
+	}
+}
+
 // ── String ────────────────────────────────────────────────────────────────────
 
 func TestDTypeString(t *testing.T) {
