@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>anneal viz</title>
+  <meta name="description" content="UOp graph visualizer — forward (teal), backward (ember), kernel boundaries (gold)">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <span class="wordmark">anneal <span class="viz-label">viz</span></span>
+
+    <nav class="model-selector" aria-label="model selector">
+      <label>
+        <input type="radio" name="model" value="mlp" checked
+               aria-label="MLP: 2→8→1 multilayer perceptron">
+        mlp
+      </label>
+      <label>
+        <input type="radio" name="model" value="conv"
+               aria-label="conv net: conv2d + linear">
+        conv
+      </label>
+    </nav>
+
+    <button class="theme-toggle" id="themeToggle"
+            title="cycle theme (system / dark / light)"
+            aria-label="cycle colour theme">◑</button>
+  </header>
+
+  <main>
+    <div id="status" class="status" role="status" aria-live="polite">loading…</div>
+    <div id="graph-container" role="img" aria-label="UOp computation graph">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"
+           aria-hidden="true" focusable="false">
+        <!-- graph rendered here by app.js -->
+      </svg>
+    </div>
+  </main>
+
+  <footer>
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <nav class="legend" aria-label="graph legend">
+      <!-- Dual encoding per DESIGN.md §9: color is never the sole carrier.
+           Each entry uses color + shape + label. -->
+      <span class="legend-item forward"  aria-label="forward pass node: solid circle, teal">
+        ● forward
+      </span>
+      <span class="legend-item backward" aria-label="backward pass node: dashed circle, ember">
+        ⊙ backward
+      </span>
+      <span class="legend-item reduce"   aria-label="reduce / kernel boundary: diamond, gold">
+        ◆ reduce/kernel
+      </span>
+      <span class="legend-item leaf"     aria-label="buffer / parameter: rounded rect, teal">
+        ▭ buffer/leaf
+      </span>
+    </nav>
+  </footer>
+
+  <!--
+    wasm_exec.js is required for the WASM path (runs the real compiler in-browser).
+    Copy it alongside this file with:
+      cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" viz/static/
+
+    If wasm_exec.js is absent, the page falls back to the REST API served by
+    `anneal viz` (the native Go server), which also runs the real compiler.
+    Both paths satisfy DD2 (no mock graphs).
+  -->
+  <script src="wasm_exec.js" onerror="window._wasmExecMissing=true"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+# anneal
+
+> A Go tensor compiler. Graph-rewrite-based, with autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary.
+
+anneal is an open-source project by georgebuilds. It is NOT a simulated-annealing optimizer. The name refers to the metallurgical process. Controlled heating and cooling that fuses grain structure and relaxes a material into a lower-energy, stable form, which is a near-exact metaphor for what this compiler does: it takes the whole computation (forward and backward), applies rewrite passes, and relaxes the graph into a fused, lower-cost form.
+
+## Key claims
+
+- Autodiff is a compiler pass, not a runtime hook. Gradients are rewrite rules over the same IR as the forward graph.
+- The scheduler (rangeify) sees forward and backward together and can fuse across that boundary.
+- UOps are immutable, interned, and arena-allocated. Structural equality is identity equality.
+- No reflection in the rewrite hot path. This is a hard invariant.
+- `anneal viz` runs the actual compiler frontend compiled to WebAssembly and renders the real UOp graph in-browser — not a mock.
+
+## Architecture
+
+- **IR:** UOp DAG, immutable, arena-allocated, hash-consed
+- **Rewrite engine:** PatternMatcher + graph_rewrite driver
+- **Scheduler:** rangeify — fuses across the forward/backward boundary
+- **Codegen:** WGSL lowerer + renderer
+- **Backend:** WebGPU (primary)
+- **Language:** Go (latest stable)
+
+## Color semantics (visualizer and TUI)
+
+- teal (#00ADD8) — forward pass
+- ember (#FF7A45) — backward pass
+- gold (#F2C57C) — fused kernel
+
+Color is never the sole carrier of meaning: forward = solid line + teal, backward = dashed line + ember, fused = filled box + gold.
+
+## CLI
+
+- `anneal run <file>` — realize and execute a graph
+- `anneal train <dir>` — training loop with the live TUI
+- `anneal viz` — launch the graph visualizer (WASM)
+- `anneal graph <file>` — inspect the UOp DAG
+- `anneal kernels <file>` — show generated WGSL with fusion boundaries
+- `anneal explain <op>` — trace the rewrite rules that fire for one op
+- `anneal doctor` — WebGPU / backend environment check
+
+## Links
+
+- Homepage: https://georgebuilds.github.io/anneal/
+- Source: https://github.com/georgebuilds/anneal

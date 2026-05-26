@@ -1,0 +1,384 @@
+package uop
+
+import (
+	"fmt"
+	"math"
+	"unsafe"
+)
+
+// Arena holds all UOp nodes for one compilation unit (bounded by one realize boundary).
+//
+// Not safe for concurrent mutation; the single-threaded compile path in v1 makes
+// per-operation locking unnecessary. Document any future multi-arena usage explicitly.
+type Arena struct {
+	nodes  []uopNode
+	cache  map[uint64][]uint32 // hash → matching arena indices (separate chaining)
+	leaves map[uint32][]float32 // leaf data indexed by local UOp index; released with the arena
+}
+
+// uopNode is the stored, immutable representation of one UOp.
+type uopNode struct {
+	op    Op
+	dtype *DType
+	src   []uint32 // arena indices of source nodes; nil for leaf ops
+	arg   any
+	tag   any
+}
+
+// NewArena returns an Arena pre-sized for capacity UOp nodes.
+func NewArena(capacity int) *Arena {
+	return &Arena{
+		nodes:  make([]uopNode, 0, capacity),
+		cache:  make(map[uint64][]uint32, capacity),
+		leaves: make(map[uint32][]float32),
+	}
+}
+
+// Reset discards all UOp nodes and clears the intern cache.
+// Every UOp handle previously issued by this arena becomes invalid after Reset —
+// the arena resets at the realize boundary and nothing holds indices across it.
+func (a *Arena) Reset() {
+	a.nodes = a.nodes[:0]
+	a.cache = make(map[uint64][]uint32, cap(a.nodes))
+	a.leaves = make(map[uint32][]float32)
+}
+
+// SetLeaf stores float32 data for the leaf node at idx.
+// Called by tensor.SetData; data lifetime is tied to the arena.
+func (a *Arena) SetLeaf(idx uint32, data []float32) {
+	a.leaves[idx] = data
+}
+
+// Leaf returns the data previously stored by SetLeaf, if any.
+func (a *Arena) Leaf(idx uint32) ([]float32, bool) {
+	v, ok := a.leaves[idx]
+	return v, ok
+}
+
+// Len returns the number of UOp nodes currently allocated in the arena.
+func (a *Arena) Len() int { return len(a.nodes) }
+
+// bypassInternSet is the set of ops that carry intrinsic identity and must never dedup.
+//
+// In tinygrad, UNIQUE always receives a fresh counter arg so it never aliases through
+// the intern cache. In Go we make this structural guarantee explicit: bypass ops always
+// allocate a fresh slot regardless of field values. BUFFER is included because each
+// buffer represents a distinct allocation even when same-sized, and LUNIQUE is the
+// per-bufferize variant with the same guarantee.
+var bypassInternSet = map[Op]bool{
+	OpUnique:  true,
+	OpLUnique: true,
+	OpBuffer:  true,
+}
+
+// New constructs or retrieves an interned UOp in a.
+//
+// All elements of src must belong to a; passing a UOp from another arena panics.
+// arg and tag must be nil or one of the supported types (int64, float64, bool, string).
+// Passing an unsupported type panics at construction time, keeping type errors local.
+//
+// For ops in bypassInternSet, a fresh node is always allocated regardless of fields.
+func (a *Arena) New(op Op, dtype *DType, src []UOp, arg, tag any) UOp {
+	srcIdx := make([]uint32, len(src))
+	for i, s := range src {
+		if !s.Valid() {
+			panic("uop: invalid (zero-value) UOp passed as src")
+		}
+		if s.a != a {
+			panic("uop: src UOp belongs to a different arena")
+		}
+		srcIdx[i] = s.idx
+	}
+
+	node := uopNode{op: op, dtype: dtype, src: srcIdx, arg: arg, tag: tag}
+
+	if bypassInternSet[op] {
+		return a.allocFresh(node)
+	}
+	return a.intern(node)
+}
+
+// At returns the UOp at the given arena index. The caller must ensure idx is valid.
+func (a *Arena) At(idx uint32) UOp { return UOp{a: a, idx: idx} }
+
+func (a *Arena) allocFresh(node uopNode) UOp {
+	idx := uint32(len(a.nodes))
+	a.nodes = append(a.nodes, node)
+	return UOp{a: a, idx: idx}
+}
+
+func (a *Arena) intern(node uopNode) UOp {
+	h := hashNode(node)
+	for _, idx := range a.cache[h] {
+		if equalNodes(a.nodes[idx], node) {
+			return UOp{a: a, idx: idx}
+		}
+	}
+	u := a.allocFresh(node)
+	a.cache[h] = append(a.cache[h], u.idx)
+	return u
+}
+
+// ── UOp handle ────────────────────────────────────────────────────────────────
+
+// UOp is a lightweight, comparable handle for a node in an Arena.
+// The zero value is invalid; always construct via Arena.New.
+//
+// Within one arena, u1 == u2 iff they reference the same node — which, by the
+// interning invariant, equals structural equality. This makes UOp safe as a map key.
+type UOp struct {
+	a   *Arena
+	idx uint32
+}
+
+// Valid reports whether u refers to a live arena node (non-zero-value handle).
+func (u UOp) Valid() bool { return u.a != nil }
+
+func (u UOp) node() uopNode { return u.a.nodes[u.idx] }
+
+// Op returns the operation code.
+func (u UOp) Op() Op { return u.node().op }
+
+// DType returns the output data type (Dtypes.Void for control ops).
+func (u UOp) DType() *DType { return u.node().dtype }
+
+// NSrc returns the number of source UOps.
+func (u UOp) NSrc() int { return len(u.node().src) }
+
+// Src returns the i-th source UOp. Panics if i is out of range.
+func (u UOp) Src(i int) UOp { return UOp{a: u.a, idx: u.node().src[i]} }
+
+// Arg returns the static metadata payload. Nil for most ops.
+func (u UOp) Arg() any { return u.node().arg }
+
+// Tag returns the lowering classification tag. Nil in most nodes.
+func (u UOp) Tag() any { return u.node().tag }
+
+// Arena returns the arena this UOp belongs to.
+func (u UOp) Arena() *Arena { return u.a }
+
+// Index returns the raw arena index, useful for serialization or debug output.
+func (u UOp) Index() uint32 { return u.idx }
+
+func (u UOp) String() string {
+	if !u.Valid() {
+		return "<invalid UOp>"
+	}
+	n := u.node()
+	if n.arg == nil && n.tag == nil {
+		return fmt.Sprintf("UOp(%s, %s, srcs=%d)", n.op, n.dtype, len(n.src))
+	}
+	return fmt.Sprintf("UOp(%s, %s, srcs=%d, arg=%v, tag=%v)", n.op, n.dtype, len(n.src), n.arg, n.tag)
+}
+
+// ── hashing and structural equality ──────────────────────────────────────────
+
+// hashNode computes an FNV-1a hash of all fields that participate in the intern key.
+// No reflection is used; only types explicitly listed in hashArg are supported.
+func hashNode(n uopNode) uint64 {
+	const offset uint64 = 14695981039346656037
+	const prime uint64 = 1099511628211
+	mix := func(h, v uint64) uint64 { return (h ^ v) * prime }
+
+	h := offset
+	h = mix(h, uint64(n.op))
+	// DType is interned, so pointer identity equals structural equality.
+	// uintptr conversion is safe here: we consume the value immediately and do not
+	// store it; the GC does not move objects in current Go implementations.
+	h = mix(h, uint64(uintptr(unsafe.Pointer(n.dtype))))
+	h = mix(h, uint64(len(n.src)))
+	for _, idx := range n.src {
+		h = mix(h, uint64(idx))
+	}
+	h = hashArg(h, n.arg, prime)
+	h = hashArg(h, n.tag, prime)
+	return h
+}
+
+// ReduceArg is the arg payload for OpReduceAxis nodes.
+// Op is the reduction operation (e.g. OpAdd for sum, OpMax for max);
+// Axes is the sorted list of dimensions being reduced.
+type ReduceArg struct {
+	Op   Op
+	Axes []int
+}
+
+// AxisType classifies a RANGE loop axis.
+type AxisType int8
+
+const (
+	AxisLoop   AxisType = 0 // standard forward iteration
+	AxisReduce AxisType = 1 // inner reduction axis (accumulate, not store)
+)
+
+// RangeArg is the arg payload for OpRange nodes.
+// ID is a scheduler-assigned counter that uniquely identifies this loop variable
+// within a kernel; Size is the exclusive upper bound ([0, Size)).
+type RangeArg struct {
+	ID   int
+	Size int64
+	Type AxisType
+}
+
+// BufferizeArg is the arg payload for OpBufferize nodes.
+// Removable marks speculative (soft) realize points that may be elided by
+// the cost pass; false marks hard boundaries that must materialize.
+type BufferizeArg struct {
+	Removable bool
+}
+
+// hashArg mixes a typed arg/tag value into h.
+// Each type is tagged with a discriminator to prevent cross-type collisions.
+// Adding a new arg type requires entries in both hashArg and equalArg.
+func hashArg(h uint64, a any, prime uint64) uint64 {
+	mix := func(h, v uint64) uint64 { return (h ^ v) * prime }
+	switch v := a.(type) {
+	case nil:
+		return mix(mix(h, 0), 0xdead_cafe)
+	case int64:
+		return mix(mix(h, 1), uint64(v))
+	case float64:
+		return mix(mix(h, 2), math.Float64bits(v))
+	case bool:
+		if v {
+			return mix(mix(h, 3), 1)
+		}
+		return mix(mix(h, 3), 0)
+	case string:
+		h = mix(h, 4) // type discriminator
+		for i := 0; i < len(v); i++ {
+			h = mix(h, uint64(v[i]))
+		}
+		return h
+	case []int64:
+		h = mix(h, 5)
+		h = mix(h, uint64(len(v)))
+		for _, x := range v {
+			h = mix(h, uint64(x))
+		}
+		return h
+	case [][2]int64:
+		h = mix(h, 6)
+		h = mix(h, uint64(len(v)))
+		for _, p := range v {
+			h = mix(h, uint64(p[0]))
+			h = mix(h, uint64(p[1]))
+		}
+		return h
+	case ReduceArg:
+		h = mix(h, 7)
+		h = mix(h, uint64(v.Op))
+		h = mix(h, uint64(len(v.Axes)))
+		for _, ax := range v.Axes {
+			h = mix(h, uint64(ax))
+		}
+		return h
+	case RangeArg:
+		h = mix(h, 8)
+		h = mix(h, uint64(v.ID))
+		h = mix(h, uint64(v.Size))
+		h = mix(h, uint64(v.Type))
+		return h
+	case BufferizeArg:
+		h = mix(h, 9)
+		if v.Removable {
+			return mix(h, 1)
+		}
+		return mix(h, 0)
+	case Op:
+		// kernel-level REDUCE carries the accumulation op as its arg
+		h = mix(h, 10)
+		return mix(h, uint64(v))
+	case KernelInfo:
+		h = mix(h, 11)
+		return mix(h, uint64(v.NumParams))
+	default:
+		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))
+	}
+}
+
+// equalNodes reports whether two uopNodes are structurally equal.
+// Called only when hashes match; must handle all field types correctly.
+func equalNodes(a, b uopNode) bool {
+	if a.op != b.op || a.dtype != b.dtype || len(a.src) != len(b.src) {
+		return false
+	}
+	for i := range a.src {
+		if a.src[i] != b.src[i] {
+			return false
+		}
+	}
+	return equalArg(a.arg, b.arg) && equalArg(a.tag, b.tag)
+}
+
+// equalArg reports whether two arg/tag values are equal under the intern semantics.
+// NaN float64 values with identical bit patterns are considered equal (same constant).
+func equalArg(a, b any) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	switch av := a.(type) {
+	case int64:
+		bv, ok := b.(int64)
+		return ok && av == bv
+	case float64:
+		bv, ok := b.(float64)
+		return ok && math.Float64bits(av) == math.Float64bits(bv)
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	case string:
+		bv, ok := b.(string)
+		return ok && av == bv
+	case []int64:
+		bv, ok := b.([]int64)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+		return true
+	case [][2]int64:
+		bv, ok := b.([][2]int64)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+		return true
+	case ReduceArg:
+		bv, ok := b.(ReduceArg)
+		if !ok || av.Op != bv.Op || len(av.Axes) != len(bv.Axes) {
+			return false
+		}
+		for i := range av.Axes {
+			if av.Axes[i] != bv.Axes[i] {
+				return false
+			}
+		}
+		return true
+	case RangeArg:
+		bv, ok := b.(RangeArg)
+		return ok && av == bv
+	case BufferizeArg:
+		bv, ok := b.(BufferizeArg)
+		return ok && av == bv
+	case Op:
+		bv, ok := b.(Op)
+		return ok && av == bv
+	case KernelInfo:
+		bv, ok := b.(KernelInfo)
+		return ok && av == bv
+	default:
+		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))
+	}
+}

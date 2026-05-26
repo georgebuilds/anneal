@@ -1,0 +1,99 @@
+# rewrite/rules/symbolic.upat — symbolic rewrite rules for anneal
+#
+# Generated Go: symbolic_gen.go  (run: go generate ./rewrite/rules/)
+#
+# Syntax
+# ------
+# rule     := PATTERN "=>" HANDLER_NAME
+# PATTERN  := "(" OPS_EXPR [":" NAME] ATTR* SRCS? ")"
+#           | "*" [":" NAME] ATTR*
+# OPS_EXPR := OPNAME ("|" OPNAME)*
+# ATTR     := "@" DTYPE_NAME        -- dtype constraint
+#           | "!" ARG_LITERAL       -- arg value constraint
+# SRCS     := PATTERN+              -- ordered src match (strict len check)
+# ARG_LITERAL := "int64(" INT ")" | "float64(" FLOAT ")" | "bool(" BOOL ")"
+#
+# Handler names reference package-level functions in symbolic_handlers.go.
+# Rules are applied in listed order; first match wins (same as v0 rule list).
+# Same capture name appearing twice enforces node equality (same UOp index).
+# No src list on a pattern means srcWild (match any srcs, like v0 srcWild=true).
+
+# ── 1. Constant folding ───────────────────────────────────────────────────────
+# Must come first: fold children before identity rules see them.
+
+(Exp2|Log2|Sin|Sqrt|Reciprocal|Neg|Trunc :node (Const)) => hFoldUnary
+(Add|Mul|Shl|Shr|IDiv|Max|Mod|CmpLt|CmpNe|CmpEq|Xor|Or|And|Sub|FDiv|Pow :node (Const) (Const)) => hFoldBinary
+(Where|MulAcc :node (Const) (Const) (Const)) => hFoldTernary
+
+# ── 2. Cast/Bitcast of Const ─────────────────────────────────────────────────
+
+(Cast :root (Const :c)) => hCastConstFold
+
+# ── 3. Identity cast ─────────────────────────────────────────────────────────
+
+(Cast|Bitcast :root (* :x)) => hIdentityCast
+
+# ── 4. Arithmetic identities ─────────────────────────────────────────────────
+# Require canonical form (const at src[1]) — canonicalize fires last, so
+# these run after the first canonical form is established.
+
+(Add (* :x) (Const !int64(0))) => hReturnX
+(Add (* :x) (Const !float64(0))) => hReturnX
+(Mul (* :x) (Const !int64(1))) => hReturnX
+(Mul (* :x) (Const !float64(1))) => hReturnX
+(Mul :node (* :x) (Const !int64(0))) => hMulZero
+(Sub (* :x) (Const !int64(0))) => hReturnX
+(Sub (* :x) (Const !float64(0))) => hReturnX
+(Xor (* :x) (Const !int64(0))) => hReturnX
+(IDiv (* :x) (Const !int64(1))) => hReturnX
+(IDiv (* :x) (Const !int64(-1))) => hIDivNegOne
+
+# ── 5. Boolean neutral/absorbing elements ────────────────────────────────────
+
+(And (* :x) (Const !bool(true))) => hReturnX
+(Or (* :x) (Const !bool(false))) => hReturnX
+(And :node (* ) (Const !bool(false))) => hAndFalse
+(Or :node (* ) (Const !bool(true))) => hOrTrue
+(And :node (* :x) (Const !int64(0))) => hAndZeroInt
+
+# ── 6. Self-cancellation ─────────────────────────────────────────────────────
+# Same capture name :x on both srcs enforces src[0] == src[1] (identical UOp).
+
+(Sub :node (* :x) (* :x)) => hSubSelf
+(Xor :node (* :x) (* :x)) => hXorSelf
+(Mod :node (* :x) (* :x)) => hModSelf
+(IDiv :node (* :x) (* :x)) => hIDivSelf
+(CmpLt (* :x) (* :x)) => hCmpSelf
+(CmpNe (* :x) (* :x)) => hCmpSelf
+
+# ── 7. Idempotent ────────────────────────────────────────────────────────────
+
+(Or|And|Max (* :x) (* :x)) => hReturnX
+
+# ── 8. Boolean algebra ───────────────────────────────────────────────────────
+
+(Mul :node (* :x @Bool) (* :y @Bool)) => hBoolMul
+(Add :node (* :x @Bool) (* :y @Bool)) => hBoolAdd
+(Max :node (* :x @Bool) (* :y @Bool)) => hBoolMax
+
+# ── 9. Double-XOR / modulo idempotent ────────────────────────────────────────
+
+(Xor (Xor (* :x) (* :y)) (* :y)) => hReturnX
+(Mod (Mod:base (* ) (* :y)) (* :y)) => hReturnBase
+
+# ── 10. Where (ternary) ──────────────────────────────────────────────────────
+
+(Where (* ) (* :v) (* :v)) => hReturnV
+(Where (Const !bool(true)) (* :a) (* )) => hReturnA
+(Where (Const !bool(false)) (* ) (* :b)) => hReturnB
+
+# ── 11. Bound-based comparison folding ───────────────────────────────────────
+
+(CmpLt (* :a) (* :b)) => hCmpLtBounds
+(CmpNe (* :a) (* :b)) => hCmpNeBounds
+
+# ── 12. Commutative canonicalization ─────────────────────────────────────────
+# Must be last: its replacement is re-processed and hits identity rules above.
+# No src list = srcWild (match any node with these ops).
+
+(Add|Mul|Max|CmpNe|CmpEq|Xor|And|Or :x) => hCanonicalize

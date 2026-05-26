@@ -1,0 +1,28 @@
+# Compiled binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage output
+*.out
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store

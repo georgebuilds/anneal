@@ -1,0 +1,1907 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+        <!--
+    Anti-FOUC: set data-theme before first paint so the correct
+    color scheme applies immediately — no flash on light-mode systems.
+  -->
+        <script>
+            (function () {
+                var t = localStorage.getItem("anneal-theme");
+                if (!t)
+                    t = window.matchMedia("(prefers-color-scheme:light)")
+                        .matches
+                        ? "light"
+                        : "dark";
+                document.documentElement.setAttribute("data-theme", t);
+            })();
+        </script>
+
+        <!-- Primary SEO ------------------------------------------------ -->
+        <title>anneal — gradients are just rewrites</title>
+        <meta
+            name="description"
+            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
+        />
+        <meta
+            name="robots"
+            content="index, follow, max-image-preview:large, max-snippet:-1"
+        />
+        <link rel="canonical" href="https://georgebuilds.github.io/anneal/" />
+
+        <!-- Language alternates ---------------------------------------- -->
+        <link
+            rel="alternate"
+            hreflang="en"
+            href="https://georgebuilds.github.io/anneal/"
+        />
+        <link
+            rel="alternate"
+            hreflang="es"
+            href="https://georgebuilds.github.io/anneal/?lang=es"
+        />
+        <link
+            rel="alternate"
+            hreflang="x-default"
+            href="https://georgebuilds.github.io/anneal/"
+        />
+
+        <!-- Open Graph ------------------------------------------------- -->
+        <meta property="og:type" content="website" />
+        <meta
+            property="og:url"
+            content="https://georgebuilds.github.io/anneal/"
+        />
+        <meta property="og:site_name" content="anneal" />
+        <meta
+            property="og:title"
+            content="anneal — gradients are just rewrites"
+        />
+        <meta
+            property="og:description"
+            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
+        />
+        <meta
+            property="og:image"
+            content="https://georgebuilds.github.io/anneal/og-image.png"
+        />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta
+            property="og:image:alt"
+            content="anneal — gradients are just rewrites. A Go tensor compiler."
+        />
+        <meta property="og:locale" content="en_US" />
+        <meta property="og:locale:alternate" content="es_ES" />
+
+        <!-- Twitter / X Card ------------------------------------------ -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+            name="twitter:title"
+            content="anneal — gradients are just rewrites"
+        />
+        <meta
+            name="twitter:description"
+            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR."
+        />
+        <meta
+            name="twitter:image"
+            content="https://georgebuilds.github.io/anneal/og-image.png"
+        />
+        <meta
+            name="twitter:image:alt"
+            content="anneal — a Go tensor compiler"
+        />
+
+        <!-- Theme / appearance ----------------------------------------- -->
+        <meta
+            name="theme-color"
+            content="#14110F"
+            media="(prefers-color-scheme: dark)"
+        />
+        <meta
+            name="theme-color"
+            content="#FBF8F3"
+            media="(prefers-color-scheme: light)"
+        />
+        <meta name="color-scheme" content="light dark" />
+
+        <!-- Favicon ---------------------------------------------------- -->
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+        <!-- Structured data -------------------------------------------- -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                "name": "anneal",
+                "applicationCategory": "DeveloperApplication",
+                "programmingLanguage": {
+                    "@type": "ComputerLanguage",
+                    "name": "Go"
+                },
+                "operatingSystem": "Linux, macOS, Windows",
+                "description": "A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary.",
+                "url": "https://georgebuilds.github.io/anneal/",
+                "author": {
+                    "@type": "Organization",
+                    "name": "georgebuilds",
+                    "url": "https://georgebuilds.github.io/"
+                },
+                "license": "https://opensource.org/license/agpl-3-0",
+                "offers": {
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "USD"
+                },
+                "keywords": "tensor compiler, autodiff, GPU, WebGPU, Go, machine learning, graph rewrite, WGSL"
+            }
+        </script>
+
+        <!-- Fonts ------------------------------------------------------ -->
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+            rel="stylesheet"
+        />
+
+        <style>
+            /* ─── Reset & base ─────────────────────────────────────────────── */
+
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            /* ─── Design tokens (dark mode — default) ───────────────────────── */
+
+            :root {
+                /* Switchable surface tokens */
+                --bg: #14110f;
+                --surface: #1f1a17;
+                --text: #e8e2da;
+                --muted: #8a817a;
+                --faint: #5c544d;
+                --bg-glass: rgba(20, 17, 15, 0.88);
+
+                /* Brand colors — fixed; never invert */
+                --teal: #00add8;
+                --ember: #ff7a45;
+                --gold: #f2c57c;
+
+                /*
+    Text-safe variants: same as brand in dark mode (bright colors have
+    enough contrast on dark bg), overridden to accessible darks in light mode.
+  */
+                --teal-tx: #00add8;
+                --ember-tx: #ff7a45;
+                --gold-tx: #f2c57c;
+
+                /* Terminal is always dark regardless of page theme */
+                --term-bg: #1f1a17;
+                --term-border: #5c544d;
+                --term-text: #e8e2da;
+                --term-muted: #8a817a;
+                --term-faint: #5c544d;
+
+                --mono:
+                    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
+                    Consolas, monospace;
+            }
+
+            /* ─── Light mode tokens ─────────────────────────────────────────── */
+
+            /*
+  System-default light: matches when no data-theme is set.
+  Explicit override: [data-theme="light"] (set in <html> by JS/anti-FOUC script).
+*/
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme]) {
+                    --bg: #fbf8f3;
+                    --surface: #ede8e0;
+                    --text: #14110f;
+                    --muted: #5c4e3f;
+                    --faint: #9a8f85;
+                    --bg-glass: rgba(251, 248, 243, 0.88);
+                    --teal-tx: #0078a0; /* WCAG AA on #FBF8F3 */
+                    --ember-tx: #c03a00;
+                    --gold-tx: #8b5e10;
+                }
+            }
+
+            [data-theme="light"] {
+                --bg: #fbf8f3;
+                --surface: #ede8e0;
+                --text: #14110f;
+                --muted: #5c4e3f;
+                --faint: #9a8f85;
+                --bg-glass: rgba(251, 248, 243, 0.88);
+                --teal-tx: #0078a0;
+                --ember-tx: #c03a00;
+                --gold-tx: #8b5e10;
+            }
+
+            /* ─── Base ──────────────────────────────────────────────────────── */
+
+            html {
+                scroll-behavior: smooth;
+            }
+
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 14px;
+                line-height: 1.7;
+                -webkit-font-smoothing: antialiased;
+                overflow-x: hidden;
+                transition:
+                    background 0.2s ease,
+                    color 0.2s ease;
+            }
+
+            /* ─── Skip link ─────────────────────────────────────────────────── */
+
+            .skip-link {
+                position: absolute;
+                top: -100%;
+                left: 1rem;
+                z-index: 200;
+                background: var(--surface);
+                color: var(--text);
+                border: 1px solid var(--teal);
+                border-radius: 4px;
+                padding: 0.5rem 1rem;
+                font-family: var(--mono);
+                font-size: 0.82rem;
+                text-decoration: none;
+                transition: top 0.15s ease;
+            }
+            .skip-link:focus {
+                top: 0.75rem;
+            }
+
+            /* ─── Focus indicator ────────────────────────────────────────────── */
+
+            :focus-visible {
+                outline: 2px solid var(--teal);
+                outline-offset: 3px;
+                border-radius: 2px;
+            }
+
+            /* ─── Header ─────────────────────────────────────────────────────── */
+
+            header {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 clamp(1.5rem, 5vw, 3rem);
+                height: 52px;
+                background: var(--bg-glass);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid var(--faint);
+                transition:
+                    background 0.2s ease,
+                    border-color 0.2s ease;
+            }
+
+            .brand {
+                display: inline-flex;
+                align-items: center;
+                font-size: 13px;
+                letter-spacing: 0.01em;
+            }
+
+            /* ─── gb / hover ─────────────────────────────────────────────────── */
+
+            .gb-link {
+                display: inline-flex;
+                align-items: center;
+                color: var(--muted);
+                text-decoration: none;
+                transition: color 0.25s ease;
+            }
+            .gb-link:hover,
+            .gb-link:focus-visible {
+                color: var(--text);
+            }
+
+            .gb-abbr,
+            .gb-full {
+                display: inline-block;
+                overflow: hidden;
+                white-space: nowrap;
+                max-width: 0;
+                opacity: 0;
+                transition:
+                    max-width 0.42s cubic-bezier(0.22, 0.9, 0.25, 1),
+                    opacity 0.25s ease;
+            }
+            .gb-abbr {
+                max-width: 4ch;
+                opacity: 1;
+            }
+            .gb-link:hover .gb-abbr,
+            .gb-link:focus-visible .gb-abbr {
+                max-width: 0;
+                opacity: 0;
+            }
+            .gb-link:hover .gb-full,
+            .gb-link:focus-visible .gb-full {
+                max-width: 14ch;
+                opacity: 1;
+                transition-delay: 0.04s;
+            }
+
+            .brand-sep {
+                color: var(--faint);
+                margin: 0 0.35em;
+                user-select: none;
+            }
+            .proj-name {
+                color: var(--text);
+                font-weight: 500;
+            }
+
+            /* ─── Nav ───────────────────────────────────────────────────────── */
+
+            nav {
+                display: flex;
+                align-items: center;
+                gap: 1.5rem;
+                height: 100%;
+            }
+
+            nav a {
+                font-size: 13px;
+                color: var(--muted);
+                text-decoration: none;
+                transition: color 0.2s ease;
+                display: inline-flex;
+                align-items: center;
+                height: 100%;
+                padding: 0 0.15rem;
+            }
+            nav a:hover {
+                color: var(--text);
+            }
+            nav a::before {
+                content: "> ";
+                color: var(--faint);
+                transition: color 0.2s ease;
+            }
+            nav a:hover::before {
+                color: var(--teal);
+            }
+
+            /* ─── Header icon buttons (lang + theme) ────────────────────────── */
+
+            .icon-btn {
+                background: none;
+                border: 1px solid var(--faint);
+                border-radius: 4px;
+                font-family: var(--mono);
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                color: var(--muted);
+                cursor: pointer;
+                padding: 0 0.65rem;
+                height: 28px;
+                min-width: 44px;
+                min-height: 44px; /* visual: 28px — margin extends hit area to 44px */
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin: -8px 0;
+                transition:
+                    color 0.2s ease,
+                    border-color 0.2s ease;
+                line-height: 1;
+            }
+            .icon-btn:hover {
+                color: var(--text);
+                border-color: var(--muted);
+            }
+
+            /* Theme button uses a slightly larger glyph */
+            #js-theme {
+                font-size: 14px;
+                letter-spacing: 0;
+            }
+
+            /* ─── Hero ──────────────────────────────────────────────────────── */
+
+            .hero {
+                min-height: calc(100dvh - 52px);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                padding: clamp(3rem, 8vh, 6rem) clamp(1.5rem, 5vw, 3rem);
+                position: relative;
+                overflow: hidden;
+            }
+
+            .hero::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background:
+                    radial-gradient(
+                        ellipse 70% 55% at 50% 42%,
+                        rgba(242, 197, 124, 0.055) 0%,
+                        transparent 65%
+                    ),
+                    radial-gradient(
+                        ellipse 35% 28% at 75% 78%,
+                        rgba(255, 122, 69, 0.04) 0%,
+                        transparent 70%
+                    );
+                pointer-events: none;
+                transition: opacity 0.2s ease;
+            }
+
+            /* Slightly stronger warm glow on light bg where it'd otherwise wash out */
+            [data-theme="light"] .hero::before,
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme]) .hero::before {
+                    background:
+                        radial-gradient(
+                            ellipse 70% 55% at 50% 42%,
+                            rgba(242, 197, 124, 0.1) 0%,
+                            transparent 65%
+                        ),
+                        radial-gradient(
+                            ellipse 35% 28% at 75% 78%,
+                            rgba(255, 122, 69, 0.07) 0%,
+                            transparent 70%
+                        );
+                }
+            }
+            [data-theme="light"] .hero::before {
+                background:
+                    radial-gradient(
+                        ellipse 70% 55% at 50% 42%,
+                        rgba(242, 197, 124, 0.1) 0%,
+                        transparent 65%
+                    ),
+                    radial-gradient(
+                        ellipse 35% 28% at 75% 78%,
+                        rgba(255, 122, 69, 0.07) 0%,
+                        transparent 70%
+                    );
+            }
+
+            /* ─── Mark ──────────────────────────────────────────────────────── */
+
+            .mark-wrap {
+                position: relative;
+                margin-bottom: 2.75rem;
+                opacity: 0;
+                transform: translateY(12px);
+                transition:
+                    opacity 0.5s ease,
+                    transform 0.5s ease;
+            }
+            .mark-wrap.visible {
+                opacity: 1;
+                transform: none;
+            }
+
+            .mark-svg {
+                width: clamp(160px, 22vw, 220px);
+                height: auto;
+                overflow: visible;
+            }
+
+            /* ─── Hero copy ─────────────────────────────────────────────────── */
+
+            .wordmark {
+                font-size: clamp(2.8rem, 6.5vw, 5rem);
+                font-weight: 700;
+                letter-spacing: -0.035em;
+                color: var(--text);
+                line-height: 1;
+                margin-bottom: 1.1rem;
+                opacity: 0;
+                transform: translateY(8px);
+                transition:
+                    opacity 0.55s ease 0.28s,
+                    transform 0.55s ease 0.28s;
+            }
+            .wordmark.visible {
+                opacity: 1;
+                transform: none;
+            }
+
+            .tagline {
+                font-size: clamp(0.95rem, 2.2vw, 1.2rem);
+                font-weight: 500;
+                color: var(--gold-tx);
+                letter-spacing: -0.01em;
+                margin-bottom: 0.55rem;
+                opacity: 0;
+                transition: opacity 0.5s ease 0.44s;
+            }
+            .tagline.visible {
+                opacity: 1;
+            }
+
+            .disambig {
+                font-size: 0.78rem;
+                color: var(--muted);
+                margin-bottom: 2.75rem;
+                opacity: 0;
+                transition: opacity 0.5s ease 0.54s;
+            }
+            .disambig.visible {
+                opacity: 1;
+            }
+
+            .install-row {
+                display: inline-flex;
+                align-items: center;
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                padding: 0.6rem 1rem;
+                gap: 0.75rem;
+                cursor: pointer;
+                opacity: 0;
+                transition:
+                    opacity 0.5s ease 0.64s,
+                    border-color 0.2s ease,
+                    background 0.2s ease;
+                max-width: 100%;
+                overflow: hidden;
+            }
+            .install-row.visible {
+                opacity: 1;
+            }
+            .install-row:hover {
+                border-color: var(--teal);
+            }
+
+            .i-prompt {
+                color: var(--teal-tx);
+                user-select: none;
+                flex-shrink: 0;
+            }
+            .i-cmd {
+                color: var(--text);
+                font-size: 0.82rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .copy-btn {
+                background: none;
+                border: none;
+                color: var(--muted);
+                cursor: pointer;
+                font-family: var(--mono);
+                font-size: 0.72rem;
+                padding: 0 0.15rem;
+                flex-shrink: 0;
+                min-width: 44px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                margin: -10px -0.5rem -10px 0;
+                transition: color 0.2s ease;
+            }
+            .copy-btn:hover {
+                color: var(--gold-tx);
+            }
+
+            /* ─── Screen-reader only ────────────────────────────────────────── */
+
+            .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            /* ─── Divider ───────────────────────────────────────────────────── */
+
+            .divider {
+                width: 100%;
+                height: 1px;
+                background: linear-gradient(
+                    to right,
+                    transparent 0%,
+                    var(--teal) 28%,
+                    var(--gold) 50%,
+                    var(--ember) 72%,
+                    transparent 100%
+                );
+                opacity: 0.3;
+            }
+
+            /* ─── Sections ──────────────────────────────────────────────────── */
+
+            section {
+                padding: clamp(4rem, 9vh, 7rem) clamp(1.5rem, 5vw, 3rem);
+                max-width: 960px;
+                margin: 0 auto;
+                opacity: 0;
+                transform: translateY(18px);
+                transition:
+                    opacity 0.55s ease,
+                    transform 0.55s ease;
+            }
+            section.visible {
+                opacity: 1;
+                transform: none;
+            }
+
+            .sec-label {
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 0.7rem;
+            }
+
+            .sec-heading {
+                font-size: clamp(1.25rem, 3vw, 1.9rem);
+                font-weight: 700;
+                color: var(--text);
+                letter-spacing: -0.025em;
+                line-height: 1.25;
+                margin-bottom: 0.9rem;
+            }
+
+            .sec-body {
+                font-size: 0.845rem;
+                color: var(--muted);
+                max-width: 62ch;
+                margin-bottom: 2.75rem;
+                line-height: 1.75;
+            }
+
+            /* ─── Architecture — legend ─────────────────────────────────────── */
+
+            .arch-legend {
+                display: flex;
+                align-items: center;
+                gap: 2rem;
+                margin-bottom: 2.25rem;
+                flex-wrap: wrap;
+            }
+
+            .leg {
+                display: flex;
+                align-items: center;
+                gap: 0.65rem;
+                font-size: 0.78rem;
+            }
+
+            .leg-line {
+                width: 28px;
+                height: 2px;
+                border-radius: 1px;
+                background: var(--teal);
+                flex-shrink: 0;
+            }
+            .leg-line.ember {
+                background: repeating-linear-gradient(
+                    to right,
+                    var(--ember) 0,
+                    var(--ember) 6px,
+                    transparent 6px,
+                    transparent 10px
+                );
+            }
+            .leg-box {
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                background: var(--gold);
+                flex-shrink: 0;
+            }
+
+            .leg-text {
+                color: var(--muted);
+            }
+            .leg-text strong {
+                color: var(--text);
+                font-weight: 500;
+            }
+
+            /* ─── Architecture — cards ──────────────────────────────────────── */
+
+            .arch-cards {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 1px;
+                background: var(--faint);
+                border: 1px solid var(--faint);
+                border-radius: 8px;
+                overflow: hidden;
+            }
+
+            .arch-card {
+                background: var(--bg);
+                padding: 1.6rem;
+                transition: background 0.2s ease;
+            }
+
+            .card-tag {
+                font-size: 0.67rem;
+                font-weight: 700;
+                letter-spacing: 0.11em;
+                text-transform: uppercase;
+                margin-bottom: 0.55rem;
+            }
+            .card-tag.teal {
+                color: var(--teal-tx);
+            }
+            .card-tag.ember {
+                color: var(--ember-tx);
+            }
+            .card-tag.gold {
+                color: var(--gold-tx);
+            }
+
+            .card-title {
+                font-size: 0.9rem;
+                font-weight: 500;
+                color: var(--text);
+                margin-bottom: 0.55rem;
+                line-height: 1.3;
+            }
+
+            .card-body {
+                font-size: 0.775rem;
+                color: var(--muted);
+                line-height: 1.7;
+            }
+
+            /* ─── CLI — table ───────────────────────────────────────────────── */
+
+            .table-scroll {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .cli-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.84rem;
+                margin-bottom: 2rem;
+            }
+            .cli-table tbody tr {
+                border-bottom: 1px solid var(--faint);
+            }
+            .cli-table tbody tr:last-child {
+                border-bottom: none;
+            }
+            .cli-table td {
+                padding: 0.7rem 0;
+                vertical-align: top;
+            }
+            .cli-cmd {
+                color: var(--teal-tx);
+                white-space: nowrap;
+                padding-right: 2rem;
+            }
+            .cli-desc {
+                color: var(--muted);
+            }
+
+            /* ─── Terminal — always dark, never themes ───────────────────────── */
+
+            .terminal {
+                background: var(--term-bg);
+                border: 1px solid var(--term-border);
+                border-radius: 8px;
+                overflow: hidden;
+                font-size: 0.8rem;
+            }
+            .term-bar {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0.55rem 1rem;
+                border-bottom: 1px solid var(--term-border);
+            }
+            .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: var(--term-border);
+            }
+
+            .term-body {
+                padding: 1rem 1.25rem;
+                line-height: 2;
+                overflow-x: auto;
+            }
+
+            /* Terminal text uses its own fixed-dark tokens, not the theme tokens */
+            .t-p {
+                color: var(--teal);
+            }
+            .t-cmd {
+                color: var(--term-text);
+            }
+            .t-out {
+                color: var(--term-muted);
+            }
+            .t-fwd {
+                color: var(--teal);
+            }
+            .t-bwd {
+                color: var(--ember);
+            }
+            .t-fsd {
+                color: var(--gold);
+            }
+            .t-dim {
+                color: var(--term-faint);
+            }
+            .t-gap {
+                display: block;
+                margin-top: 0.5rem;
+            }
+
+            /* ─── Philosophy ────────────────────────────────────────────────── */
+
+            .phil-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 2.5rem 3rem;
+                margin-top: 2.5rem;
+            }
+            .phil-item {
+                border-left: 2px solid var(--faint);
+                padding-left: 1.25rem;
+            }
+            .phil-heading {
+                font-size: 0.88rem;
+                font-weight: 500;
+                color: var(--text);
+                margin-bottom: 0.45rem;
+            }
+            .phil-body {
+                font-size: 0.775rem;
+                color: var(--muted);
+                line-height: 1.75;
+            }
+            .phil-body code {
+                color: var(--teal-tx);
+                font-family: var(--mono);
+            }
+
+            /* ─── Footer ────────────────────────────────────────────────────── */
+
+            footer {
+                border-top: 1px solid var(--faint);
+                padding: 1.25rem clamp(1.5rem, 5vw, 3rem);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 0.74rem;
+                color: var(--muted);
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+            .footer-right {
+                display: flex;
+                align-items: center;
+                gap: 1.5rem;
+            }
+            .footer-right a {
+                color: var(--muted);
+                text-decoration: none;
+                transition: color 0.2s ease;
+            }
+            .footer-right a:hover {
+                color: var(--text);
+            }
+            .v-badge {
+                color: var(--muted);
+            }
+
+            /* ─── Reduced motion ────────────────────────────────────────────── */
+
+            @media (prefers-reduced-motion: reduce) {
+                *,
+                *::before,
+                *::after {
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }
+                html {
+                    scroll-behavior: auto;
+                }
+            }
+
+            /* ─── Responsive ────────────────────────────────────────────────── */
+
+            @media (max-width: 720px) {
+                .arch-cards {
+                    grid-template-columns: 1fr;
+                }
+                .phil-grid {
+                    grid-template-columns: 1fr;
+                }
+                .arch-legend {
+                    gap: 1.25rem;
+                }
+            }
+
+            @media (max-width: 600px) {
+                .nav-anchor {
+                    display: none;
+                }
+                nav {
+                    gap: 1rem;
+                }
+
+                .cli-table tbody {
+                    display: block;
+                }
+                .cli-table tbody tr {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.2rem;
+                    padding: 0.75rem 0;
+                    border-bottom: 1px solid var(--faint);
+                }
+                .cli-table tbody tr:last-child {
+                    border-bottom: none;
+                }
+                .cli-table td {
+                    padding: 0;
+                    white-space: normal;
+                }
+                .cli-cmd {
+                    padding-right: 0;
+                }
+                .cli-desc {
+                    font-size: 0.75rem;
+                }
+            }
+
+            @media (max-width: 420px) {
+                .wordmark {
+                    letter-spacing: -0.04em;
+                }
+                .i-cmd {
+                    font-size: 0.75rem;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <a href="#main-content" class="skip-link" data-i18n="skip"
+            >skip to main content</a
+        >
+
+        <!-- ─── Header ───────────────────────────────────────────────── -->
+
+        <header>
+            <div class="brand">
+                <a
+                    class="gb-link"
+                    href="https://georgebuilds.github.io/"
+                    aria-label="georgebuilds — home"
+                >
+                    <span class="gb-abbr">gb</span
+                    ><span class="gb-full">georgebuilds</span>
+                </a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <span class="proj-name">anneal</span>
+            </div>
+            <nav aria-label="site navigation">
+                <a href="#architecture" class="nav-anchor" data-i18n="nav.how"
+                    >how it works</a
+                >
+                <a href="#cli" class="nav-anchor">cli</a>
+                <a
+                    href="https://github.com/georgebuilds/anneal"
+                    target="_blank"
+                    rel="noopener"
+                    data-i18n="nav.github"
+                    >github</a
+                >
+                <button
+                    class="icon-btn"
+                    id="js-theme"
+                    aria-label="Switch to light mode"
+                >
+                    ☀
+                </button>
+                <button
+                    class="icon-btn"
+                    id="js-lang"
+                    aria-label="Switch to Spanish"
+                >
+                    ES
+                </button>
+            </nav>
+        </header>
+
+        <!-- ─── Main content ─────────────────────────────────────────── -->
+
+        <main id="main-content">
+            <!-- Hero -->
+            <div class="hero">
+                <div class="mark-wrap" id="js-mark-wrap">
+                    <svg
+                        class="mark-svg"
+                        viewBox="0 0 200 150"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                        focusable="false"
+                    >
+                        <defs>
+                            <mask id="ember-mask">
+                                <path
+                                    id="js-ember-mask-path"
+                                    d="M 185,135 C 185,75 140,75 100,75"
+                                    stroke="white"
+                                    stroke-width="18"
+                                    fill="none"
+                                    stroke-linecap="round"
+                                />
+                            </mask>
+                        </defs>
+                        <path
+                            id="js-teal-arc"
+                            d="M 15,15 C 15,75 60,75 100,75"
+                            stroke="#00ADD8"
+                            stroke-width="2.5"
+                            fill="none"
+                            stroke-linecap="round"
+                        />
+                        <path
+                            d="M 185,135 C 185,75 140,75 100,75"
+                            stroke="#FF7A45"
+                            stroke-width="2.5"
+                            fill="none"
+                            stroke-dasharray="7 4"
+                            stroke-linecap="round"
+                            mask="url(#ember-mask)"
+                        />
+                        <circle
+                            id="js-teal-dot"
+                            cx="15"
+                            cy="15"
+                            r="3.5"
+                            fill="#00ADD8"
+                        />
+                        <circle
+                            id="js-ember-dot"
+                            cx="185"
+                            cy="135"
+                            r="3.5"
+                            fill="#FF7A45"
+                        />
+                        <circle
+                            id="js-gold-node"
+                            cx="100"
+                            cy="75"
+                            r="5.5"
+                            fill="#F2C57C"
+                        />
+                    </svg>
+                </div>
+
+                <h1 class="wordmark" id="js-wordmark">anneal</h1>
+                <p class="tagline" id="js-tagline" data-i18n="hero.tagline">
+                    Gradients are just rewrites.
+                </p>
+                <p class="disambig" id="js-disambig" data-i18n="hero.disambig">
+                    a Go tensor compiler
+                </p>
+
+                <div class="install-row" id="js-install" title="click to copy">
+                    <span class="i-prompt" aria-hidden="true">$</span>
+                    <code class="i-cmd"
+                        >go get github.com/georgebuilds/anneal</code
+                    >
+                    <button
+                        class="copy-btn"
+                        id="js-copy"
+                        aria-label="copy install command"
+                        data-i18n="install.copy"
+                    >
+                        copy
+                    </button>
+                </div>
+                <span
+                    class="sr-only"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    id="js-copy-live"
+                ></span>
+            </div>
+            <!-- /.hero -->
+
+            <div class="divider" role="separator" aria-hidden="true"></div>
+
+            <!-- Architecture -->
+            <section id="architecture" aria-labelledby="arch-heading">
+                <p class="sec-label" data-i18n="arch.label">how it works</p>
+                <h2
+                    class="sec-heading"
+                    id="arch-heading"
+                    data-i18n="arch.heading"
+                >
+                    One graph, fully fused.
+                </h2>
+                <p class="sec-body" data-i18n="arch.body">
+                    Autodiff and optimization are first-class compiler passes
+                    over one immutable UOp IR — not runtime hooks bolted onto a
+                    separate tape. The scheduler sees the whole computation,
+                    forward and backward together, and fuses across that
+                    boundary as a natural consequence.
+                </p>
+
+                <div class="arch-legend" aria-label="Color legend">
+                    <div class="leg">
+                        <div class="leg-line" aria-hidden="true"></div>
+                        <span class="leg-text" data-i18n-html="leg.teal"
+                            ><strong>teal</strong> — forward pass (solid)</span
+                        >
+                    </div>
+                    <div class="leg">
+                        <div class="leg-line ember" aria-hidden="true"></div>
+                        <span class="leg-text" data-i18n-html="leg.ember"
+                            ><strong>ember</strong> — backward pass
+                            (dashed)</span
+                        >
+                    </div>
+                    <div class="leg">
+                        <div class="leg-box" aria-hidden="true"></div>
+                        <span class="leg-text" data-i18n-html="leg.gold"
+                            ><strong>gold</strong> — fused kernel</span
+                        >
+                    </div>
+                </div>
+
+                <div class="arch-cards">
+                    <div class="arch-card">
+                        <div class="card-tag teal" data-i18n="card.fwd.tag">
+                            forward pass
+                        </div>
+                        <div class="card-title" data-i18n="card.fwd.title">
+                            An immutable UOp DAG
+                        </div>
+                        <p class="card-body" data-i18n="card.fwd.body">
+                            Every operation is a node in a shared arena —
+                            interned, never mutated. Rewrites produce new nodes.
+                            Structural equality is identity equality; no deep
+                            comparisons in hot paths.
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag ember" data-i18n="card.bwd.tag">
+                            backward pass
+                        </div>
+                        <div class="card-title" data-i18n="card.bwd.title">
+                            Autodiff as a compiler pass
+                        </div>
+                        <p class="card-body" data-i18n="card.bwd.body">
+                            Gradients are rewrite rules applied to the same IR.
+                            No separate tape, no runtime teardown. The gradient
+                            graph lives alongside the forward graph until the
+                            scheduler decides what to fuse.
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag gold" data-i18n="card.fsd.tag">
+                            fused kernel
+                        </div>
+                        <div class="card-title" data-i18n="card.fsd.title">
+                            Fusion across the boundary
+                        </div>
+                        <p class="card-body" data-i18n="card.fsd.body">
+                            The rangeify scheduler sees forward and backward
+                            together. It can fuse across that boundary —
+                            collapsing both into a single WGSL kernel that a
+                            backend-aware scheduler would never produce.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <div class="divider" role="separator" aria-hidden="true"></div>
+
+            <!-- CLI -->
+            <section id="cli" aria-labelledby="cli-heading">
+                <p class="sec-label" data-i18n="cli.label">the cli</p>
+                <h2
+                    class="sec-heading"
+                    id="cli-heading"
+                    data-i18n="cli.heading"
+                >
+                    Verbs that mirror the pipeline.
+                </h2>
+                <p class="sec-body" data-i18n="cli.body">
+                    A single static binary, verb-first. Each command exposes a
+                    layer of the compiler so the CLI doubles as a teaching
+                    surface.
+                </p>
+
+                <div class="table-scroll">
+                    <table class="cli-table" aria-label="CLI commands">
+                        <tbody>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal run &lt;file&gt;</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.run">
+                                    realize and execute a graph
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal train &lt;dir&gt;</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.train">
+                                    training loop with the live TUI
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd"><code>anneal viz</code></td>
+                                <td class="cli-desc" data-i18n="cli.viz">
+                                    launch the graph visualizer in-browser
+                                    (WASM)
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal graph &lt;file&gt;</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.graph">
+                                    dump and inspect the UOp DAG
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal kernels &lt;file&gt;</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.kernels">
+                                    show generated WGSL with fusion boundaries
+                                    annotated
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal explain &lt;op&gt;</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.explain">
+                                    trace the rewrite rules that fire for one op
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd">
+                                    <code>anneal doctor</code>
+                                </td>
+                                <td class="cli-desc" data-i18n="cli.doctor">
+                                    WebGPU / backend environment check
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div
+                    class="terminal"
+                    role="region"
+                    aria-label="Terminal demonstration"
+                >
+                    <div class="term-bar" aria-hidden="true">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                    <div class="term-body">
+                        <div>
+                            <span class="t-p">$</span>
+                            <span class="t-cmd"
+                                >anneal train ./examples/mlp.go</span
+                            >
+                        </div>
+                        <div class="t-out">device webgpu · apple m3 max</div>
+                        <div class="t-out">
+                            step <span class="t-dim">001</span> loss
+                            <span class="t-fwd">2.3194</span> acc
+                            <span class="t-fwd">0.09</span>
+                        </div>
+                        <div class="t-out">
+                            step <span class="t-dim">100</span> loss
+                            <span class="t-fwd">0.8271</span> acc
+                            <span class="t-fwd">0.74</span>
+                        </div>
+                        <div class="t-out">
+                            <span class="t-fwd">forward</span>
+                            <span class="t-dim">14 uops</span>
+                            <span class="t-bwd">backward</span>
+                            <span class="t-dim">11 uops</span> →
+                            <span class="t-fsd">fused</span>
+                            <span class="t-dim">3 kernels</span>
+                        </div>
+                        <span class="t-gap"></span>
+                        <div>
+                            <span class="t-p">$</span>
+                            <span class="t-cmd"
+                                >anneal explain relu.backward</span
+                            >
+                        </div>
+                        <div class="t-out">
+                            rule <span class="t-bwd">RELU.backward</span> →
+                            <span class="t-fwd">where(x &gt; 0, ∂out, 0)</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="divider" role="separator" aria-hidden="true"></div>
+
+            <!-- Philosophy -->
+            <section id="philosophy" aria-labelledby="phil-heading">
+                <p class="sec-label" data-i18n="phil.label">design</p>
+                <h2
+                    class="sec-heading"
+                    id="phil-heading"
+                    data-i18n="phil.heading"
+                >
+                    No shortcuts.
+                </h2>
+                <p class="sec-body" data-i18n="phil.body">
+                    The graph-rewrite approach to tensor compilation is proven.
+                    Anneal's contribution is rigor, ergonomics, and a visualizer
+                    that shows you what the compiler is actually doing —
+                    compiled to WASM, running in your browser, not a mock.
+                </p>
+
+                <div class="phil-grid">
+                    <div class="phil-item">
+                        <div class="phil-heading" data-i18n="phil.ir.h">
+                            One immutable IR
+                        </div>
+                        <p class="phil-body" data-i18n="phil.ir.b">
+                            UOps are interned, arena-allocated, and never
+                            mutated. Every rewrite produces a new node.
+                            Structural equality is identity equality — no deep
+                            comparisons in hot paths, no GC pressure from
+                            temporary objects.
+                        </p>
+                    </div>
+                    <div class="phil-item">
+                        <div class="phil-heading" data-i18n="phil.refl.h">
+                            No reflection in the rewrite path
+                        </div>
+                        <p class="phil-body" data-i18n="phil.refl.b">
+                            A hard invariant. Pattern matching against the IR
+                            uses typed accessors, not runtime introspection. The
+                            hot path stays predictable, verifiable, and fast.
+                        </p>
+                    </div>
+                    <div class="phil-item">
+                        <div class="phil-heading" data-i18n="phil.viz.h">
+                            The visualizer runs the real compiler
+                        </div>
+                        <p class="phil-body" data-i18n-html="phil.viz.b">
+                            <code>anneal viz</code> compiles the frontend and
+                            rewrite engine to WASM and renders the actual UOp
+                            graph in-browser. The marketing artifact and the
+                            integration test for the rewrite path are the same
+                            artifact.
+                        </p>
+                    </div>
+                    <div class="phil-item">
+                        <div class="phil-heading" data-i18n="phil.go.h">
+                            Written in Go
+                        </div>
+                        <p class="phil-body" data-i18n-html="phil.go.b">
+                            Strict typing. <code>gofmt</code> clean. The WASM
+                            build of the compiler frontend is the same binary as
+                            the CLI — so the visualizer and the trainer are
+                            always in sync, by construction.
+                        </p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- ─── Footer ───────────────────────────────────────────────── -->
+
+        <footer>
+            <div class="brand">
+                <a
+                    class="gb-link"
+                    href="https://georgebuilds.github.io/"
+                    aria-label="georgebuilds — home"
+                >
+                    <span class="gb-abbr">gb</span
+                    ><span class="gb-full">georgebuilds</span>
+                </a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <span class="proj-name" style="font-size: inherit">anneal</span>
+            </div>
+            <div class="footer-right">
+                <span class="v-badge" data-i18n="footer.v">v0.1 · mit</span>
+                <a
+                    href="https://github.com/georgebuilds/anneal"
+                    target="_blank"
+                    rel="noopener"
+                    data-i18n="nav.github"
+                    >github</a
+                >
+            </div>
+        </footer>
+
+        <noscript>
+            <style>
+                .mark-wrap,
+                .wordmark,
+                .tagline,
+                .disambig,
+                .install-row,
+                section {
+                    opacity: 1 !important;
+                    transform: none !important;
+                }
+                #js-teal-arc {
+                    stroke-dashoffset: 0 !important;
+                }
+                #js-teal-dot,
+                #js-ember-dot,
+                #js-gold-node {
+                    opacity: 1 !important;
+                }
+            </style>
+        </noscript>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* ─── Translations ──────────────────────────────────────────── */
+
+                var T = {
+                    en: {
+                        skip: "skip to main content",
+                        "nav.how": "how it works",
+                        "nav.github": "github",
+                        "lang.switch": "ES",
+                        "lang.label": "Switch to Spanish",
+                        "theme.to-light": "Switch to light mode",
+                        "theme.to-dark": "Switch to dark mode",
+                        "page.title": "anneal — gradients are just rewrites",
+                        "hero.tagline": "Gradients are just rewrites.",
+                        "hero.disambig": "a Go tensor compiler",
+                        "install.copy": "copy",
+                        "install.copied": "copied",
+                        "arch.label": "how it works",
+                        "arch.heading": "One graph, fully fused.",
+                        "arch.body":
+                            "Autodiff and optimization are first-class compiler passes over one immutable UOp IR — not runtime hooks bolted onto a separate tape. The scheduler sees the whole computation, forward and backward together, and fuses across that boundary as a natural consequence.",
+                        "leg.teal":
+                            "<strong>teal</strong> — forward pass (solid)",
+                        "leg.ember":
+                            "<strong>ember</strong> — backward pass (dashed)",
+                        "leg.gold": "<strong>gold</strong> — fused kernel",
+                        "card.fwd.tag": "forward pass",
+                        "card.fwd.title": "An immutable UOp DAG",
+                        "card.fwd.body":
+                            "Every operation is a node in a shared arena — interned, never mutated. Rewrites produce new nodes. Structural equality is identity equality; no deep comparisons in hot paths.",
+                        "card.bwd.tag": "backward pass",
+                        "card.bwd.title": "Autodiff as a compiler pass",
+                        "card.bwd.body":
+                            "Gradients are rewrite rules applied to the same IR. No separate tape, no runtime teardown. The gradient graph lives alongside the forward graph until the scheduler decides what to fuse.",
+                        "card.fsd.tag": "fused kernel",
+                        "card.fsd.title": "Fusion across the boundary",
+                        "card.fsd.body":
+                            "The rangeify scheduler sees forward and backward together. It can fuse across that boundary — collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
+                        "cli.label": "the cli",
+                        "cli.heading": "Verbs that mirror the pipeline.",
+                        "cli.body":
+                            "A single static binary, verb-first. Each command exposes a layer of the compiler so the CLI doubles as a teaching surface.",
+                        "cli.run": "realize and execute a graph",
+                        "cli.train": "training loop with the live TUI",
+                        "cli.viz":
+                            "launch the graph visualizer in-browser (WASM)",
+                        "cli.graph": "dump and inspect the UOp DAG",
+                        "cli.kernels":
+                            "show generated WGSL with fusion boundaries annotated",
+                        "cli.explain":
+                            "trace the rewrite rules that fire for one op",
+                        "cli.doctor": "WebGPU / backend environment check",
+                        "phil.label": "design",
+                        "phil.heading": "No shortcuts.",
+                        "phil.body":
+                            "The graph-rewrite approach to tensor compilation is proven. Anneal's contribution is rigor, ergonomics, and a visualizer that shows you what the compiler is actually doing — compiled to WASM, running in your browser, not a mock.",
+                        "phil.ir.h": "One immutable IR",
+                        "phil.ir.b":
+                            "UOps are interned, arena-allocated, and never mutated. Every rewrite produces a new node. Structural equality is identity equality — no deep comparisons in hot paths, no GC pressure from temporary objects.",
+                        "phil.refl.h": "No reflection in the rewrite path",
+                        "phil.refl.b":
+                            "A hard invariant. Pattern matching against the IR uses typed accessors, not runtime introspection. The hot path stays predictable, verifiable, and fast.",
+                        "phil.viz.h": "The visualizer runs the real compiler",
+                        "phil.viz.b":
+                            "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. The marketing artifact and the integration test for the rewrite path are the same artifact.",
+                        "phil.go.h": "Written in Go",
+                        "phil.go.b":
+                            "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI — so the visualizer and the trainer are always in sync, by construction.",
+                        "footer.v": "v0.1 · mit",
+                    },
+                    es: {
+                        skip: "saltar al contenido principal",
+                        "nav.how": "cómo funciona",
+                        "nav.github": "github",
+                        "lang.switch": "EN",
+                        "lang.label": "Cambiar a inglés",
+                        "theme.to-light": "Cambiar a modo claro",
+                        "theme.to-dark": "Cambiar a modo oscuro",
+                        "page.title":
+                            "anneal — los gradientes son solo reescrituras",
+                        "hero.tagline": "Los gradientes son solo reescrituras.",
+                        "hero.disambig": "un compilador de tensores en Go",
+                        "install.copy": "copiar",
+                        "install.copied": "copiado",
+                        "arch.label": "cómo funciona",
+                        "arch.heading": "Un grafo, completamente fusionado.",
+                        "arch.body":
+                            "El autodiff y la optimización son pasadas de compilador de primera clase sobre un IR UOp inmutable — no hooks en tiempo de ejecución sobre una cinta separada. El planificador ve toda la computación, hacia adelante y hacia atrás juntas, y fusiona a través de ese límite de forma natural.",
+                        "leg.teal":
+                            "<strong>teal</strong> — pasada hacia adelante (sólida)",
+                        "leg.ember":
+                            "<strong>ember</strong> — pasada hacia atrás (discontinua)",
+                        "leg.gold": "<strong>gold</strong> — kernel fusionado",
+                        "card.fwd.tag": "pasada hacia adelante",
+                        "card.fwd.title": "Un DAG de UOps inmutable",
+                        "card.fwd.body":
+                            "Cada operación es un nodo en una arena compartida — internado, nunca mutado. Las reescrituras producen nuevos nodos. La igualdad estructural es igualdad de identidad; sin comparaciones profundas en rutas críticas.",
+                        "card.bwd.tag": "pasada hacia atrás",
+                        "card.bwd.title": "Autodiff como pasada de compilador",
+                        "card.bwd.body":
+                            "Los gradientes son reglas de reescritura aplicadas al mismo IR. Sin cinta separada, sin desmontaje en tiempo de ejecución. El grafo de gradientes vive junto al grafo directo hasta que el planificador decide qué fusionar.",
+                        "card.fsd.tag": "kernel fusionado",
+                        "card.fsd.title": "Fusión a través del límite",
+                        "card.fsd.body":
+                            "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite — colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
+                        "cli.label": "la cli",
+                        "cli.heading": "Verbos que reflejan el pipeline.",
+                        "cli.body":
+                            "Un único binario estático, con verbos primero. Cada comando expone una capa del compilador, haciendo que la CLI sea una superficie de aprendizaje.",
+                        "cli.run": "materializar y ejecutar un grafo",
+                        "cli.train":
+                            "bucle de entrenamiento con la TUI en vivo",
+                        "cli.viz":
+                            "lanzar el visualizador de grafos en el navegador (WASM)",
+                        "cli.graph": "volcar e inspeccionar el DAG de UOps",
+                        "cli.kernels":
+                            "mostrar WGSL generado con límites de fusión anotados",
+                        "cli.explain":
+                            "trazar las reglas de reescritura que se activan para una op",
+                        "cli.doctor":
+                            "verificación del entorno WebGPU / backend",
+                        "phil.label": "diseño",
+                        "phil.heading": "Sin atajos.",
+                        "phil.body":
+                            "El enfoque de reescritura de grafos para la compilación de tensores está probado. La contribución de Anneal es el rigor, la ergonomía y un visualizador que muestra exactamente lo que el compilador está haciendo — compilado a WASM, ejecutándose en tu navegador, sin maquetas.",
+                        "phil.ir.h": "Un IR inmutable",
+                        "phil.ir.b":
+                            "Los UOps están internados, asignados en arena, y nunca mutados. Cada reescritura produce un nuevo nodo. La igualdad estructural es igualdad de identidad — sin comparaciones profundas en rutas críticas, sin presión de GC por objetos temporales.",
+                        "phil.refl.h":
+                            "Sin reflexión en la ruta de reescritura",
+                        "phil.refl.b":
+                            "Un invariante duro. La coincidencia de patrones contra el IR usa accesores tipados, sin introspección en tiempo de ejecución. La ruta crítica permanece predecible, verificable y rápida.",
+                        "phil.viz.h":
+                            "El visualizador ejecuta el compilador real",
+                        "phil.viz.b":
+                            "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto.",
+                        "phil.go.h": "Escrito en Go",
+                        "phil.go.b":
+                            "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI — por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
+                        "footer.v": "v0.1 · mit",
+                    },
+                };
+
+                /* ─── Theme ─────────────────────────────────────────────────── */
+
+                var themeBtn = document.getElementById("js-theme");
+                var currentTheme =
+                    document.documentElement.getAttribute("data-theme") ||
+                    "dark";
+
+                function applyTheme(theme) {
+                    document.documentElement.setAttribute("data-theme", theme);
+                    if (theme === "light") {
+                        themeBtn.textContent = "☾";
+                        themeBtn.setAttribute(
+                            "aria-label",
+                            T[currentLang]["theme.to-dark"],
+                        );
+                    } else {
+                        themeBtn.textContent = "☀";
+                        themeBtn.setAttribute(
+                            "aria-label",
+                            T[currentLang]["theme.to-light"],
+                        );
+                    }
+                }
+
+                function setTheme(theme) {
+                    currentTheme = theme;
+                    localStorage.setItem("anneal-theme", theme);
+                    applyTheme(theme);
+                }
+
+                // Sync with system changes if user hasn't set an explicit override
+                window
+                    .matchMedia("(prefers-color-scheme: light)")
+                    .addEventListener("change", function (e) {
+                        if (!localStorage.getItem("anneal-theme")) {
+                            currentTheme = e.matches ? "light" : "dark";
+                            applyTheme(currentTheme);
+                        }
+                    });
+
+                themeBtn.addEventListener("click", function () {
+                    setTheme(currentTheme === "light" ? "dark" : "light");
+                });
+
+                /* ─── Language ──────────────────────────────────────────────── */
+
+                var currentLang = "en";
+
+                function detectLang() {
+                    var param = new URL(window.location.href).searchParams.get(
+                        "lang",
+                    );
+                    if (param === "es" || param === "en") return param;
+                    var stored = localStorage.getItem("anneal-lang");
+                    if (stored === "es" || stored === "en") return stored;
+                    var nav = (navigator.language || "").toLowerCase();
+                    return nav === "es" || nav.startsWith("es-") ? "es" : "en";
+                }
+
+                function applyLang(lang) {
+                    document.documentElement.lang = lang;
+                    document.title = T[lang]["page.title"];
+
+                    document
+                        .querySelectorAll("[data-i18n]")
+                        .forEach(function (el) {
+                            var v = T[lang][el.getAttribute("data-i18n")];
+                            if (v !== undefined) el.textContent = v;
+                        });
+                    document
+                        .querySelectorAll("[data-i18n-html]")
+                        .forEach(function (el) {
+                            var v = T[lang][el.getAttribute("data-i18n-html")];
+                            if (v !== undefined) el.innerHTML = v;
+                        });
+
+                    var langBtn = document.getElementById("js-lang");
+                    langBtn.textContent = T[lang]["lang.switch"];
+                    langBtn.setAttribute("aria-label", T[lang]["lang.label"]);
+
+                    // Re-sync theme button aria-label to the new language
+                    applyTheme(currentTheme);
+                }
+
+                function setLang(lang) {
+                    currentLang = lang;
+                    localStorage.setItem("anneal-lang", lang);
+                    var url = new URL(window.location.href);
+                    if (lang === "en") {
+                        url.searchParams.delete("lang");
+                    } else {
+                        url.searchParams.set("lang", lang);
+                    }
+                    history.replaceState(null, "", url.toString());
+                    applyLang(lang);
+                }
+
+                currentLang = detectLang();
+                // Apply initial theme button text (lang determined above)
+                applyTheme(currentTheme);
+                if (currentLang !== "en") applyLang(currentLang);
+
+                document
+                    .getElementById("js-lang")
+                    .addEventListener("click", function () {
+                        setLang(currentLang === "en" ? "es" : "en");
+                    });
+
+                /* ─── Mark animation ────────────────────────────────────────── */
+
+                var tealArc = document.getElementById("js-teal-arc");
+                var emberMask = document.getElementById("js-ember-mask-path");
+                var tealDot = document.getElementById("js-teal-dot");
+                var emberDot = document.getElementById("js-ember-dot");
+                var goldNode = document.getElementById("js-gold-node");
+                var markWrap = document.getElementById("js-mark-wrap");
+
+                var tealLen = tealArc.getTotalLength();
+                var emberLen = emberMask.getTotalLength();
+
+                tealArc.style.strokeDasharray = tealLen;
+                tealArc.style.strokeDashoffset = tealLen;
+                emberMask.style.strokeDasharray = emberLen;
+                emberMask.style.strokeDashoffset = emberLen;
+                tealDot.style.opacity = "0";
+                emberDot.style.opacity = "0";
+                goldNode.style.opacity = "0";
+
+                markWrap.classList.add("visible");
+
+                var reduced = window.matchMedia(
+                    "(prefers-reduced-motion: reduce)",
+                ).matches;
+
+                if (reduced) {
+                    tealArc.style.strokeDashoffset = "0";
+                    emberMask.style.strokeDashoffset = "0";
+                    tealDot.style.opacity = "1";
+                    emberDot.style.opacity = "1";
+                    goldNode.style.opacity = "1";
+                } else {
+                    function easeOut(t) {
+                        return 1 - Math.pow(1 - t, 3);
+                    }
+
+                    // Arcs draw over 680ms; ember delayed 200ms — both finish at ~880ms.
+                    // Gold node fades in over the same 880ms, then pulses for 660ms.
+                    var ARC_DUR = 680;
+                    var ARC_OFFSET = 200;
+                    var PULSE_START = ARC_OFFSET + ARC_DUR; // 880ms
+                    var PULSE_DUR = 660;
+
+                    function runMark() {
+                        var s = performance.now();
+                        function tick(now) {
+                            var t = now - s;
+
+                            var tp = Math.min(t / ARC_DUR, 1);
+                            tealArc.style.strokeDashoffset =
+                                tealLen * (1 - easeOut(tp));
+                            tealDot.style.opacity = String(
+                                Math.min(t / 120, 1),
+                            );
+
+                            var et = Math.max(t - ARC_OFFSET, 0);
+                            emberMask.style.strokeDashoffset =
+                                emberLen *
+                                (1 - easeOut(Math.min(et / ARC_DUR, 1)));
+                            if (t > ARC_OFFSET)
+                                emberDot.style.opacity = String(
+                                    Math.min((t - ARC_OFFSET) / 120, 1),
+                                );
+
+                            goldNode.style.opacity = String(
+                                Math.min(
+                                    Math.max(t - PULSE_START / 2, 0) /
+                                        (PULSE_START / 2),
+                                    1,
+                                ),
+                            );
+
+                            var pt = Math.max(t - PULSE_START, 0);
+                            if (pt > 0 && pt < PULSE_DUR) {
+                                goldNode.setAttribute(
+                                    "r",
+                                    5.5 *
+                                        (1 +
+                                            1.0 *
+                                                Math.sin(
+                                                    (pt / PULSE_DUR) * Math.PI,
+                                                )),
+                                );
+                            }
+
+                            if (t < PULSE_START + PULSE_DUR) {
+                                requestAnimationFrame(tick);
+                            } else {
+                                tealArc.style.strokeDashoffset = "0";
+                                emberMask.style.strokeDashoffset = "0";
+                                tealDot.style.opacity = "1";
+                                emberDot.style.opacity = "1";
+                                goldNode.style.opacity = "1";
+                                goldNode.setAttribute("r", "5.5");
+                            }
+                        }
+                        requestAnimationFrame(tick);
+                    }
+                    setTimeout(runMark, 280);
+                }
+
+                /* ─── Hero fade-ins ─────────────────────────────────────────── */
+
+                [
+                    "js-wordmark",
+                    "js-tagline",
+                    "js-disambig",
+                    "js-install",
+                ].forEach(function (id) {
+                    document.getElementById(id).classList.add("visible");
+                });
+
+                /* ─── Scroll reveal ─────────────────────────────────────────── */
+
+                if ("IntersectionObserver" in window) {
+                    var io = new IntersectionObserver(
+                        function (entries) {
+                            entries.forEach(function (e) {
+                                if (e.isIntersecting) {
+                                    e.target.classList.add("visible");
+                                    io.unobserve(e.target);
+                                }
+                            });
+                        },
+                        { threshold: 0.08 },
+                    );
+                    document.querySelectorAll("section").forEach(function (el) {
+                        io.observe(el);
+                    });
+                } else {
+                    document.querySelectorAll("section").forEach(function (el) {
+                        el.classList.add("visible");
+                    });
+                }
+
+                /* ─── Copy button ───────────────────────────────────────────── */
+
+                var installRow = document.getElementById("js-install");
+                var copyBtn = document.getElementById("js-copy");
+                var copyLive = document.getElementById("js-copy-live");
+                var CMD = "go get github.com/georgebuilds/anneal";
+
+                function doCopy() {
+                    if (!navigator.clipboard) return;
+                    navigator.clipboard.writeText(CMD).then(function () {
+                        var done = T[currentLang]["install.copied"];
+                        copyBtn.textContent = done;
+                        copyBtn.style.color = "var(--gold-tx)";
+                        copyLive.textContent = done;
+                        setTimeout(function () {
+                            copyBtn.textContent =
+                                T[currentLang]["install.copy"];
+                            copyBtn.style.color = "";
+                            copyLive.textContent = "";
+                        }, 2200);
+                    });
+                }
+
+                copyBtn.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    doCopy();
+                });
+                installRow.addEventListener("click", doCopy);
+            })();
+        </script>
+    </body>
+</html>

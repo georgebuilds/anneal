@@ -1,0 +1,223 @@
+/* anneal viz — design tokens from DESIGN.md §3.3 */
+
+/* ── dark theme (default, terminal-native brand colors) ──────────────────── */
+:root {
+  --bg:      #14110F;
+  --surface: #1F1A17;
+  --text:    #E8E2DA;
+  --muted:   #8A817A;
+  --faint:   #5C544D;
+
+  /* forward = teal (#00ADD8) — Go-lineage nod + DD1 forward-pass semantic */
+  --fwd-fill:   #003847;
+  --fwd-stroke: #00ADD8;
+  --fwd-text:   #E8E2DA;
+
+  /* backward = ember (#FF7A45) — gradient pass */
+  --bwd-fill:   #3D1200;
+  --bwd-stroke: #FF7A45;
+  --bwd-text:   #E8E2DA;
+
+  /* reduce/kernel boundary = gold (#F2C57C) — where kernels materialise */
+  --red-fill:   #3D2A00;
+  --red-stroke: #F2C57C;
+  --red-text:   #14110F;
+
+  /* leaf buffer node — prominent input/parameter marker */
+  --leaf-fill:   #005566;
+  --leaf-stroke: #00ADD8;
+
+  /* edges */
+  --edge-fwd: rgba(0, 173, 216, 0.45);
+  --edge-bwd: rgba(255, 122, 69, 0.45);
+  --edge-red: rgba(242, 197, 124, 0.6);
+}
+
+/* ── light theme — per-theme variants for legibility on paper background ── */
+/* Brand semantic preserved (teal=forward, ember=backward, gold=kernel)       */
+/* Hex values darkened to maintain WCAG AA contrast (≥4.5:1) on #FBF8F3      */
+[data-theme="light"] {
+  --bg:      #FBF8F3;
+  --surface: #EDE9E3;
+  --text:    #14110F;
+  --muted:   #5C544D;
+  --faint:   #8A817A;
+
+  /* forward: #006F9E — luminance ≈0.16, contrast ≈4.88:1 on #FBF8F3 ✓ */
+  --fwd-fill:   #D5EFF6;
+  --fwd-stroke: #006F9E;
+  --fwd-text:   #14110F;
+
+  /* backward: #B84A16 — luminance ≈0.16, contrast ≈4.79:1 on #FBF8F3 ✓ */
+  --bwd-fill:   #FFE5D9;
+  --bwd-stroke: #B84A16;
+  --bwd-text:   #14110F;
+
+  /* reduce/kernel: #7A5800 — luminance ≈0.13, contrast ≈5.72:1 on #FBF8F3 ✓ */
+  --red-fill:   #FFF0CE;
+  --red-stroke: #7A5800;
+  --red-text:   #14110F;
+
+  --leaf-fill:   #B3DFF0;
+  --leaf-stroke: #006F9E;
+
+  --edge-fwd: rgba(0, 111, 158, 0.4);
+  --edge-bwd: rgba(184, 74, 22, 0.4);
+  --edge-red: rgba(122, 88, 0, 0.5);
+}
+
+/* system default: honour prefers-color-scheme */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg:      #FBF8F3;
+    --surface: #EDE9E3;
+    --text:    #14110F;
+    --muted:   #5C544D;
+    --faint:   #8A817A;
+
+    --fwd-fill:   #D5EFF6;
+    --fwd-stroke: #006F9E;
+    --fwd-text:   #14110F;
+
+    --bwd-fill:   #FFE5D9;
+    --bwd-stroke: #B84A16;
+    --bwd-text:   #14110F;
+
+    --red-fill:   #FFF0CE;
+    --red-stroke: #7A5800;
+    --red-text:   #14110F;
+
+    --leaf-fill:   #B3DFF0;
+    --leaf-stroke: #006F9E;
+
+    --edge-fwd: rgba(0, 111, 158, 0.4);
+    --edge-bwd: rgba(184, 74, 22, 0.4);
+    --edge-red: rgba(122, 88, 0, 0.5);
+  }
+}
+
+/* ── reset + base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ── header ──────────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--faint);
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+.wordmark .viz-label {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.model-selector {
+  display: flex;
+  gap: 14px;
+}
+.model-selector label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+.model-selector label:hover { color: var(--text); }
+.model-selector input[type="radio"] { accent-color: var(--fwd-stroke); }
+
+.theme-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--faint);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--muted); }
+
+/* ── main content ────────────────────────────────────────────────────────── */
+main {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  position: relative;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.status.error { color: var(--bwd-stroke); }
+
+#graph-container {
+  overflow: auto;
+  border: 1px solid var(--faint);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+#graph-svg {
+  display: block;
+}
+
+/* ── footer ──────────────────────────────────────────────────────────────── */
+footer {
+  padding: 8px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.stats {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.legend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+/* forward: solid circle — color + shape encoding (§9: never color alone) */
+.legend-item.forward  { color: var(--fwd-stroke); }
+/* backward: dashed circle — color + dashed border shape */
+.legend-item.backward { color: var(--bwd-stroke); }
+/* reduce: diamond — color + shape */
+.legend-item.reduce   { color: var(--red-stroke); }
+/* leaf: rounded rect — color + shape */
+.legend-item.leaf     { color: var(--fwd-stroke); opacity: 0.8; }

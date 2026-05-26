@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#14110F"/>
+  <!-- Teal forward arc -->
+  <path d="M 4,4 C 4,16 10,16 16,16"
+        stroke="#00ADD8" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Ember backward arc (dashed) -->
+  <path d="M 28,28 C 28,16 22,16 16,16"
+        stroke="#FF7A45" stroke-width="2" fill="none"
+        stroke-dasharray="3 2" stroke-linecap="round"/>
+  <!-- Gold fusion node -->
+  <circle cx="16" cy="16" r="3" fill="#F2C57C"/>
+</svg>

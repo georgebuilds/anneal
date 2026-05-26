@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+
+# AI crawlers — allow full indexing of this open-source project
+User-agent: GPTBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://georgebuilds.github.io/anneal/sitemap.xml
