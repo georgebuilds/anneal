@@ -10,9 +10,9 @@ import "fmt"
 // This is the expression rangeify will consume in Phase 7.  Call IsValid first
 // to check mask membership; FlatIndex does not validate bounds.
 func FlatIndex(v View, indices []int64) int64 {
-	idx := v.Offset
+	idx := cv(v.Offset)
 	for i, ind := range indices {
-		idx += ind * v.Strides[i]
+		idx += ind * cv(v.Strides[i])
 	}
 	return idx
 }
@@ -24,7 +24,7 @@ func IsValid(v View, indices []int64) bool {
 		return true
 	}
 	for i, ind := range indices {
-		if ind < v.Mask[i][0] || ind >= v.Mask[i][1] {
+		if ind < cv(v.Mask[i][0]) || ind >= cv(v.Mask[i][1]) {
 			return false
 		}
 	}
@@ -38,17 +38,18 @@ func IsValid(v View, indices []int64) bool {
 // Format: "offset [+/-] i0*s0 [+/-] i1*s1 …"
 func IndexExpr(v View) string {
 	if len(v.Strides) == 0 {
-		return fmt.Sprintf("%d", v.Offset)
+		return fmt.Sprintf("%d", cv(v.Offset))
 	}
-	s := fmt.Sprintf("%d", v.Offset)
+	s := fmt.Sprintf("%d", cv(v.Offset))
 	for i, st := range v.Strides {
-		if st == 0 {
+		stv := cv(st)
+		if stv == 0 {
 			continue
 		}
-		if st > 0 {
-			s += fmt.Sprintf(" + i%d*%d", i, st)
+		if stv > 0 {
+			s += fmt.Sprintf(" + i%d*%d", i, stv)
 		} else {
-			s += fmt.Sprintf(" - i%d*%d", i, -st)
+			s += fmt.Sprintf(" - i%d*%d", i, -stv)
 		}
 	}
 	return s

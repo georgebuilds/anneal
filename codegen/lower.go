@@ -44,6 +44,10 @@ type Instr struct {
 	// InstrGIDVar only
 	Stride int64
 
+	// InstrBoundsCheck, InstrGIDVar: true when the range size is symbolic (read
+	// from the params_n storage buffer at runtime, not a compile-time literal).
+	Symbolic bool
+
 	// InstrAccInit, InstrAccUpdate
 	AccIdx   int
 	WGSLType string // for InstrAccInit
@@ -99,27 +103,42 @@ func (l *lowerer) lowerSink() []Instr {
 	}
 
 	// Total output elements = product of AxisLoop range sizes.
+	// TotalN == 0 is the sentinel for "symbolic" (size unknown at compile time).
 	totalOut := int64(1)
+	hasSymRange := false
 	for _, r := range loopRanges {
-		totalOut *= r.Arg().(uop.RangeArg).Size
+		ra := r.Arg().(uop.RangeArg)
+		if ra.Symbolic {
+			totalOut = 0 // 0 = symbolic sentinel; renderer handles this
+			hasSymRange = true
+		} else {
+			if !hasSymRange {
+				totalOut *= ra.Size
+			}
+		}
 	}
 
 	// Bounds guard: only thread IDs in [0, totalOut) produce output.
-	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut})
+	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange})
 
 	// GID decomposition: each AxisLoop range gets a let binding derived from
 	// gid_x via row-major stride arithmetic.
 	// strides[i] = product(size[i+1], size[i+2], ...)
+	// Symbolic dims have Size==0; strides that flow through them are unreliable
+	// for multi-dim symbolic kernels (out of scope for SLICE 1).
 	strides := make([]int64, len(loopRanges))
 	if len(loopRanges) > 0 {
 		strides[len(loopRanges)-1] = 1
 		for i := len(loopRanges) - 2; i >= 0; i-- {
-			strides[i] = strides[i+1] * loopRanges[i+1].Arg().(uop.RangeArg).Size
+			ra := loopRanges[i+1].Arg().(uop.RangeArg)
+			if !ra.Symbolic {
+				strides[i] = strides[i+1] * ra.Size
+			}
 		}
 	}
 	for i, r := range loopRanges {
 		ra := r.Arg().(uop.RangeArg)
-		l.emit(Instr{Kind: InstrGIDVar, RangeID: ra.ID, RangeSize: ra.Size, Stride: strides[i]})
+		l.emit(Instr{Kind: InstrGIDVar, RangeID: ra.ID, RangeSize: ra.Size, Stride: strides[i], Symbolic: ra.Symbolic})
 		l.exprOf[r.Index()] = fmt.Sprintf("r%d", ra.ID)
 	}
 
@@ -127,7 +146,7 @@ func (l *lowerer) lowerSink() []Instr {
 	bodyExpr := l.emitExpr(body)
 
 	// Output store: flat index is gid_x for multi-element output, 0 for scalar.
-	l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Expr: bodyExpr})
+	l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr})
 
 	return l.instrs
 }

@@ -22,6 +22,16 @@ func RenderWGSL(item schedule.ExecItem) string {
 func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 	var b strings.Builder
 
+	// Detect whether any range is symbolic; if so we emit a trailing params_n
+	// storage buffer that carries runtime dim values.
+	hasSymDim := false
+	for _, ins := range instrs {
+		if (ins.Kind == InstrBoundsCheck || ins.Kind == InstrGIDVar) && ins.Symbolic {
+			hasSymDim = true
+			break
+		}
+	}
+
 	// ── storage buffer bindings ────────────────────────────────────────────
 	ki := item.Ast.Arg().(uop.KernelInfo)
 	for i := 0; i < ki.NumParams; i++ {
@@ -35,6 +45,12 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 		}
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, %s> data%d: array<%s>;\n",
 			i, access, i, elemType)
+	}
+	// Symbolic-shapes params buffer: holds runtime dim values as u32 words.
+	// Binding slot = ki.NumParams (immediately after all data bindings).
+	if hasSymDim {
+		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, read> params_n: array<u32>;\n",
+			ki.NumParams)
 	}
 
 	b.WriteString("\n")
@@ -51,12 +67,26 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 	for _, ins := range instrs {
 		switch ins.Kind {
 		case InstrBoundsCheck:
-			fmt.Fprintf(&b, "%sif (gid_x >= %du) { return; }\n", indent(), ins.TotalN)
+			if ins.Symbolic {
+				// Bound is unknown at compile time; read from the params_n buffer.
+				fmt.Fprintf(&b, "%sif (gid_x >= params_n[0]) { return; }\n", indent())
+			} else {
+				fmt.Fprintf(&b, "%sif (gid_x >= %du) { return; }\n", indent(), ins.TotalN)
+			}
 
 		case InstrGIDVar:
 			// let r_ID: i32 = i32((gid_x / Stride) % Size);
 			var expr string
-			if ins.Stride == 1 && len(instrs) > 0 {
+			if ins.Symbolic {
+				if ins.Stride == 1 {
+					// Single-dim symbolic: gid_x IS the loop variable (bounds-checked above).
+					// Avoids a runtime division by the symbolic bound.
+					expr = "i32(gid_x)"
+				} else {
+					// Multi-dim with one symbolic axis: static strides still apply.
+					expr = fmt.Sprintf("i32(gid_x / %du)", ins.Stride)
+				}
+			} else if ins.Stride == 1 && len(instrs) > 0 {
 				// last (innermost) dimension: no division needed
 				expr = fmt.Sprintf("i32(gid_x %% %du)", ins.RangeSize)
 			} else {
@@ -87,7 +117,8 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 
 		case InstrStore:
 			var idxExpr string
-			if ins.TotalN <= 1 {
+			if !ins.Symbolic && ins.TotalN <= 1 {
+				// Exactly one output element (scalar kernel): fixed index.
 				idxExpr = "0u"
 			} else {
 				idxExpr = "gid_x"

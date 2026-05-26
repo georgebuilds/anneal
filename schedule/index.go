@@ -3,6 +3,7 @@ package schedule
 import (
 	"math"
 
+	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/uop"
 )
 
@@ -26,7 +27,7 @@ import (
 // Movement ops propagate fillOp unchanged; elementwise/ALU ops reset it to 0.
 //
 // This is the Go analogue of tinygrad's pm_mops PatternMatcher + apply_movement_op.
-func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[uint32][]int64, rc *rangeCtx, fillOp uop.Op) uop.UOp {
+func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[uint32][]shape.Sint, rc *rangeCtx, fillOp uop.Op) uop.UOp {
 	switch expr.Op() {
 
 	// ── leaf accesses ─────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 	case uop.OpReshape:
 		// Flat index from output (new) shape, then decompose into source (old) shape.
 		dstShape := expr.Arg().([]int64)
-		srcShape := shapeMap[expr.Src(0).Index()]
+		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
 		flat := flatIndex(a, indices, dstShape)
 		srcIndices := unflatIndex(a, flat, srcShape)
 		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
@@ -63,10 +64,10 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 
 	case uop.OpExpand:
 		// Broadcast: source dims that were size 1 map to index 0.
-		srcShape := shapeMap[expr.Src(0).Index()]
-		srcIndices := make([]uop.UOp, len(srcShape))
-		for i, s := range srcShape {
-			if s == 1 {
+		srcSints := shapeMap[expr.Src(0).Index()]
+		srcIndices := make([]uop.UOp, len(srcSints))
+		for i, s := range srcSints {
+			if shape.EqI(s, 1) {
 				srcIndices[i] = a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
 			} else {
 				srcIndices[i] = indices[i]
@@ -91,7 +92,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 	case uop.OpPad:
 		// Pad: validity guard + source index = r - lo; out-of-bounds → zero.
 		padding := expr.Arg().([][2]int64)
-		srcShape := shapeMap[expr.Src(0).Index()]
+		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
 		srcIndices := make([]uop.UOp, len(padding))
 		var validConds []uop.UOp
 		for i, p := range padding {
@@ -126,7 +127,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 	case uop.OpFlip:
 		// Mirror: index r → (size-1) - r for flipped axes.
 		axisFlags := expr.Arg().([]int64)
-		srcShape := shapeMap[expr.Src(0).Index()]
+		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
 		srcIndices := make([]uop.UOp, len(axisFlags))
 		for i, f := range axisFlags {
 			if f != 0 {
@@ -144,21 +145,21 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		// Creates AxisReduce range vars for the reduced axes, then indexes through
 		// the source. Returns a kernel-level REDUCE(acc_op, elem_expr, *reduce_ranges).
 		ra := expr.Arg().(uop.ReduceArg)
-		srcShape := shapeMap[expr.Src(0).Index()]
+		srcSints := shapeMap[expr.Src(0).Index()]
 
 		// Reduce ranges, one per reduced axis.
 		reduceRanges := make([]uop.UOp, len(ra.Axes))
 		reducedAt := make(map[int]uop.UOp, len(ra.Axes))
 		for i, ax := range ra.Axes {
-			rr := rc.newRange(srcShape[ax], uop.AxisReduce)
+			rr := rc.newRange(shape.CV(srcSints[ax]), uop.AxisReduce)
 			reduceRanges[i] = rr
 			reducedAt[ax] = rr
 		}
 
 		// Build full source index: reduced dims → reduce range; others → output index.
-		fullIndices := make([]uop.UOp, len(srcShape))
+		fullIndices := make([]uop.UOp, len(srcSints))
 		outIdx := 0
-		for i := range srcShape {
+		for i := range srcSints {
 			if rr, ok := reducedAt[i]; ok {
 				fullIndices[i] = rr
 			} else {

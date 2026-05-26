@@ -3,26 +3,25 @@ package shape
 import "fmt"
 
 // View is the per-op stride/offset/mask representation of a tensor's index mapping.
-//
-// All fields are int64 in v1; see sint.go for the symbolic-seam migration path.
+// All dimensional fields are Sint-typed; in slices 1–2 every Sint is a ConstInt.
 // Contiguous is precomputed at construction and never recomputed lazily.
 type View struct {
-	Shape      []int64
-	Strides    []int64
-	Offset     int64
-	Mask       [][2]int64 // nil = no mask (all valid)
+	Shape      []Sint
+	Strides    []Sint
+	Offset     Sint
+	Mask       [][2]Sint // nil = no mask (all valid)
 	Contiguous bool
 }
 
 // NewView constructs a View, normalises a trivial full-range mask to nil, and
 // precomputes Contiguous.  Strides are taken as-is; use stridesForShape to
 // produce C-contiguous strides for a fresh tensor.
-func NewView(shape, strides []int64, offset int64, mask [][2]int64) View {
+func NewView(shape, strides []Sint, offset Sint, mask [][2]Sint) View {
 	mask = normalizeMask(mask, shape)
-	contig := offset == 0 && mask == nil && stridesEqual(strides, stridesForShape(shape))
+	contig := EqI(offset, 0) && mask == nil && slintsEqual(strides, stridesForShape(shape))
 	return View{
-		Shape:      cloneI64(shape),
-		Strides:    cloneI64(strides),
+		Shape:      cloneSints(shape),
+		Strides:    cloneSints(strides),
 		Offset:     offset,
 		Mask:       mask,
 		Contiguous: contig,
@@ -30,26 +29,29 @@ func NewView(shape, strides []int64, offset int64, mask [][2]int64) View {
 }
 
 // NewContiguousView returns a fresh row-major View for shape (offset 0, no mask).
-func NewContiguousView(shape []int64) View {
-	return NewView(shape, stridesForShape(shape), 0, nil)
+func NewContiguousView(shape []Sint) View {
+	return NewView(shape, stridesForShape(shape), Const(0), nil)
 }
 
 // ── stride helpers ────────────────────────────────────────────────────────────
 
 // stridesForShape returns C-contiguous (row-major) strides for shape.
 // Dimensions of size 1 get stride 0 (canonicalized).
-func stridesForShape(shape []int64) []int64 {
+func stridesForShape(shape []Sint) []Sint {
 	n := len(shape)
 	if n == 0 {
-		return []int64{}
+		return []Sint{}
 	}
-	st := make([]int64, n)
+	st := make([]Sint, n)
 	acc := int64(1)
 	for i := n - 1; i >= 0; i-- {
-		if shape[i] != 1 {
-			st[i] = acc
+		sv := cv(shape[i])
+		if sv != 1 {
+			st[i] = Const(acc)
+		} else {
+			st[i] = Const(0)
 		}
-		acc *= shape[i]
+		acc *= sv
 	}
 	return st
 }
@@ -57,12 +59,12 @@ func stridesForShape(shape []int64) []int64 {
 // ── mask helpers ──────────────────────────────────────────────────────────────
 
 // normalizeMask returns nil if mask is nil or every dim covers its full range.
-func normalizeMask(mask [][2]int64, shape []int64) [][2]int64 {
+func normalizeMask(mask [][2]Sint, shape []Sint) [][2]Sint {
 	if mask == nil {
 		return nil
 	}
 	for i, m := range mask {
-		if m[0] != 0 || m[1] != shape[i] {
+		if cv(m[0]) != 0 || !Eq(m[1], shape[i]) {
 			return mask
 		}
 	}
@@ -73,45 +75,44 @@ func normalizeMask(mask [][2]int64, shape []int64) [][2]int64 {
 
 // Expand broadcasts dimensions.  Caller must ensure new_shape[i] == shape[i]
 // for all dims where shape[i] != 1.  Expanded dims keep stride 0.
-func (v View) Expand(newShape []int64) View {
+func (v View) Expand(newShape []Sint) View {
 	if len(newShape) != len(v.Shape) {
 		panic(fmt.Sprintf("shape: expand: rank mismatch %d vs %d", len(v.Shape), len(newShape)))
 	}
 	for i, s := range v.Shape {
-		if s != newShape[i] && s != 1 {
-			panic(fmt.Sprintf("shape: expand: cannot expand dim %d size %d to %d", i, s, newShape[i]))
+		if !Eq(s, newShape[i]) && cv(s) != 1 {
+			panic(fmt.Sprintf("shape: expand: cannot expand dim %d size %d to %d", i, cv(s), cv(newShape[i])))
 		}
 	}
 
 	// zero-size input → fresh contiguous view
 	for _, s := range v.Shape {
-		if s == 0 {
+		if cv(s) == 0 {
 			return NewContiguousView(newShape)
 		}
 	}
 
-	strides := cloneI64(v.Strides)
-	var mask [][2]int64
+	strides := cloneSints(v.Strides)
+	var mask [][2]Sint
 	if v.Mask != nil {
-		mask = cloneMask(v.Mask)
+		mask = cloneMaskSint(v.Mask)
 	}
 
 	for i, ns := range newShape {
-		if v.Shape[i] == ns {
+		if Eq(v.Shape[i], ns) {
 			continue
 		}
 		// Expanding size-1 dim; its stride is already 0 from canonicalization.
 		if mask != nil {
-			if v.Mask[i] == ([2]int64{0, 1}) {
-				mask[i] = [2]int64{0, ns}
+			if cv(v.Mask[i][0]) == 0 && cv(v.Mask[i][1]) == 1 {
+				mask[i] = [2]Sint{Const(0), ns}
 			} else {
-				mask[i] = [2]int64{0, 0} // was already masked out → stays out
+				mask[i] = [2]Sint{Const(0), Const(0)}
 			}
 		}
 	}
 
-	ns := cloneI64(newShape)
-	return NewView(ns, strides, v.Offset, mask)
+	return NewView(cloneSints(newShape), strides, v.Offset, mask)
 }
 
 // Permute reorders dimensions.  order is a permutation of [0, n).
@@ -120,11 +121,11 @@ func (v View) Permute(order []int) View {
 	if len(order) != n {
 		panic("shape: permute: order length mismatch")
 	}
-	shape := make([]int64, n)
-	strides := make([]int64, n)
-	var mask [][2]int64
+	shape := make([]Sint, n)
+	strides := make([]Sint, n)
+	var mask [][2]Sint
 	if v.Mask != nil {
-		mask = make([][2]int64, n)
+		mask = make([][2]Sint, n)
 	}
 	for i, a := range order {
 		shape[i] = v.Shape[a]
@@ -137,13 +138,13 @@ func (v View) Permute(order []int) View {
 }
 
 // Pad adds zero padding.  arg[i] = {lo, hi} adds lo elements before and hi after dim i.
-func (v View) Pad(arg [][2]int64) View {
+func (v View) Pad(arg [][2]Sint) View {
 	if len(arg) != len(v.Shape) {
 		panic("shape: pad: arg length mismatch")
 	}
 	anyNonzero := false
 	for _, ab := range arg {
-		if ab[0] != 0 || ab[1] != 0 {
+		if cv(ab[0]) != 0 || cv(ab[1]) != 0 {
 			anyNonzero = true
 			break
 		}
@@ -154,18 +155,18 @@ func (v View) Pad(arg [][2]int64) View {
 
 	// zvarg[i] = {-lo, shape[i]+hi}  — the resize bounds in current coordinates
 	// newMask[i] = {lo, shape[i]+lo} — the valid region after padding
-	zvarg := make([][2]int64, len(arg))
-	newMask := make([][2]int64, len(arg))
+	zvarg := make([][2]Sint, len(arg))
+	newMask := make([][2]Sint, len(arg))
 	for i, ab := range arg {
 		lo, hi := ab[0], ab[1]
-		zvarg[i] = [2]int64{-lo, v.Shape[i] + hi}
-		newMask[i] = [2]int64{lo, v.Shape[i] + lo}
+		zvarg[i] = [2]Sint{Neg(lo), Add(v.Shape[i], hi)}
+		newMask[i] = [2]Sint{lo, Add(v.Shape[i], lo)}
 	}
 	return v.unsafeResize(zvarg, newMask)
 }
 
 // Shrink reduces dimensions.  arg[i] = {lo, hi} selects the half-open range [lo, hi) of dim i.
-func (v View) Shrink(arg [][2]int64) View {
+func (v View) Shrink(arg [][2]Sint) View {
 	if len(arg) != len(v.Shape) {
 		panic("shape: shrink: arg length mismatch")
 	}
@@ -178,40 +179,40 @@ func (v View) Flip(axes []bool) View {
 		panic("shape: flip: axes length mismatch")
 	}
 	offset := v.Offset
-	strides := cloneI64(v.Strides)
-	var mask [][2]int64
+	strides := cloneSints(v.Strides)
+	var mask [][2]Sint
 	if v.Mask != nil {
-		mask = cloneMask(v.Mask)
+		mask = cloneMaskSint(v.Mask)
 	}
 	for i, flip := range axes {
 		if !flip {
 			continue
 		}
-		offset += (v.Shape[i] - 1) * v.Strides[i]
-		strides[i] = -v.Strides[i]
+		offset = Add(offset, Mul(Sub(v.Shape[i], Const(1)), v.Strides[i]))
+		strides[i] = Neg(v.Strides[i])
 		if mask != nil {
 			s := v.Shape[i]
-			mask[i] = [2]int64{s - v.Mask[i][1], s - v.Mask[i][0]}
+			mask[i] = [2]Sint{Sub(s, v.Mask[i][1]), Sub(s, v.Mask[i][0])}
 		}
 	}
-	return NewView(cloneI64(v.Shape), strides, offset, mask)
+	return NewView(cloneSints(v.Shape), strides, offset, mask)
 }
 
 // Reshape attempts to produce a View with newShape over the same data.
 // Returns (newView, true) on success.
 // Returns (View{}, false) if strides or mask cannot be expressed in newShape;
 // callers (ShapeTracker) must then push a fresh contiguous view.
-func (v View) Reshape(newShape []int64) (View, bool) {
+func (v View) Reshape(newShape []Sint) (View, bool) {
 	if !sizeMatch(v.Shape, newShape) {
-		panic(fmt.Sprintf("shape: reshape: size mismatch %v -> %v", v.Shape, newShape))
+		panic(fmt.Sprintf("shape: reshape: size mismatch %v -> %v", AsInts(v.Shape), AsInts(newShape)))
 	}
-	if shapesEqual(v.Shape, newShape) {
+	if slintsEqual(v.Shape, newShape) {
 		return v, true
 	}
 
 	// Zero-size source → any new shape is a fresh contiguous view.
 	for _, s := range v.Shape {
-		if s == 0 {
+		if cv(s) == 0 {
 			return NewContiguousView(newShape), true
 		}
 	}
@@ -219,7 +220,7 @@ func (v View) Reshape(newShape []int64) (View, bool) {
 	// Reshaping to scalar with a fully-masked-out dimension.
 	if len(newShape) == 0 && v.Mask != nil {
 		for _, m := range v.Mask {
-			if m[0] == m[1] {
+			if Eq(m[0], m[1]) {
 				return View{}, false
 			}
 		}
@@ -229,32 +230,38 @@ func (v View) Reshape(newShape []int64) (View, bool) {
 		return NewContiguousView(newShape), true
 	}
 
-	// Non-contiguous: try to re-express strides via merged dimension groups.
-	newStrides, ok := reshapeStrides(v.Shape, v.Strides, v.Mask, newShape)
-	if !ok {
-		return View{}, false
-	}
-
-	// Translate the mask into the new coordinate system.
-	newMask, ok := reshapeMask(v.Mask, v.Shape, newShape)
-	if !ok {
-		return View{}, false
-	}
-
-	// extra_offset adjusts for any per-dim mask lo shift between old and new coordinates.
-	extraOffset := int64(0)
+	// Extract int64 arrays for the internal reshape helpers.
+	shape64 := AsInts(v.Shape)
+	strides64 := AsInts(v.Strides)
+	var mask64 [][2]int64
 	if v.Mask != nil {
-		for i, m := range v.Mask {
-			extraOffset += m[0] * v.Strides[i]
+		mask64 = AsIntMask(v.Mask)
+	}
+	newShape64 := AsInts(newShape)
+
+	newStrides64, ok := reshapeStrides(shape64, strides64, mask64, newShape64)
+	if !ok {
+		return View{}, false
+	}
+
+	newMask64, ok := reshapeMask(mask64, shape64, newShape64)
+	if !ok {
+		return View{}, false
+	}
+
+	extraOffset := int64(0)
+	if mask64 != nil {
+		for i, m := range mask64 {
+			extraOffset += m[0] * strides64[i]
 		}
 	}
-	if newMask != nil {
-		for i, m := range newMask {
-			extraOffset -= m[0] * newStrides[i]
+	if newMask64 != nil {
+		for i, m := range newMask64 {
+			extraOffset -= m[0] * newStrides64[i]
 		}
 	}
 
-	return NewView(newShape, newStrides, v.Offset+extraOffset, newMask), true
+	return NewView(newShape, AsSints(newStrides64), Add(v.Offset, Const(extraOffset)), AsMaskSint(newMask64)), true
 }
 
 // ── internal helpers ──────────────────────────────────────────────────────────
@@ -262,38 +269,40 @@ func (v View) Reshape(newShape []int64) (View, bool) {
 // unsafeResize is the shared core of Pad and Shrink.
 // arg[i] = {lo, hi} sets the new slice bounds in the CURRENT coordinate system.
 // newMask, if non-nil, is intersected with (the transformed) existing mask.
-func (v View) unsafeResize(arg [][2]int64, newMask [][2]int64) View {
+func (v View) unsafeResize(arg [][2]Sint, newMask [][2]Sint) View {
 	n := len(v.Shape)
 	offset := v.Offset
 	for i := 0; i < n; i++ {
-		offset += v.Strides[i] * arg[i][0]
+		offset = Add(offset, Mul(v.Strides[i], arg[i][0]))
 	}
 
-	shape := make([]int64, n)
+	shape := make([]Sint, n)
 	for i, ab := range arg {
-		shape[i] = ab[1] - ab[0]
+		shape[i] = Sub(ab[1], ab[0])
 	}
 
-	var mask [][2]int64
+	var mask [][2]Sint
 	if v.Mask != nil {
-		// Shift the existing mask into the new coordinate system, then clamp to [0, new_size).
-		mask = make([][2]int64, n)
+		mask = make([][2]Sint, n)
 		for i, m := range v.Mask {
-			ax, ay := arg[i][0], arg[i][1]
-			lo := imax(0, imin(m[0]-ax, ay-ax))
-			hi := imax(0, imin(m[1]-ax, ay-ax))
-			mask[i] = [2]int64{lo, hi}
+			ax, ay := cv(arg[i][0]), cv(arg[i][1])
+			lo := imax(0, imin(cv(m[0])-ax, ay-ax))
+			hi := imax(0, imin(cv(m[1])-ax, ay-ax))
+			mask[i] = [2]Sint{Const(lo), Const(hi)}
 		}
 		if newMask != nil {
 			for i, nm := range newMask {
-				mask[i] = [2]int64{imax(mask[i][0], nm[0]), imin(mask[i][1], nm[1])}
+				mask[i] = [2]Sint{
+					Const(imax(cv(mask[i][0]), cv(nm[0]))),
+					Const(imin(cv(mask[i][1]), cv(nm[1]))),
+				}
 			}
 		}
 	} else if newMask != nil {
-		mask = cloneMask(newMask)
+		mask = cloneMaskSint(newMask)
 	}
 
-	return NewView(shape, cloneI64(v.Strides), offset, mask)
+	return NewView(shape, cloneSints(v.Strides), offset, mask)
 }
 
 // ── mergeDim and reshapeStrides ───────────────────────────────────────────────
@@ -347,8 +356,7 @@ func collectMergeDims(shape, strides []int64, mask [][2]int64) []mergeDim {
 	return ret
 }
 
-// maskRangeOne reports whether dim i has a mask range of exactly 1 element
-// (used to detect the "merging" flag for broadcast groups in collectMergeDims).
+// maskRangeOne reports whether dim i has a mask range of exactly 1 element.
 func maskRangeOne(mask [][2]int64, i int, dimSize int64) bool {
 	if mask != nil {
 		return mask[i][1]-mask[i][0] == 1
@@ -377,7 +385,6 @@ func reshapeStrides(shape, strides []int64, mask [][2]int64, newShape []int64) (
 
 		for acc <= d.Size && acc != d.Size {
 			if ni >= len(newShapeRev) {
-				// More old product than new dims → mismatch.
 				return nil, false
 			}
 			nd := newShapeRev[ni]
@@ -397,7 +404,6 @@ func reshapeStrides(shape, strides []int64, mask [][2]int64, newShape []int64) (
 	}
 
 	out := make([]int64, len(newShape))
-	// Leftmost new dims that weren't consumed get stride 0.
 	for i, st := range rStrides {
 		out[len(newShape)-1-i] = st
 	}
@@ -409,22 +415,11 @@ func reshapeStrides(shape, strides []int64, mask [][2]int64, newShape []int64) (
 // reshapeMask translates mask from shape into newShape coordinates.
 // Returns (newMask, true) on success; newMask == nil means no mask needed.
 // Returns (nil, false) when the masked valid region is not rectangular in newShape.
-//
-// Algorithm: process new dims right-to-left (innermost first), maintaining a
-// flat valid range [lo, hi) within an accumulated old-dim group of size sz.
-// At each step the rightmost new dim nd is "extracted" from the flat range via
-// one of two rectangle-preserving splits:
-//
-//	A. single outer row  (lo/nd == (hi-1)/nd)         → dim range [lo%nd, …)
-//	B. all full inner rows (lo%nd==0 && hi%nd==0)      → dim range [0, nd) (full)
-//
-// Any other configuration is non-rectangular → return false.
 func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 	if mask == nil {
 		return nil, true
 	}
 
-	// Trivially-full mask → no new mask needed.
 	allFull := true
 	for i, m := range mask {
 		if m[0] != 0 || m[1] != shape[i] {
@@ -446,7 +441,6 @@ func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 	for ni := len(newShape) - 1; ni >= 0; ni-- {
 		nd := newShape[ni]
 
-		// Grow the old group until sz >= nd.
 		for sz < nd {
 			if oi < 0 {
 				return nil, false
@@ -457,11 +451,9 @@ func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 			oi--
 
 			if lo == 0 && hi == sz {
-				// Inner group is full: scale up the flat range.
 				lo = prevLo * sz
 				hi = prevHi * sz
 			} else if prevHi-prevLo == 1 {
-				// Single outer row: offset the inner range.
 				lo = prevLo*sz + lo
 				hi = prevLo*sz + hi
 			} else {
@@ -481,12 +473,10 @@ func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 
 		switch {
 		case loOuter == hiOuterIncl:
-			// Case A: single outer row.
 			newMask[ni] = [2]int64{loInner, hiInner}
 			lo = loOuter
 			hi = loOuter + 1
 		case loInner == 0 && hiInner == nd:
-			// Case B: every row has full inner range.
 			newMask[ni] = [2]int64{0, nd}
 			lo = loOuter
 			hi = hiOuterIncl + 1
@@ -496,7 +486,6 @@ func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 		sz /= nd
 	}
 
-	// Any remaining old dims must have full mask.
 	for ; oi >= 0; oi-- {
 		if mask[oi][0] != 0 || mask[oi][1] != shape[oi] {
 			return nil, false
@@ -506,7 +495,20 @@ func reshapeMask(mask [][2]int64, shape, newShape []int64) ([][2]int64, bool) {
 		return nil, false
 	}
 
-	return normalizeMask(newMask, newShape), true
+	return normalizeMask64(newMask, newShape), true
+}
+
+// normalizeMask64 is the int64 counterpart of normalizeMask, used by reshapeMask.
+func normalizeMask64(mask [][2]int64, shape []int64) [][2]int64 {
+	if mask == nil {
+		return nil
+	}
+	for i, m := range mask {
+		if m[0] != 0 || m[1] != shape[i] {
+			return mask
+		}
+	}
+	return nil
 }
 
 // ── small utilities ───────────────────────────────────────────────────────────
@@ -524,45 +526,43 @@ func imin(a, b int64) int64 {
 	return b
 }
 
-func cloneI64(s []int64) []int64 {
+func cloneSints(s []Sint) []Sint {
 	if s == nil {
 		return nil
 	}
-	c := make([]int64, len(s))
+	c := make([]Sint, len(s))
 	copy(c, s)
 	return c
 }
 
-func cloneMask(m [][2]int64) [][2]int64 {
+func cloneMaskSint(m [][2]Sint) [][2]Sint {
 	if m == nil {
 		return nil
 	}
-	c := make([][2]int64, len(m))
+	c := make([][2]Sint, len(m))
 	copy(c, m)
 	return c
 }
 
-func shapesEqual(a, b []int64) bool {
+func slintsEqual(a, b []Sint) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if cv(a[i]) != cv(b[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-func stridesEqual(a, b []int64) bool { return shapesEqual(a, b) }
-
-func sizeMatch(a, b []int64) bool {
+func sizeMatch(a, b []Sint) bool {
 	pa, pb := int64(1), int64(1)
 	for _, s := range a {
-		pa *= s
+		pa *= cv(s)
 	}
 	for _, s := range b {
-		pb *= s
+		pb *= cv(s)
 	}
 	return pa == pb
 }

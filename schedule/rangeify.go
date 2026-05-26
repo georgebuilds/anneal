@@ -1,6 +1,9 @@
 package schedule
 
-import "github.com/georgebuilds/anneal/uop"
+import (
+	"github.com/georgebuilds/anneal/shape"
+	"github.com/georgebuilds/anneal/uop"
+)
 
 // ── Topological sort ──────────────────────────────────────────────────────────
 
@@ -45,38 +48,38 @@ func topoSort(root uop.UOp) []uop.UOp {
 // ── Shape map ─────────────────────────────────────────────────────────────────
 
 // buildShapeMap computes the output shape for every node in topo (forward order).
-func buildShapeMap(topo []uop.UOp) map[uint32][]int64 {
-	cache := make(map[uint32][]int64, len(topo))
+func buildShapeMap(topo []uop.UOp) map[uint32][]shape.Sint {
+	cache := make(map[uint32][]shape.Sint, len(topo))
 	for _, u := range topo {
 		shapeOfNode(u, cache)
 	}
 	return cache
 }
 
-func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
+func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 	if _, ok := cache[u.Index()]; ok {
 		return
 	}
-	var sh []int64
+	var sh []shape.Sint
 	switch u.Op() {
 	case uop.OpConst:
-		sh = []int64{} // scalar
+		sh = []shape.Sint{} // scalar
 
 	case uop.OpBuffer:
 		switch v := u.Arg().(type) {
 		case []int64:
-			sh = cloneShape(v)
+			sh = cloneShape(shape.AsSints(v))
 		case int64:
-			sh = []int64{v}
+			sh = []shape.Sint{shape.Const(v)}
 		}
 
 	case uop.OpReshape, uop.OpExpand:
-		sh = cloneShape(u.Arg().([]int64))
+		sh = cloneShape(shape.AsSints(u.Arg().([]int64)))
 
 	case uop.OpPermute:
 		srcSh := cache[u.Src(0).Index()]
 		perm := u.Arg().([]int64)
-		sh = make([]int64, len(perm))
+		sh = make([]shape.Sint, len(perm))
 		for i, p := range perm {
 			sh[i] = srcSh[p]
 		}
@@ -84,16 +87,16 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 	case uop.OpPad:
 		srcSh := cache[u.Src(0).Index()]
 		padding := u.Arg().([][2]int64)
-		sh = make([]int64, len(srcSh))
+		sh = make([]shape.Sint, len(srcSh))
 		for i, s := range srcSh {
-			sh[i] = s + padding[i][0] + padding[i][1]
+			sh[i] = shape.Add(s, shape.Const(padding[i][0]+padding[i][1]))
 		}
 
 	case uop.OpShrink:
 		arg := u.Arg().([][2]int64)
-		sh = make([]int64, len(arg))
+		sh = make([]shape.Sint, len(arg))
 		for i, p := range arg {
-			sh[i] = p[1] - p[0]
+			sh[i] = shape.Const(p[1] - p[0])
 		}
 
 	case uop.OpFlip, uop.OpCast, uop.OpBitcast:
@@ -114,7 +117,7 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 			}
 		}
 		if sh == nil {
-			sh = []int64{}
+			sh = []shape.Sint{}
 		}
 
 	default:
@@ -122,14 +125,14 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 		if u.NSrc() > 0 {
 			sh = cache[u.Src(0).Index()]
 		} else {
-			sh = []int64{}
+			sh = []shape.Sint{}
 		}
 	}
 	cache[u.Index()] = sh
 }
 
-func cloneShape(s []int64) []int64 {
-	c := make([]int64, len(s))
+func cloneShape(s []shape.Sint) []shape.Sint {
+	c := make([]shape.Sint, len(s))
 	copy(c, s)
 	return c
 }
@@ -212,10 +215,10 @@ func (rc *rangeCtx) newRange(size int64, t uop.AxisType) uop.UOp {
 	return r
 }
 
-func (rc *rangeCtx) freshRanges(shape []int64, t uop.AxisType) []uop.UOp {
-	ranges := make([]uop.UOp, len(shape))
-	for i, s := range shape {
-		ranges[i] = rc.newRange(s, t)
+func (rc *rangeCtx) freshRanges(sh []shape.Sint, t uop.AxisType) []uop.UOp {
+	ranges := make([]uop.UOp, len(sh))
+	for i, s := range sh {
+		ranges[i] = rc.newRange(shape.CV(s), t)
 	}
 	return ranges
 }
@@ -275,7 +278,7 @@ func runRangeify(sink uop.UOp) uop.UOp {
 		// Realize point: create output ranges and thread them through the kernel body.
 		outShape := shapeMap[u.Index()]
 		if outShape == nil {
-			outShape = []int64{}
+			outShape = []shape.Sint{}
 		}
 
 		rc.startKernel()
