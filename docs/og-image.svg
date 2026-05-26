@@ -78,7 +78,7 @@
   <!-- Footer attribution -->
   <text x="490" y="580"
         font-family="'Courier New', Courier, monospace"
-        font-size="18" fill="#5C544D">georgebuilds / anneal · v0.1 · mit</text>
+        font-size="18" fill="#5C544D">georgebuilds / anneal · v0.1 · agpl-3.0</text>
 
   <!-- Border frame (subtle) -->
   <rect x="1" y="1" width="1198" height="628"
