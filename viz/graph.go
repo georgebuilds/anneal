@@ -97,20 +97,14 @@ func BuildGraph(name string) (*GraphData, error) {
 	// Reduce output to a scalar so Backward has a single root adjoint.
 	loss := out.Sum(nil, false)
 
-	// Forward boundary: all nodes at idx < fwdEnd were built during the forward
-	// pass (construction-order provenance per SPEC §1.3).
-	fwdEnd := uint32(a.Len())
-
 	// Run the real backward traversal (tensor/gradient.go typed traversal —
-	// NOT a PatternMatcher ruleset, per SPEC §5). This populates the arena
-	// with backward UOp nodes (OpAdd, OpMul, etc. for the adjoint pass).
+	// NOT a PatternMatcher ruleset, per SPEC §5). Each new UOp node built
+	// inside Backward is stamped PhaseBackward by the arena's phase field;
+	// forward nodes reused via interning keep their original PhaseForward.
 	var grads map[*tensor.Tensor]*tensor.Tensor
 	if len(result.Leaves) > 0 {
 		grads = tensor.Backward(loss, result.Leaves)
 	}
-
-	// Backward boundary: nodes at fwdEnd..bwdEnd-1 are the backward pass nodes.
-	bwdEnd := uint32(a.Len())
 
 	// Collect all output roots: the loss and each gradient tensor.
 	// These are the "live outputs" that a training step would realize.
@@ -144,14 +138,12 @@ func BuildGraph(name string) (*GraphData, error) {
 	fwdCount, bwdCount := 0, 0
 
 	for _, u := range topo {
-		// Classify by arena-index provenance: construction order faithfully
-		// records which pass created the node (SPEC §1.3 / AGENTS.md).
+		// Classify using durable per-node provenance stamped at construction time.
+		// Scheduler nodes are not reachable from vizRoots and do not appear here.
 		class := ClassForward
-		if u.Index() >= fwdEnd && u.Index() < bwdEnd {
+		if a.Provenance(u.Index()) == uop.PhaseBackward {
 			class = ClassBackward
 		}
-		// Nodes at idx >= bwdEnd are scheduler nodes (Range, Index, etc.) that
-		// should not appear here — if they do, default to forward.
 
 		if class == ClassForward {
 			fwdCount++

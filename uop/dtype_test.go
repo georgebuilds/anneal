@@ -294,6 +294,67 @@ func TestLeastUpperDType(t *testing.T) {
 	}
 }
 
+// ── StructuralHash ────────────────────────────────────────────────────────────
+
+// TestDTypeStructuralHashStable verifies that the same dtype always returns the
+// same StructuralHash value and that a nil *DType returns the sentinel.
+func TestDTypeStructuralHashStable(t *testing.T) {
+	dtypes := []*uop.DType{
+		uop.Dtypes.Void, uop.Dtypes.Bool,
+		uop.Dtypes.Int8, uop.Dtypes.UInt8, uop.Dtypes.Int16, uop.Dtypes.UInt16,
+		uop.Dtypes.Int32, uop.Dtypes.UInt32, uop.Dtypes.Int64, uop.Dtypes.UInt64,
+		uop.Dtypes.Float16, uop.Dtypes.BFloat16, uop.Dtypes.Float32, uop.Dtypes.Float64,
+		uop.Dtypes.FP8E4M3, uop.Dtypes.FP8E5M2, uop.Dtypes.Index,
+		uop.Dtypes.Float32.Vec(4),
+		uop.Dtypes.Float32.Ptr(-1, uop.Global),
+		uop.Dtypes.Float32.Ptr(-1, uop.Local),
+	}
+	for _, d := range dtypes {
+		h1 := d.StructuralHash()
+		h2 := d.StructuralHash()
+		if h1 != h2 {
+			t.Errorf("%s.StructuralHash() not stable: %016x != %016x", d, h1, h2)
+		}
+	}
+	// nil sentinel is distinct from any real dtype hash.
+	var nilDT *uop.DType
+	nilH := nilDT.StructuralHash()
+	for _, d := range dtypes {
+		if d.StructuralHash() == nilH {
+			t.Errorf("%s.StructuralHash() == nil sentinel %016x", d, nilH)
+		}
+	}
+}
+
+// TestDTypeStructuralHashUnique verifies that all canonical scalar/vector/pointer
+// dtypes used in anneal produce distinct hash values.
+func TestDTypeStructuralHashUnique(t *testing.T) {
+	dtypes := []*uop.DType{
+		uop.Dtypes.Void, uop.Dtypes.Bool,
+		uop.Dtypes.Int8, uop.Dtypes.UInt8, uop.Dtypes.Int16, uop.Dtypes.UInt16,
+		uop.Dtypes.Int32, uop.Dtypes.UInt32, uop.Dtypes.Int64, uop.Dtypes.UInt64,
+		uop.Dtypes.Float16, uop.Dtypes.BFloat16, uop.Dtypes.Float32, uop.Dtypes.Float64,
+		uop.Dtypes.FP8E4M3, uop.Dtypes.FP8E5M2, uop.Dtypes.Index,
+		// vector variants
+		uop.Dtypes.Float32.Vec(2), uop.Dtypes.Float32.Vec(4), uop.Dtypes.Float32.Vec(8),
+		uop.Dtypes.Int32.Vec(4),
+		// pointer variants
+		uop.Dtypes.Float32.Ptr(-1, uop.Global),
+		uop.Dtypes.Float32.Ptr(-1, uop.Local),
+		uop.Dtypes.Float32.Ptr(-1, uop.Reg),
+		uop.Dtypes.Float32.Ptr(1024, uop.Global),
+		uop.Dtypes.Int32.Ptr(-1, uop.Global),
+	}
+	seen := make(map[uint64]*uop.DType, len(dtypes))
+	for _, d := range dtypes {
+		h := d.StructuralHash()
+		if prev, collision := seen[h]; collision {
+			t.Errorf("hash collision: %s and %s both hash to %016x", prev, d, h)
+		}
+		seen[h] = d
+	}
+}
+
 // ── String ────────────────────────────────────────────────────────────────────
 
 func TestDTypeString(t *testing.T) {

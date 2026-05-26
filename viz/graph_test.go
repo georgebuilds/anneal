@@ -94,6 +94,43 @@ func TestBuildGraph_Unknown(t *testing.T) {
 	}
 }
 
+// TestProvenanceLeafNodesAreForward is the provenance correctness spot-check:
+// weight/bias OpBuffer leaves (KindLeaf) must be classified forward; the graph
+// must also contain backward nodes from the autodiff pass.
+func TestProvenanceLeafNodesAreForward(t *testing.T) {
+	g, err := BuildGraph("mlp")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var fwdLeaf, bwdLeaf, bwdTotal int
+	for _, n := range g.Nodes {
+		if n.Kind == KindLeaf {
+			if n.Class == ClassForward {
+				fwdLeaf++
+			} else {
+				bwdLeaf++
+			}
+		}
+		if n.Class == ClassBackward {
+			bwdTotal++
+		}
+	}
+
+	if bwdLeaf != 0 {
+		t.Errorf("%d backward KindLeaf nodes — weight/bias leaves must be PhaseForward", bwdLeaf)
+	}
+	if fwdLeaf == 0 {
+		t.Error("no forward KindLeaf nodes — expected weight/bias leaves")
+	}
+	if bwdTotal == 0 {
+		t.Error("no backward nodes — expected gradient nodes from autodiff")
+	}
+
+	t.Logf("mlp provenance: %d forward leaves, %d backward total (of %d)",
+		fwdLeaf, bwdTotal, len(g.Nodes))
+}
+
 func TestNodeClassification(t *testing.T) {
 	g, err := BuildGraph("mlp")
 	if err != nil {

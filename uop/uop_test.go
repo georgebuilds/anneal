@@ -400,6 +400,52 @@ func TestUnsupportedArgPanics(t *testing.T) {
 	a.New(uop.OpConst, uop.Dtypes.Void, nil, []int{1, 2, 3}, nil)
 }
 
+// ── StructuralKeys cross-arena stability ─────────────────────────────────────
+
+// TestStructuralKeysCrossArena verifies that StructuralKeys produces the same
+// hash for structurally identical nodes even when they live at different arena
+// indices (i.e., the keys are a pure function of graph structure, not allocation
+// order). This is the cross-build stability guarantee that StructuralKeys must
+// uphold after replacing pointer-address dtype hashing with DType.StructuralHash.
+func TestStructuralKeysCrossArena(t *testing.T) {
+	// Arena 1: const(1.0) at idx 0, const(2.0) at idx 1, add at idx 2.
+	a1 := uop.NewArena(8)
+	x1 := a1.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	y1 := a1.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(2), nil)
+	add1 := a1.New(uop.OpAdd, uop.Dtypes.Float32, []uop.UOp{x1, y1}, nil, nil)
+	keys1 := uop.StructuralKeys(a1)
+
+	// Arena 2: const(99.0) at idx 0 (extra node to shift indices), then
+	// const(1.0) at idx 1, const(2.0) at idx 2, add at idx 3.
+	a2 := uop.NewArena(8)
+	a2.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(99), nil) // idx 0: unrelated node
+	x2 := a2.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	y2 := a2.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(2), nil)
+	add2 := a2.New(uop.OpAdd, uop.Dtypes.Float32, []uop.UOp{x2, y2}, nil, nil)
+	keys2 := uop.StructuralKeys(a2)
+
+	if add1.Index() == add2.Index() {
+		t.Fatal("test setup: add nodes must be at different arena indices to be meaningful")
+	}
+	t.Logf("arena1: add@%d key=%016x  arena2: add@%d key=%016x",
+		add1.Index(), keys1[add1.Index()], add2.Index(), keys2[add2.Index()])
+
+	if keys1[add1.Index()] != keys2[add2.Index()] {
+		t.Errorf("cross-arena structural key mismatch for identical add node: %016x != %016x",
+			keys1[add1.Index()], keys2[add2.Index()])
+	}
+	// Leaf nodes with identical content must also match across arenas.
+	if keys1[x1.Index()] != keys2[x2.Index()] {
+		t.Errorf("cross-arena key mismatch for const(1.0): %016x != %016x",
+			keys1[x1.Index()], keys2[x2.Index()])
+	}
+	// Structurally distinct nodes must not collide.
+	c99 := a2.At(0)
+	if keys2[c99.Index()] == keys2[x2.Index()] {
+		t.Errorf("const(99) and const(1) must have different structural keys")
+	}
+}
+
 // ── map key correctness ───────────────────────────────────────────────────────
 
 func TestUOpAsMapKey(t *testing.T) {
@@ -441,5 +487,88 @@ func TestUOpStringInvalid(t *testing.T) {
 	s := u.String()
 	if !strings.Contains(s, "invalid") {
 		t.Errorf("zero-value UOp String() = %q; want to contain 'invalid'", s)
+	}
+}
+
+// ── provenance: first-construction-wins ──────────────────────────────────────
+
+// TestProvenanceFirstConstructionWins is the critical proof that:
+//
+//  1. building a node in forward phase then requesting the same structure in
+//     backward phase still yields ONE arena entry (interning intact), AND
+//  2. that node's provenance is PhaseForward (first-construction wins, not
+//     flipped by the backward reference).
+func TestProvenanceFirstConstructionWins(t *testing.T) {
+	a := uop.NewArena(16)
+
+	// Build in forward phase (default: PhaseForward).
+	x := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	y := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(2), nil)
+	add := a.New(uop.OpAdd, uop.Dtypes.Float32, []uop.UOp{x, y}, nil, nil)
+
+	if a.Provenance(add.Index()) != uop.PhaseForward {
+		t.Fatalf("forward-built add has provenance %v, want PhaseForward", a.Provenance(add.Index()))
+	}
+
+	// Switch to backward phase and request the same structural node.
+	prev := a.SetPhase(uop.PhaseBackward)
+	addAgain := a.New(uop.OpAdd, uop.Dtypes.Float32, []uop.UOp{x, y}, nil, nil)
+	a.SetPhase(prev)
+
+	// Interning intact: same arena index.
+	if addAgain.Index() != add.Index() {
+		t.Errorf("interning broken: forward add@%d, backward request→@%d (expected same)",
+			add.Index(), addAgain.Index())
+	}
+	// Arena has exactly 3 nodes (x, y, add) — not 4.
+	if a.Len() != 3 {
+		t.Errorf("arena Len = %d after backward re-request, want 3 (no duplicate)", a.Len())
+	}
+	// First-construction wins: provenance is still forward.
+	if a.Provenance(addAgain.Index()) != uop.PhaseForward {
+		t.Errorf("provenance flipped to %v, want PhaseForward (first-construction wins)",
+			a.Provenance(addAgain.Index()))
+	}
+
+	t.Logf("proof: add@idx=%d, same structure in backward→idx=%d, provenance=%v",
+		add.Index(), addAgain.Index(), a.Provenance(add.Index()))
+}
+
+// TestProvenanceBypassOpsGetCurrentPhase verifies that bypass ops (BUFFER,
+// UNIQUE, LUNIQUE) — which always allocate fresh slots — correctly inherit
+// the current build phase at allocation time.
+func TestProvenanceBypassOpsGetCurrentPhase(t *testing.T) {
+	a := uop.NewArena(8)
+
+	bufFwd := a.New(uop.OpBuffer, uop.Dtypes.Float32, nil, []int64{4}, nil)
+	if a.Provenance(bufFwd.Index()) != uop.PhaseForward {
+		t.Errorf("forward buffer: provenance = %v, want PhaseForward", a.Provenance(bufFwd.Index()))
+	}
+
+	prev := a.SetPhase(uop.PhaseBackward)
+	bufBwd := a.New(uop.OpBuffer, uop.Dtypes.Float32, nil, []int64{4}, nil)
+	a.SetPhase(prev)
+
+	if a.Provenance(bufBwd.Index()) != uop.PhaseBackward {
+		t.Errorf("backward buffer: provenance = %v, want PhaseBackward", a.Provenance(bufBwd.Index()))
+	}
+}
+
+// TestProvenanceResetClearsPhase verifies that Reset restores the arena to the
+// forward phase and clears all provenance records.
+func TestProvenanceResetClearsPhase(t *testing.T) {
+	a := uop.NewArena(8)
+	prev := a.SetPhase(uop.PhaseBackward)
+	a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	a.SetPhase(prev)
+
+	a.Reset()
+
+	u := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
+	if a.Provenance(u.Index()) != uop.PhaseForward {
+		t.Errorf("after Reset, node provenance = %v, want PhaseForward", a.Provenance(u.Index()))
+	}
+	if u.Index() != 0 {
+		t.Errorf("after Reset, first node index = %d, want 0", u.Index())
 	}
 }

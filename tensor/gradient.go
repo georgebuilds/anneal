@@ -36,6 +36,9 @@ func Backward(loss *Tensor, params []*Tensor) map[*Tensor]*Tensor {
 
 func runBackward(loss *Tensor, targets map[uint32]bool) map[uint32]*Tensor {
 	device := loss.device
+	a := loss.arena()
+	prev := a.SetPhase(uop.PhaseBackward)
+	defer a.SetPhase(prev)
 
 	// Forward topological order (sources before consumers).
 	topo := topoSortUOp(loss.node)
@@ -48,7 +51,6 @@ func runBackward(loss *Tensor, targets map[uint32]bool) map[uint32]*Tensor {
 	}
 
 	// Seed: adjoint of loss is ones of the same shape.
-	a := loss.arena()
 	lossShape := shapeCache[loss.node.Index()]
 	if lossShape == nil {
 		lossShape = []int64{}

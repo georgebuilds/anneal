@@ -8,6 +8,8 @@
 package schedule
 
 import (
+	"sort"
+
 	"github.com/georgebuilds/anneal/uop"
 )
 
@@ -71,7 +73,24 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 	// bufForBufz maps a BUFFERIZE node's arena index → the BUFFER node's arena
 	// index.  INDEX(BUFFERIZE, *i) nodes use this to become INDEX(BUFFER, *i).
 	bufForBufz := make(map[uint32]uint32)
-	counter := int64(0)
+
+	// Assign LUNIQUE counters by structural-key order of BUFFERIZE nodes so that
+	// the counter (and therefore BUFFER identity) is a pure function of graph
+	// structure, independent of arena construction order.
+	keys := uop.StructuralKeys(a)
+	var bufzList []uop.UOp
+	for _, u := range topo {
+		if u.Op() == uop.OpBufferize {
+			bufzList = append(bufzList, u)
+		}
+	}
+	sort.SliceStable(bufzList, func(i, j int) bool {
+		return keys[bufzList[i].Index()] < keys[bufzList[j].Index()]
+	})
+	counterMap := make(map[uint32]int64, len(bufzList))
+	for i, u := range bufzList {
+		counterMap[u.Index()] = int64(i)
+	}
 
 	for _, u := range topo {
 		// Build remapped srcs, with special handling for INDEX nodes:
@@ -144,8 +163,7 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 		}
 
 		// BUFFER(LUNIQUE, DEVICE, arg=outShape)
-		lunique := a.New(uop.OpLUnique, uop.Dtypes.Void, nil, counter, nil)
-		counter++
+		lunique := a.New(uop.OpLUnique, uop.Dtypes.Void, nil, counterMap[u.Index()], nil)
 		deviceNode := a.New(uop.OpDevice, uop.Dtypes.Void, nil, device, nil)
 		buf := a.New(uop.OpBuffer, u.DType(), []uop.UOp{lunique, deviceNode}, outShape, nil)
 		bufForBufz[u.Index()] = buf.Index()

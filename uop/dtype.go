@@ -340,6 +340,47 @@ func init() {
 	buildPromoLattice()
 }
 
+// StructuralHash returns a stable hash of d's field values, independent of the
+// pointer's allocation address. Used by StructuralKeys so that cross-build node
+// keys are deterministic. This must NOT replace hashNode, which correctly uses
+// pointer identity for the intern hash (faster and correct within one process).
+//
+// The DType graph is acyclic and at most one level deep (vector's scalar →
+// scalar dtype; pointer's base → non-pointer dtype), so the recursive calls
+// always terminate without memoisation.
+func (d *DType) StructuralHash() uint64 {
+	const (
+		offset      uint64 = 14695981039346656037
+		prime       uint64 = 1099511628211
+		nilSentinel uint64 = 0xcafebabe00000001
+	)
+	if d == nil {
+		return nilSentinel
+	}
+	mix := func(h, v uint64) uint64 { return (h ^ v) * prime }
+	h := offset
+	h = mix(h, uint64(int64(d.priority))) // int64 cast preserves sign bits for -1
+	h = mix(h, uint64(d.bitsize))
+	for i := 0; i < len(d.name); i++ {
+		h = mix(h, uint64(d.name[i]))
+	}
+	for i := 0; i < len(d.fmt); i++ {
+		h = mix(h, uint64(d.fmt[i]))
+	}
+	h = mix(h, uint64(d.count))
+	h = mix(h, d.scalar.StructuralHash()) // nil for scalar dtypes → nilSentinel
+	if d.isPtr {
+		h = mix(h, 1)
+		h = mix(h, d.base.StructuralHash()) // base is always non-pointer
+		h = mix(h, uint64(d.addrSpace))
+		h = mix(h, uint64(d.ptrVec))
+		h = mix(h, uint64(int64(d.ptrSize))) // -1 → ^uint64(0), distinct from 0
+	} else {
+		h = mix(h, 0)
+	}
+	return h
+}
+
 // ── type promotion ────────────────────────────────────────────────────────────
 
 // promoLattice maps each scalar dtype to its immediate promotion targets.

@@ -78,7 +78,11 @@ func rebuildWithParams(a *uop.Arena, inner uop.UOp, paramMap map[uint32]uop.UOp)
 // Intermediate AFTER nodes are not reachable from SINK via graph edges — they are
 // referenced only through the BUFFER nodes inside downstream kernels' bodies,
 // which is why an arena scan is necessary rather than a graph traversal.
-func findAfterNodes(a *uop.Arena, startIdx uint32) []uop.UOp {
+//
+// keys is the slice returned by uop.StructuralKeys(a); AFTER nodes are sorted by
+// the structural key of their END child (Src(1)) so that kernel ordering is a pure
+// function of graph structure, not of arena construction order.
+func findAfterNodes(a *uop.Arena, startIdx uint32, keys []uint64) []uop.UOp {
 	var afters []uop.UOp
 	for i := startIdx; i < uint32(a.Len()); i++ {
 		u := a.At(i)
@@ -86,9 +90,12 @@ func findAfterNodes(a *uop.Arena, startIdx uint32) []uop.UOp {
 			afters = append(afters, u)
 		}
 	}
-	// Sort by output buffer arena index for determinism.
-	sort.Slice(afters, func(i, j int) bool {
-		return afters[i].Src(0).Index() < afters[j].Src(0).Index()
+	// Sort by structural key of the END node (Src(1)) — captures full kernel body —
+	// rather than by output buffer arena index (construction-order artifact).
+	// For genuinely isomorphic kernels (same structural key), stable order preserves
+	// arena-scan order; any fixed order is correct since they are interchangeable.
+	sort.SliceStable(afters, func(i, j int) bool {
+		return keys[afters[i].Src(1).Index()] < keys[afters[j].Src(1).Index()]
 	})
 	return afters
 }
@@ -99,8 +106,10 @@ func findAfterNodes(a *uop.Arena, startIdx uint32) []uop.UOp {
 //
 // startIdx is the arena length before GetKernelGraph ran; findAfterNodes uses it
 // to exclude AFTER nodes from any prior Realize call on the same arena.
-func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32) (uop.UOp, []uop.UOp) {
-	afters := findAfterNodes(a, startIdx)
+// keys is from uop.StructuralKeys(a) and is forwarded to findAfterNodes for
+// structural ordering of AFTER nodes.
+func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32, keys []uint64) (uop.UOp, []uop.UOp) {
+	afters := findAfterNodes(a, startIdx, keys)
 	calls := make([]uop.UOp, len(afters))
 
 	for i, after := range afters {
@@ -120,10 +129,11 @@ func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32) (uop.UOp, []uop.U
 			}
 		}
 
-		// Sort input buffers by arena index for determinism.
-		sort.Slice(inputBufs, func(x, y int) bool {
-			return inputBufs[x].Index() < inputBufs[y].Index()
-		})
+		// Input buffers are kept in DFS encounter order from collectBuffers (src[0]
+		// before src[1] at every node).  This order is a pure function of graph
+		// structure — it does not depend on arena construction order — making PARAM
+		// numbering deterministic.  For genuinely isomorphic input buffers (same
+		// structural key), DFS encounter order is the correct stable tiebreak.
 
 		// Build paramMap: BUFFER.Index() → PARAM UOp.
 		paramMap := make(map[uint32]uop.UOp, 1+len(inputBufs))
@@ -156,8 +166,11 @@ func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32) (uop.UOp, []uop.U
 
 // createSchedule performs a Kahn topological sort of CALL nodes based on
 // buffer producer-consumer dependencies. Returns CALL nodes in execution order.
-// Ties are broken by the arena index of the CALL's output buffer (ascending).
-func createSchedule(calls []uop.UOp) []uop.UOp {
+// Ties among frontier nodes (independent kernels) are broken by the structural
+// key of the CALL node, making execution order a pure function of graph structure.
+// keys must be from uop.StructuralKeys(a) computed after splitKernels created
+// the CALL nodes (so all CALL indices are valid entries in keys).
+func createSchedule(calls []uop.UOp, keys []uint64) []uop.UOp {
 	n := len(calls)
 	if n == 0 {
 		return nil
@@ -198,8 +211,8 @@ func createSchedule(calls []uop.UOp) []uop.UOp {
 		}
 	}
 	sortFrontier := func() {
-		sort.Slice(frontier, func(a, b int) bool {
-			return calls[frontier[a]].Src(1).Index() < calls[frontier[b]].Src(1).Index()
+		sort.SliceStable(frontier, func(a, b int) bool {
+			return keys[calls[frontier[a]].Index()] < keys[calls[frontier[b]].Index()]
 		})
 	}
 	sortFrontier()
@@ -401,8 +414,17 @@ func CreateSchedule(sink uop.UOp, device string) []ExecItem {
 	uopsCount := a.Len()
 	startIdx := uint32(uopsCount)
 	sink = GetKernelGraph(sink, device)
-	_, calls := splitKernels(a, sink, startIdx)
-	ordered := createSchedule(calls)
+
+	// Structural keys after addBuffers: covers AFTER and END nodes used by
+	// findAfterNodes (structural sort of AFTER nodes) and splitKernels.
+	// CALL nodes do not exist yet at this point.
+	keys := uop.StructuralKeys(a)
+	_, calls := splitKernels(a, sink, startIdx, keys)
+
+	// Recompute after splitKernels adds CALL/SINK/PARAM/INDEX nodes so that
+	// createSchedule can tiebreak the Kahn frontier by CALL structural key.
+	keys = uop.StructuralKeys(a)
+	ordered := createSchedule(calls, keys)
 	items := linearToSchedule(ordered)
 	items = memoryPlan(items)
 	if h := StatsHook; h != nil {

@@ -6,14 +6,32 @@ import (
 	"unsafe"
 )
 
+// Phase classifies the compilation pass that first constructed a UOp node.
+// PhaseForward is the zero value so all arenas start in the forward phase.
+type Phase uint8
+
+const (
+	PhaseForward  Phase = 0 // forward computation (default)
+	PhaseBackward Phase = 1 // reverse-mode autodiff pass
+)
+
+func (p Phase) String() string {
+	if p == PhaseBackward {
+		return "backward"
+	}
+	return "forward"
+}
+
 // Arena holds all UOp nodes for one compilation unit (bounded by one realize boundary).
 //
 // Not safe for concurrent mutation; the single-threaded compile path in v1 makes
 // per-operation locking unnecessary. Document any future multi-arena usage explicitly.
 type Arena struct {
-	nodes  []uopNode
-	cache  map[uint64][]uint32 // hash → matching arena indices (separate chaining)
-	leaves map[uint32][]float32 // leaf data indexed by local UOp index; released with the arena
+	nodes      []uopNode
+	cache      map[uint64][]uint32  // hash → matching arena indices (separate chaining)
+	leaves     map[uint32][]float32 // leaf data indexed by local UOp index; released with the arena
+	provenance []Phase              // parallel to nodes; set once at first construction
+	phase      Phase                // current build phase; new allocations inherit this
 }
 
 // uopNode is the stored, immutable representation of one UOp.
@@ -28,9 +46,10 @@ type uopNode struct {
 // NewArena returns an Arena pre-sized for capacity UOp nodes.
 func NewArena(capacity int) *Arena {
 	return &Arena{
-		nodes:  make([]uopNode, 0, capacity),
-		cache:  make(map[uint64][]uint32, capacity),
-		leaves: make(map[uint32][]float32),
+		nodes:      make([]uopNode, 0, capacity),
+		cache:      make(map[uint64][]uint32, capacity),
+		leaves:     make(map[uint32][]float32),
+		provenance: make([]Phase, 0, capacity),
 	}
 }
 
@@ -41,6 +60,8 @@ func (a *Arena) Reset() {
 	a.nodes = a.nodes[:0]
 	a.cache = make(map[uint64][]uint32, cap(a.nodes))
 	a.leaves = make(map[uint32][]float32)
+	a.provenance = a.provenance[:0]
+	a.phase = PhaseForward
 }
 
 // SetLeaf stores float32 data for the leaf node at idx.
@@ -101,9 +122,25 @@ func (a *Arena) New(op Op, dtype *DType, src []UOp, arg, tag any) UOp {
 // At returns the UOp at the given arena index. The caller must ensure idx is valid.
 func (a *Arena) At(idx uint32) UOp { return UOp{a: a, idx: idx} }
 
+// SetPhase sets the current construction phase used by all subsequent New calls
+// and returns the previous phase so callers can restore it with defer.
+// Cache-hit nodes are not affected — first-construction wins.
+func (a *Arena) SetPhase(p Phase) Phase {
+	prev := a.phase
+	a.phase = p
+	return prev
+}
+
+// Provenance returns the Phase that was active when the node at idx was first
+// allocated. Panics if idx is out of range (same contract as At).
+func (a *Arena) Provenance(idx uint32) Phase {
+	return a.provenance[idx]
+}
+
 func (a *Arena) allocFresh(node uopNode) UOp {
 	idx := uint32(len(a.nodes))
 	a.nodes = append(a.nodes, node)
+	a.provenance = append(a.provenance, a.phase)
 	return UOp{a: a, idx: idx}
 }
 
@@ -172,6 +209,41 @@ func (u UOp) String() string {
 }
 
 // ── hashing and structural equality ──────────────────────────────────────────
+
+// StructuralKeys computes a bottom-up structural content hash for every node
+// currently in a, returned as a slice indexed by arena position.
+//
+// Unlike hashNode (the intern hash), which mixes in raw arena indices of
+// children, StructuralKeys mixes in the structural keys of children.  Two
+// structurally identical subgraphs built at different arena positions receive
+// the same key.
+//
+// The arena construction invariant guarantees every src index is strictly less
+// than the containing node's index, so a single forward pass suffices.
+// No reflection is used; panics on unknown arg/tag types (same contract as hashNode).
+func StructuralKeys(a *Arena) []uint64 {
+	n := a.Len()
+	keys := make([]uint64, n)
+	const (
+		offset uint64 = 14695981039346656037
+		prime  uint64 = 1099511628211
+	)
+	mix := func(h, v uint64) uint64 { return (h ^ v) * prime }
+	for i := 0; i < n; i++ {
+		node := a.nodes[i]
+		h := offset
+		h = mix(h, uint64(node.op))
+		h = mix(h, node.dtype.StructuralHash())
+		h = mix(h, uint64(len(node.src)))
+		for _, srcIdx := range node.src {
+			h = mix(h, keys[srcIdx]) // structural key of child, NOT arena index
+		}
+		h = hashArg(h, node.arg, prime)
+		h = hashArg(h, node.tag, prime)
+		keys[i] = h
+	}
+	return keys
+}
 
 // hashNode computes an FNV-1a hash of all fields that participate in the intern key.
 // No reflection is used; only types explicitly listed in hashArg are supported.

@@ -1208,3 +1208,86 @@ func TestCreateSchedule_ForwardBackward_EndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// ── Determinism: different construction order ─────────────────────────────────
+
+// TestCreateSchedule_DeterminismBuildOrder proves that scheduling is order-invariant:
+// the same logical graph built with leaf buffers in different arena construction
+// orders produces identical kernel count, PARAM numbering, and input-buffer sizes.
+//
+// The critical case is a kernel with TWO input buffers of different sizes.  With
+// the old sort-by-Index() code, building leaf_x first vs leaf_y first swaps their
+// arena indices, which swaps their PARAM numbers.  After the fix (keep DFS encounter
+// order, which is structural), PARAM(1) is always the leaf encountered first in the
+// body DFS regardless of construction order.
+func TestCreateSchedule_DeterminismBuildOrder(t *testing.T) {
+	// x has shape [1] (size 1), y has shape [8] (size 8).
+	// Computation: loss = sum(x.Expand([8]) + y).
+	// The single kernel reads both x and y; the DFS of its body encounters x before y
+	// (x.Expand is src[0] of Add), so after the fix PARAM(1) always corresponds to
+	// the buffer of size 1 (x) and PARAM(2) to the buffer of size 8 (y).
+	type kernelSummary struct {
+		numKernels int
+		numParams  []int
+		inputSizes []int64 // input buffer sizes for all kernels, in schedule order
+	}
+
+	extract := func(items []schedule.ExecItem) kernelSummary {
+		ks := kernelSummary{numKernels: len(items)}
+		for _, item := range items {
+			ki, ok := item.Ast.Arg().(uop.KernelInfo)
+			if !ok {
+				t.Fatalf("Ast.Arg() is %T, want KernelInfo", item.Ast.Arg())
+			}
+			ks.numParams = append(ks.numParams, ki.NumParams)
+			for _, buf := range item.Bufs[1:] {
+				ks.inputSizes = append(ks.inputSizes, buf.Size)
+			}
+		}
+		return ks
+	}
+
+	build := func(xFirst bool) kernelSummary {
+		a := uop.NewArena(1024)
+		var x, y *tensor.Tensor
+		if xFirst {
+			x = tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, "cpu") // x at lower idx
+			y = tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "cpu")
+		} else {
+			y = tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "cpu") // y at lower idx
+			x = tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, "cpu")
+		}
+		// x.Expand([8]) + y  — x is src[0] of Add in both arenas.
+		xExp := x.Expand([]int64{8})
+		sum := xExp.Add(y)
+		loss := sum.Sum(nil, false) // scalar reduce — forces kernel boundary
+		sink := a.New(uop.OpSink, uop.Dtypes.Void, []uop.UOp{loss.Node()}, nil, nil)
+		return extract(schedule.CreateSchedule(sink, "cpu"))
+	}
+
+	ks1 := build(true)  // x built first: x.Index() < y.Index()
+	ks2 := build(false) // y built first: y.Index() < x.Index()
+
+	t.Logf("xFirst  → numKernels=%d, numParams=%v, inputSizes=%v", ks1.numKernels, ks1.numParams, ks1.inputSizes)
+	t.Logf("yFirst  → numKernels=%d, numParams=%v, inputSizes=%v", ks2.numKernels, ks2.numParams, ks2.inputSizes)
+
+	if ks1.numKernels != ks2.numKernels {
+		t.Fatalf("numKernels: %d (xFirst) vs %d (yFirst)", ks1.numKernels, ks2.numKernels)
+	}
+	for i := range ks1.numParams {
+		if ks1.numParams[i] != ks2.numParams[i] {
+			t.Errorf("kernel[%d] NumParams: %d vs %d", i, ks1.numParams[i], ks2.numParams[i])
+		}
+	}
+	if len(ks1.inputSizes) != len(ks2.inputSizes) {
+		t.Fatalf("total input buf count: %d vs %d", len(ks1.inputSizes), len(ks2.inputSizes))
+	}
+	for i, sz1 := range ks1.inputSizes {
+		sz2 := ks2.inputSizes[i]
+		if sz1 != sz2 {
+			t.Errorf("inputBuf[%d] Size: %d (xFirst) vs %d (yFirst) — "+
+				"PARAM numbering is construction-order dependent (BUG)", i, sz1, sz2)
+		}
+	}
+	t.Logf("PASS: PARAM numbering is identical regardless of construction order")
+}
