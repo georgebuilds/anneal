@@ -286,10 +286,17 @@ const (
 // RangeArg is the arg payload for OpRange nodes.
 // ID is a scheduler-assigned counter that uniquely identifies this loop variable
 // within a kernel; Size is the exclusive upper bound ([0, Size)).
+//
+// Symbolic shapes spike (SLICE 1): when Symbolic=true the bound is not known at
+// compile time. Size is ignored; the runtime value is read from the kernel's
+// params_n storage buffer at slot SymParamIdx. The static path (Symbolic=false)
+// is entirely unaffected — the bool zero-value keeps all existing kernels intact.
 type RangeArg struct {
-	ID   int
-	Size int64
-	Type AxisType
+	ID          int
+	Size        int64
+	Type        AxisType
+	Symbolic    bool // true → read bound from params_n[SymParamIdx] at dispatch
+	SymParamIdx int  // index into the per-kernel params_n buffer (only when Symbolic)
 }
 
 // BufferizeArg is the arg payload for OpBufferize nodes.
@@ -297,6 +304,29 @@ type RangeArg struct {
 // the cost pass; false marks hard boundaries that must materialize.
 type BufferizeArg struct {
 	Removable bool
+}
+
+// VarArg is the arg payload for OpDefineVar nodes.
+// Name is the symbolic variable's human-readable identifier.
+// Two DefineVars with the same name and bounds intern to one node;
+// different names produce distinct nodes.
+type VarArg struct{ Name string }
+
+// DefineVar creates (or retrieves interned) a symbolic variable with name
+// and inclusive integer bounds [min, max]. The resulting UOp has dtype Index
+// and two Const srcs encoding the exclusive interval: src[0]=min, src[1]=max+1.
+// This encoding matches what BoundsOf expects: it returns [src[0], src[1].Max-1].
+func (a *Arena) DefineVar(name string, min, max int64) UOp {
+	minC := a.New(OpConst, Dtypes.Index, nil, min, nil)
+	maxC := a.New(OpConst, Dtypes.Index, nil, max+1, nil)
+	return a.New(OpDefineVar, Dtypes.Index, []UOp{minC, maxC}, VarArg{Name: name}, nil)
+}
+
+// Bind records that the DefineVar v has been given concrete value val at this
+// dispatch. The fold rule (Bind (DefineVar)) → Const(val) collapses it; after
+// GraphRewrite with Symbolic the result is a Const node.
+func (a *Arena) Bind(v UOp, val int64) UOp {
+	return a.New(OpBind, v.DType(), []UOp{v}, val, nil)
 }
 
 // hashArg mixes a typed arg/tag value into h.
@@ -350,6 +380,12 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 		h = mix(h, uint64(v.ID))
 		h = mix(h, uint64(v.Size))
 		h = mix(h, uint64(v.Type))
+		if v.Symbolic {
+			h = mix(h, 1)
+		} else {
+			h = mix(h, 0)
+		}
+		h = mix(h, uint64(v.SymParamIdx))
 		return h
 	case BufferizeArg:
 		h = mix(h, 9)
@@ -364,6 +400,12 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 	case KernelInfo:
 		h = mix(h, 11)
 		return mix(h, uint64(v.NumParams))
+	case VarArg:
+		h = mix(h, 12)
+		for i := 0; i < len(v.Name); i++ {
+			h = mix(h, uint64(v.Name[i]))
+		}
+		return h
 	default:
 		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))
 	}
@@ -449,6 +491,9 @@ func equalArg(a, b any) bool {
 		return ok && av == bv
 	case KernelInfo:
 		bv, ok := b.(KernelInfo)
+		return ok && av == bv
+	case VarArg:
+		bv, ok := b.(VarArg)
 		return ok && av == bv
 	default:
 		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))

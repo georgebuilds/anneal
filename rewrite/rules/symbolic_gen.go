@@ -54,6 +54,7 @@ func newSymbolicGenerated() *genMatcher {
 	gm.fns[uop.OpPow] = genMatchPow
 	gm.fns[uop.OpWhere] = genMatchWhere
 	gm.fns[uop.OpMulAcc] = genMatchMulAcc
+	gm.fns[uop.OpBind] = genMatchBind
 	gm.fns[uop.OpCast] = genMatchCast
 	gm.fns[uop.OpBitcast] = genMatchBitcast
 	return gm
@@ -196,7 +197,7 @@ func genMatchAdd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 40: => hReturnX
+	// Rule line 45: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -208,7 +209,7 @@ func genMatchAdd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 41: => hReturnX
+	// Rule line 46: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -220,7 +221,7 @@ func genMatchAdd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 76: => hBoolAdd
+	// Rule line 81: => hBoolAdd
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		if _s0.DType() == uop.Dtypes.Bool {
@@ -235,7 +236,7 @@ func genMatchAdd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -257,7 +258,7 @@ func genMatchMul(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 42: => hReturnX
+	// Rule line 47: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -269,7 +270,7 @@ func genMatchMul(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 43: => hReturnX
+	// Rule line 48: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -281,7 +282,7 @@ func genMatchMul(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 44: => hMulZero
+	// Rule line 49: => hMulZero
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -293,7 +294,7 @@ func genMatchMul(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 75: => hBoolMul
+	// Rule line 80: => hBoolMul
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		if _s0.DType() == uop.Dtypes.Bool {
@@ -308,7 +309,7 @@ func genMatchMul(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -364,7 +365,7 @@ func genMatchIDiv(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 48: => hReturnX
+	// Rule line 53: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -376,7 +377,7 @@ func genMatchIDiv(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 49: => hIDivNegOne
+	// Rule line 54: => hIDivNegOne
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -388,7 +389,7 @@ func genMatchIDiv(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 65: => hIDivSelf
+	// Rule line 70: => hIDivSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -417,7 +418,7 @@ func genMatchMax(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 71: => hReturnX
+	// Rule line 76: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -429,7 +430,7 @@ func genMatchMax(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 77: => hBoolMax
+	// Rule line 82: => hBoolMax
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		if _s0.DType() == uop.Dtypes.Bool {
@@ -444,7 +445,7 @@ func genMatchMax(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -466,7 +467,7 @@ func genMatchMod(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 64: => hModSelf
+	// Rule line 69: => hModSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -478,7 +479,7 @@ func genMatchMod(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 82: => hReturnBase
+	// Rule line 87: => hReturnBase
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		if _s0.Op() == uop.OpMod {
@@ -513,7 +514,7 @@ func genMatchCmpLt(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 66: => hCmpSelf
+	// Rule line 71: => hCmpSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -525,7 +526,7 @@ func genMatchCmpLt(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 92: => hCmpLtBounds
+	// Rule line 97: => hCmpLtBounds
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_a := _s0
@@ -553,7 +554,7 @@ func genMatchCmpNe(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 67: => hCmpSelf
+	// Rule line 72: => hCmpSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -565,7 +566,7 @@ func genMatchCmpNe(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 93: => hCmpNeBounds
+	// Rule line 98: => hCmpNeBounds
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_a := _s0
@@ -576,7 +577,7 @@ func genMatchCmpNe(u uop.UOp, ctx any) (uop.UOp, bool) {
 			return _r, true
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -598,7 +599,7 @@ func genMatchCmpEq(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -620,7 +621,7 @@ func genMatchXor(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 47: => hReturnX
+	// Rule line 52: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -632,7 +633,7 @@ func genMatchXor(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 63: => hXorSelf
+	// Rule line 68: => hXorSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -644,7 +645,7 @@ func genMatchXor(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 81: => hReturnX
+	// Rule line 86: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		if _s0.Op() == uop.OpXor {
@@ -663,7 +664,7 @@ func genMatchXor(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -685,7 +686,7 @@ func genMatchOr(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 54: => hReturnX
+	// Rule line 59: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -697,7 +698,7 @@ func genMatchOr(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 56: => hOrTrue
+	// Rule line 61: => hOrTrue
 	if u.NSrc() == 2 {
 		_s1 := u.Src(1)
 		if _s1.Op() == uop.OpConst && genArgEq(_s1.Arg(), true) {
@@ -707,7 +708,7 @@ func genMatchOr(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 71: => hReturnX
+	// Rule line 76: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -719,7 +720,7 @@ func genMatchOr(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -741,7 +742,7 @@ func genMatchAnd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 53: => hReturnX
+	// Rule line 58: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -753,7 +754,7 @@ func genMatchAnd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 55: => hAndFalse
+	// Rule line 60: => hAndFalse
 	if u.NSrc() == 2 {
 		_s1 := u.Src(1)
 		if _s1.Op() == uop.OpConst && genArgEq(_s1.Arg(), false) {
@@ -763,7 +764,7 @@ func genMatchAnd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 57: => hAndZeroInt
+	// Rule line 62: => hAndZeroInt
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -775,7 +776,7 @@ func genMatchAnd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 71: => hReturnX
+	// Rule line 76: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -787,7 +788,7 @@ func genMatchAnd(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 99: => hCanonicalize
+	// Rule line 104: => hCanonicalize
 	_caps := map[string]uop.UOp{"x": u}
 	if _r, _ok := hCanonicalize(_caps, ctx); _ok {
 		return _r, true
@@ -809,7 +810,7 @@ func genMatchSub(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 45: => hReturnX
+	// Rule line 50: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -821,7 +822,7 @@ func genMatchSub(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 46: => hReturnX
+	// Rule line 51: => hReturnX
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -833,7 +834,7 @@ func genMatchSub(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 62: => hSubSelf
+	// Rule line 67: => hSubSelf
 	if u.NSrc() == 2 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -899,7 +900,7 @@ func genMatchWhere(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 86: => hReturnV
+	// Rule line 91: => hReturnV
 	if u.NSrc() == 3 {
 		_s1 := u.Src(1)
 		_cap_v := _s1
@@ -911,7 +912,7 @@ func genMatchWhere(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 87: => hReturnA
+	// Rule line 92: => hReturnA
 	if u.NSrc() == 3 {
 		_s0 := u.Src(0)
 		if _s0.Op() == uop.OpConst && genArgEq(_s0.Arg(), true) {
@@ -923,7 +924,7 @@ func genMatchWhere(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 88: => hReturnB
+	// Rule line 93: => hReturnB
 	if u.NSrc() == 3 {
 		_s0 := u.Src(0)
 		if _s0.Op() == uop.OpConst && genArgEq(_s0.Arg(), false) {
@@ -958,8 +959,22 @@ func genMatchMulAcc(u uop.UOp, ctx any) (uop.UOp, bool) {
 	return uop.UOp{}, false
 }
 
+func genMatchBind(u uop.UOp, ctx any) (uop.UOp, bool) {
+	// Rule line 31: => hBindFold
+	if u.NSrc() == 1 {
+		_s0 := u.Src(0)
+		if _s0.Op() == uop.OpDefineVar {
+			_caps := map[string]uop.UOp{"node": u}
+			if _r, _ok := hBindFold(_caps, ctx); _ok {
+				return _r, true
+			}
+		}
+	}
+	return uop.UOp{}, false
+}
+
 func genMatchCast(u uop.UOp, ctx any) (uop.UOp, bool) {
-	// Rule line 30: => hCastConstFold
+	// Rule line 35: => hCastConstFold
 	if u.NSrc() == 1 {
 		_s0 := u.Src(0)
 		if _s0.Op() == uop.OpConst {
@@ -970,7 +985,7 @@ func genMatchCast(u uop.UOp, ctx any) (uop.UOp, bool) {
 			}
 		}
 	}
-	// Rule line 34: => hIdentityCast
+	// Rule line 39: => hIdentityCast
 	if u.NSrc() == 1 {
 		_s0 := u.Src(0)
 		_cap_x := _s0
@@ -983,7 +998,7 @@ func genMatchCast(u uop.UOp, ctx any) (uop.UOp, bool) {
 }
 
 func genMatchBitcast(u uop.UOp, ctx any) (uop.UOp, bool) {
-	// Rule line 34: => hIdentityCast
+	// Rule line 39: => hIdentityCast
 	if u.NSrc() == 1 {
 		_s0 := u.Src(0)
 		_cap_x := _s0

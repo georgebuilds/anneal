@@ -181,6 +181,17 @@ func hCanonicalize(c map[string]uop.UOp, _ any) (uop.UOp, bool) {
 	return x.Arena().New(x.Op(), x.DType(), []uop.UOp{s1, s0}, x.Arg(), x.Tag()), true
 }
 
+// hBindFold folds Bind(DefineVar, val) → Const(val).
+// The arg on the Bind node is the int64 concrete value for the variable.
+func hBindFold(c map[string]uop.UOp, _ any) (uop.UOp, bool) {
+	node := c["node"]
+	val, ok := node.Arg().(int64)
+	if !ok {
+		return uop.UOp{}, false
+	}
+	return node.Arena().New(uop.OpConst, node.DType(), nil, val, nil), true
+}
+
 // handlerTable maps handler names (as used in .upat files) to their MatchFn implementations.
 // Used by the v0 PatternMatcher builder; the generated matcher calls handlers directly.
 var handlerTable = map[string]rewrite.MatchFn{
@@ -210,4 +221,5 @@ var handlerTable = map[string]rewrite.MatchFn{
 	"hCmpLtBounds":  hCmpLtBounds,
 	"hCmpNeBounds":  hCmpNeBounds,
 	"hCanonicalize": hCanonicalize,
+	"hBindFold":     hBindFold,
 }

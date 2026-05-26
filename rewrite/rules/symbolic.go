@@ -231,6 +231,12 @@ func buildSymbolicV0() *rewrite.PatternMatcher {
 		Fn: hReturnB,
 	}
 
+	// ── 1b. Bind folding ─────────────────────────────────────────────────────
+	bindFold := rewrite.Rule{
+		Pat: rewrite.Pat(uop.OpBind).WithName("node").WithSrc(rewrite.Pat(uop.OpDefineVar)),
+		Fn:  hBindFold,
+	}
+
 	// ── 11. Bound-based comparison folding ───────────────────────────────────
 
 	cmpLtBounds := rewrite.Rule{
@@ -251,6 +257,7 @@ func buildSymbolicV0() *rewrite.PatternMatcher {
 
 	return rewrite.NewPatternMatcher([]rewrite.Rule{
 		unaryFold, binaryFold, ternaryFold,
+		bindFold,
 		castConstFold, identityCast,
 		addZeroI, addZeroF,
 		mulOneI, mulOneF,

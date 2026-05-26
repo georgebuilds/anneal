@@ -25,6 +25,11 @@
 (Add|Mul|Shl|Shr|IDiv|Max|Mod|CmpLt|CmpNe|CmpEq|Xor|Or|And|Sub|FDiv|Pow :node (Const) (Const)) => hFoldBinary
 (Where|MulAcc :node (Const) (Const) (Const)) => hFoldTernary
 
+# ── 1b. Bind folding ─────────────────────────────────────────────────────────
+# Bind(DefineVar, val) → Const(val). Fires after the DefineVar's Const children
+# have been processed (post-order), so the expression subtree is already folded.
+(Bind :node (DefineVar)) => hBindFold
+
 # ── 2. Cast/Bitcast of Const ─────────────────────────────────────────────────
 
 (Cast :root (Const :c)) => hCastConstFold
