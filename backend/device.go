@@ -11,3 +11,11 @@ type Executor interface {
 	Run(items []schedule.ExecItem, inputs map[uint32][]float32) (map[uint32][]float32, error)
 	Close()
 }
+
+// SymbolicExecutor is an optional interface implemented by backends that support
+// runtime-bound symbolic kernels. Kernels with symbolic dims are compiled once
+// and dispatched multiple times with different concrete bindings.
+// binding maps DefineVar name → concrete int64 value for this dispatch.
+type SymbolicExecutor interface {
+	RunSymbolic(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error)
+}

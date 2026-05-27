@@ -13,7 +13,6 @@ package nn_test
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/georgebuilds/anneal/backend/webgpu"
@@ -24,12 +23,9 @@ import (
 
 func requireGPU(t *testing.T) {
 	t.Helper()
-	// Metal NSAutoreleasePool is thread-local. Lock the goroutine to one OS
-	// thread so that pool creation and pool drain always run on the same thread.
-	// Without this, Go's scheduler may migrate the goroutine between cgo calls,
-	// causing drain to run on a different thread than create → SIGSEGV.
-	runtime.LockOSThread()
-	t.Cleanup(runtime.UnlockOSThread)
+	// Thread affinity for Metal's NSAutoreleasePool is handled entirely by the
+	// webgpu.Device GPU-owner goroutine (see backend/webgpu/open.go); callers do
+	// not need to LockOSThread or force GC here.
 	dev, err := webgpu.Open()
 	if err != nil {
 		t.Skipf("no GPU device: %v", err)
