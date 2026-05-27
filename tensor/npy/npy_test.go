@@ -15,12 +15,12 @@ const testdataDir = "testdata"
 
 func newArena() *uop.Arena { return uop.NewArena(256) }
 
-// requireFixture skips the test if the named fixture file is absent.
+// requireFixture fails the test if the named fixture file is absent.
 func requireFixture(t *testing.T, name string) string {
 	t.Helper()
 	path := testdataDir + "/" + name
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("fixture %q not found; run testdata/gen_fixtures.py to generate it", name)
+		t.Fatalf("fixture %q missing — regenerate with:\n\tpython3 tensor/npy/testdata/gen_fixtures.py\nRequires: pip install numpy", path)
 	}
 	return path
 }

@@ -17,12 +17,12 @@ const testdataDir = "testdata"
 
 func newArena() *uop.Arena { return uop.NewArena(256) }
 
-// requireFixture skips if the fixture file is absent.
+// requireFixture fails the test if the named fixture file is absent.
 func requireFixture(t *testing.T, name string) string {
 	t.Helper()
 	path := testdataDir + "/" + name
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("fixture %q not found; run testdata/gen_fixtures.py", name)
+		t.Fatalf("fixture %q missing — regenerate with:\n\tpython3 tensor/safetensors/testdata/gen_fixtures.py\nRequires: pip install safetensors numpy", path)
 	}
 	return path
 }
