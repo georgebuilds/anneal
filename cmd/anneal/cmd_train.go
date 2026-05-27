@@ -32,6 +32,7 @@ func trainCmdW(args []string, w io.Writer) int {
 	lr := fs.Float64("lr", 0.05, "learning rate")
 	logEvery := fs.Int("log-every", 10, "log loss every N steps")
 	plain := fs.Bool("plain", false, "plain text output (disables the TUI)")
+	batch := fs.Int64("batch", 16, "batch size for dynamic-batch models; static models ignore this")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(w, err)
@@ -58,7 +59,7 @@ func trainCmdW(args []string, w io.Writer) int {
 
 	rest := fs.Args()
 	if len(rest) == 0 {
-		fmt.Fprintln(w, "usage: anneal train <model> [--steps=N] [--lr=F] [--log-every=N] [--plain]")
+		fmt.Fprintln(w, "usage: anneal train <model> [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]")
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "available models:")
 		for _, e := range examples.All() {
@@ -91,6 +92,7 @@ func trainCmdW(args []string, w io.Writer) int {
 		Steps:    *steps,
 		LR:       float32(*lr),
 		LogEvery: *logEvery,
+		Batch:    *batch,
 	}
 
 	// Activate the TUI when writing to an interactive TTY, NO_COLOR is not set,
@@ -102,7 +104,7 @@ func trainCmdW(args []string, w io.Writer) int {
 	// Plain output path: used for --plain, NO_COLOR, non-TTY output, and tests.
 	fmt.Fprintf(w, "training %s — %s\n", ex.Name, ex.Summary)
 	fmt.Fprintf(w, "device: %s (%s)\n", backend, adapterName)
-	fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: auto\n", cfg.Steps, cfg.LR)
+	fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: %d\n", cfg.Steps, cfg.LR, cfg.Batch)
 	fmt.Fprintln(w)
 
 	logFn := func(step int, loss float32) {

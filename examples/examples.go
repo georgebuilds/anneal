@@ -23,8 +23,9 @@ type BuildResult struct {
 type TrainConfig struct {
 	Steps    int
 	LR       float32
-	LogEvery int          // log loss every N steps
-	OnStep   func(int)    // called on every step (nil = no-op); used by the TUI for smooth progress
+	LogEvery int       // log loss every N steps
+	OnStep   func(int) // called on every step (nil = no-op); used by the TUI for smooth progress
+	Batch    int64     // symbolic batch size; 0 = use example default; static examples ignore it
 }
 
 // Example is a named, runnable model example.
