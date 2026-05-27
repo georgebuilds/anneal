@@ -44,9 +44,12 @@ type Instr struct {
 	// InstrGIDVar only
 	Stride int64
 
-	// InstrBoundsCheck, InstrGIDVar: true when the range size is symbolic (read
-	// from the params_n storage buffer at runtime, not a compile-time literal).
+	// InstrBoundsCheck, InstrGIDVar, InstrLoopBegin: true when the range size is
+	// symbolic (read from the params_n storage buffer at runtime).
 	Symbolic bool
+
+	// InstrLoopBegin (symbolic only): which params_n slot holds the loop bound.
+	SymParamIdx int
 
 	// InstrAccInit, InstrAccUpdate
 	AccIdx   int
@@ -57,6 +60,10 @@ type Instr struct {
 	// InstrLet
 	NodeIdx uint32
 	DType   *uop.DType
+
+	// InstrBoundsCheck: product of concrete dims trailing the symbolic dim.
+	// Used to emit "params_n[0] * N" bounds checks for multi-dim symbolic outputs.
+	ConcreteTrailing int64
 
 	// InstrLet, InstrAccUpdate, InstrStore
 	Expr string
@@ -118,8 +125,22 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 	}
 
+	// concreteTrailing: product of concrete dims following the symbolic dim.
+	// For a [sym, c0, c1] output this is c0*c1; for [sym] it is 1.
+	// Used to emit "params_n[0] * concreteTrailing" in the bounds check.
+	concreteTrailing := int64(1)
+	seenSym := false
+	for _, r := range loopRanges {
+		ra := r.Arg().(uop.RangeArg)
+		if ra.Symbolic {
+			seenSym = true
+		} else if seenSym {
+			concreteTrailing *= ra.Size
+		}
+	}
+
 	// Bounds guard: only thread IDs in [0, totalOut) produce output.
-	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange})
+	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, ConcreteTrailing: concreteTrailing})
 
 	// GID decomposition: each AxisLoop range gets a let binding derived from
 	// gid_x via row-major stride arithmetic.
@@ -261,7 +282,11 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 			l.exprOf[r.Index()] = constLiteral(r)
 		} else {
 			ra := r.Arg().(uop.RangeArg)
-			l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, RangeSize: ra.Size})
+			if ra.Symbolic {
+				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, Symbolic: true, SymParamIdx: ra.SymParamIdx})
+			} else {
+				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, RangeSize: ra.Size})
+			}
 			l.exprOf[r.Index()] = fmt.Sprintf("r%d", ra.ID)
 			hasLoop[i] = true
 		}

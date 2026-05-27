@@ -12,6 +12,12 @@ import (
 
 const workgroupSize = 64 // default 1-D workgroup size; tunable in Phase 8b
 
+func init() {
+	// Wire the WGSL renderer into the schedule cache so cacheStore can pre-render
+	// and zero Ast, releasing the arena reference before storing.
+	schedule.WGSLRenderFunc = RenderWGSL
+}
+
 // RenderWGSL converts a kernel's SINK AST to a WGSL compute shader string.
 // It runs the lowerer internally; callers only need to supply the ExecItem.
 func RenderWGSL(item schedule.ExecItem) string {
@@ -26,7 +32,7 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 	// storage buffer that carries runtime dim values.
 	hasSymDim := false
 	for _, ins := range instrs {
-		if (ins.Kind == InstrBoundsCheck || ins.Kind == InstrGIDVar) && ins.Symbolic {
+		if ins.Symbolic && (ins.Kind == InstrBoundsCheck || ins.Kind == InstrGIDVar || ins.Kind == InstrLoopBegin) {
 			hasSymDim = true
 			break
 		}
@@ -46,10 +52,16 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, %s> data%d: array<%s>;\n",
 			i, access, i, elemType)
 	}
-	// Symbolic-shapes params buffer: holds runtime dim values as u32 words.
+	// Symbolic-shapes params uniform: holds runtime dim values as u32 words.
+	// Uses a uniform buffer (not storage) to stay under Metal's 8-storage-buffer-
+	// per-stage limit when backward-pass kernels already saturate the data slots.
+	// Individual u32 fields (not array<u32,N>) because WGSL uniform-address-space
+	// arrays have element stride = max(SizeOf, 16) = 16, which would make the
+	// binding 64 bytes; individual fields have stride 4, keeping it at 16 bytes.
 	// Binding slot = ki.NumParams (immediately after all data bindings).
 	if hasSymDim {
-		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, read> params_n: array<u32>;\n",
+		fmt.Fprintf(&b, "struct ParamsN { n0: u32, n1: u32, n2: u32, n3: u32 };\n")
+		fmt.Fprintf(&b, "@group(0) @binding(%d) var<uniform> params_n: ParamsN;\n",
 			ki.NumParams)
 	}
 
@@ -69,7 +81,13 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 		case InstrBoundsCheck:
 			if ins.Symbolic {
 				// Bound is unknown at compile time; read from the params_n buffer.
-				fmt.Fprintf(&b, "%sif (gid_x >= params_n[0]) { return; }\n", indent())
+				// For multi-dim symbolic ([batch, features]), multiply by the
+				// concrete trailing dimension count so the total equals batch*features.
+				if ins.ConcreteTrailing > 1 {
+					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0 * %du) { return; }\n", indent(), ins.ConcreteTrailing)
+				} else {
+					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0) { return; }\n", indent())
+				}
 			} else {
 				fmt.Fprintf(&b, "%sif (gid_x >= %du) { return; }\n", indent(), ins.TotalN)
 			}
@@ -95,8 +113,14 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 			fmt.Fprintf(&b, "%slet r%d: i32 = %s;\n", indent(), ins.RangeID, expr)
 
 		case InstrLoopBegin:
-			fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < %d; r%d++) {\n",
-				indent(), ins.RangeID, ins.RangeID, ins.RangeSize, ins.RangeID)
+			if ins.Symbolic {
+				symField := [...]string{"n0", "n1", "n2", "n3"}[ins.SymParamIdx]
+				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < i32(params_n.%s); r%d++) {\n",
+					indent(), ins.RangeID, ins.RangeID, symField, ins.RangeID)
+			} else {
+				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < %d; r%d++) {\n",
+					indent(), ins.RangeID, ins.RangeID, ins.RangeSize, ins.RangeID)
+			}
 			depth++
 
 		case InstrLoopEnd:
