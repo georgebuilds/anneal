@@ -54,7 +54,8 @@ type JIT struct {
 	capOuts      []capturedOutput // final-output UOpIdx → tensors-slice position
 	device       string
 	leafCount    int
-	leafSizes    []int // element counts in DFS order; checked only when !symbolic
+	leafSizes    []int   // element counts in DFS order; checked only when !symbolic
+	capSK        uint64  // structural key of captured output expression(s)
 
 	nCaptures atomic.Int64
 	nReplays  atomic.Int64
@@ -87,7 +88,11 @@ func (j *JIT) Realize(tensors ...*Tensor) error {
 		return nil
 	}
 	fl := jitDFSLeaves(tensors)
-	if !j.captured || j.symbolic || !j.matchStatic(fl) {
+	if !j.captured || j.symbolic {
+		return j.captureStatic(tensors, fl)
+	}
+	sk := subgraphSK(tensors)
+	if !j.matchStatic(fl, sk) {
 		return j.captureStatic(tensors, fl)
 	}
 	return j.replayStatic(fl, tensors)
@@ -102,7 +107,11 @@ func (j *JIT) RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) e
 		return nil
 	}
 	fl := jitDFSLeaves(tensors)
-	if !j.captured || !j.symbolic || !j.matchSym(fl) {
+	if !j.captured || !j.symbolic {
+		return j.captureSym(binding, tensors, fl)
+	}
+	sk := subgraphSK(tensors)
+	if !j.matchSym(fl, sk) {
 		return j.captureSym(binding, tensors, fl)
 	}
 	return j.replaySym(fl, binding, tensors)
@@ -158,6 +167,7 @@ func (j *JIT) storeCapture(tensors []*Tensor, fl []jitLeaf, symbolic bool) error
 	j.symbolic = symbolic
 	j.leafCount = len(fl)
 	j.leafSizes = ls
+	j.capSK = subgraphSK(tensors)
 	j.captured = true
 	j.nCaptures.Add(1)
 	return nil
@@ -215,9 +225,10 @@ func (j *JIT) applyOutputs(tensors []*Tensor, outputs map[uint32][]float32) {
 // ── Match guards ───────────────────────────────────────────────────────────────
 
 // matchStatic checks that the fresh leaves match the capture snapshot.
-// For static (non-symbolic) schedules, both count and element sizes must match.
-func (j *JIT) matchStatic(fl []jitLeaf) bool {
-	if len(fl) != j.leafCount {
+// For static (non-symbolic) schedules, both count and element sizes must match,
+// and the output structural key must be unchanged from capture.
+func (j *JIT) matchStatic(fl []jitLeaf, sk uint64) bool {
+	if len(fl) != j.leafCount || sk != j.capSK {
 		return false
 	}
 	for i, l := range fl {
@@ -228,10 +239,10 @@ func (j *JIT) matchStatic(fl []jitLeaf) bool {
 	return true
 }
 
-// matchSym checks that the leaf count matches. Element sizes are allowed to
-// differ (symbolic dims change with each binding).
-func (j *JIT) matchSym(fl []jitLeaf) bool {
-	return len(fl) == j.leafCount
+// matchSym checks that the leaf count and output structural key match capture.
+// Element sizes are allowed to differ (symbolic dims change with each binding).
+func (j *JIT) matchSym(fl []jitLeaf, sk uint64) bool {
+	return len(fl) == j.leafCount && sk == j.capSK
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -240,6 +251,35 @@ func (j *JIT) matchSym(fl []jitLeaf) bool {
 type jitLeaf struct {
 	idx  uint32
 	data []float32
+}
+
+// subgraphSK returns a combined structural key for the output expressions of
+// tensors. It calls uop.StructuralKeys to compute position-independent hashes
+// for every node in the arena, then mixes the keys of the output tensor nodes.
+//
+// Two calls return the same value iff every output tensor has a structurally
+// identical UOp subgraph (same ops, dtypes, tree shape, and arg values in each
+// position) — regardless of arena-local node indices or leaf data.
+//
+// Because structural keys are computed bottom-up over the arena's node slice,
+// and tensor output nodes always precede any scheduler-added nodes (which have
+// higher indices), this function is safe to call after storeCapture has run
+// Realize (which adds scheduling nodes to the arena).
+func subgraphSK(tensors []*Tensor) uint64 {
+	if len(tensors) == 0 {
+		return 0
+	}
+	keys := uop.StructuralKeys(tensors[0].arena())
+	const prime uint64 = 1099511628211
+	h := uint64(14695981039346656037)
+	for i, t := range tensors {
+		h = (h ^ uint64(i)) * prime
+		idx := t.node.Index()
+		if int(idx) < len(keys) {
+			h = (h ^ keys[idx]) * prime
+		}
+	}
+	return h
 }
 
 // jitDFSLeaves DFS-walks the UOp graph rooted at each tensor and collects

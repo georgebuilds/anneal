@@ -735,3 +735,111 @@ func TestJITMismatchFallback(t *testing.T) {
 
 	t.Logf("PROOF 5: mismatch falls back safely ✓ (re-captured, correct output, then replays)")
 }
+
+// ── Proof 7: structural-change swap caught ────────────────────────────────────
+
+// TestJITOrdinalSwapIsCaught verifies that a structural change in the output
+// graph (different op tree, different DFS leaf ordinals) is detected and
+// triggers a re-capture rather than a silent wrong-buffer replay.
+//
+// The adversarial scenario:
+//
+//	capture:  la.Sub(lb)       — Sub(src[0]=la, src[1]=lb) — DFS: [la(0), lb(1)]
+//	replay:   lb.Neg().Add(la) — Add(Neg(lb), la)          — DFS: [lb(0), la(1)]
+//
+// Both expressions compute a−b semantically, but they have different UOp graph
+// structures (Sub vs Add(Neg,_)). The count-only guard sees 2 same-size leaves
+// and fires a replay — remapping la_cap←lb.data and lb_cap←la.data — which
+// makes the captured Sub plan compute b−a instead of a−b: a wrong result.
+//
+// After the fix the JIT adds an output-level structural key to the match guard.
+// The key changes from SK(Sub(...)) to SK(Add(Neg(...), ...)), so the guard
+// rejects the stale plan, re-captures, and produces the correct answer.
+//
+// Pre-fix failure (current code): jit=+9.0, oracle=−9.0, diff=18.0
+// Post-fix: jit=−9.0 == oracle=−9.0, captures=2, replays=0
+func TestJITOrdinalSwapIsCaught(t *testing.T) {
+	requireGPUJIT(t)
+
+	const device = "webgpu"
+	jit := tensor.NewJIT()
+
+	aData := []float32{1.0}
+	bData := []float32{10.0}
+
+	// Step 1 — capture: la.Sub(lb) = 1−10 = −9.
+	// DFS-ordinal order: [la(0), lb(1)]
+	{
+		a := uop.NewArena(256)
+		la := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, device)
+		lb := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, device)
+		la.SetData(append([]float32{}, aData...))
+		lb.SetData(append([]float32{}, bData...))
+		result := la.Sub(lb)
+		if err := jit.Realize(result); err != nil {
+			t.Fatalf("capture: %v", err)
+		}
+		caps, _ := jit.JITStats()
+		got := result.Data()[0]
+		want := aData[0] - bData[0] // −9.0
+		t.Logf("step 1 (capture): got=%.1f want=%.1f caps=%d", got, want, caps)
+		if got != want {
+			t.Fatalf("capture result: got %.1f want %.1f", got, want)
+		}
+	}
+
+	// Step 2 — ordinal-swap probe: lb.Neg().Add(la) = −lb+la = a−b = −9.
+	// Graph structure: Add(Neg(lb), la) — lb is DFS-ordinal 0, la is ordinal 1 (swapped).
+	// Count-only guard: 2 leaves, sizes [1,1] — matches capture → WRONG replay on current code.
+	// Remapped replay of Sub plan: la_cap←lb.data=10, lb_cap←la.data=1 → 10−1=+9 ≠ −9.
+	{
+		a := uop.NewArena(256)
+		la := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, device)
+		lb := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, device)
+		la.SetData(append([]float32{}, aData...))
+		lb.SetData(append([]float32{}, bData...))
+		result := lb.Neg().Add(la) // semantically a−b; lb visited first in DFS
+
+		// Non-JIT oracle on a fresh independent arena.
+		var oracleVal float32
+		{
+			a2 := uop.NewArena(256)
+			la2 := tensor.NewLeaf(a2, []int64{1}, uop.Dtypes.Float32, device)
+			lb2 := tensor.NewLeaf(a2, []int64{1}, uop.Dtypes.Float32, device)
+			la2.SetData(append([]float32{}, aData...))
+			lb2.SetData(append([]float32{}, bData...))
+			oracle := lb2.Neg().Add(la2)
+			if err := tensor.Realize(oracle); err != nil {
+				t.Fatalf("oracle: %v", err)
+			}
+			oracleVal = oracle.Data()[0]
+		}
+
+		if err := jit.Realize(result); err != nil {
+			t.Fatalf("ordinal-swap probe: %v", err)
+		}
+
+		caps, reps := jit.JITStats()
+		jitVal := result.Data()[0]
+
+		t.Logf("step 2 (ordinal-swap): jit=%.1f oracle=%.1f captures=%d replays=%d",
+			jitVal, oracleVal, caps, reps)
+
+		if jitVal != oracleVal {
+			t.Errorf("JIT ordinal swap not caught: jit=%.1f oracle=%.1f (diff=%.1f); "+
+				"structural change must trigger re-capture, not a wrong-buffer replay",
+				jitVal, oracleVal, jitVal-oracleVal)
+		}
+	}
+
+	// After the fix: 2 captures (one per distinct graph structure), 0 replays.
+	caps, reps := jit.JITStats()
+	t.Logf("PROOF 7: captures=%d replays=%d (want caps=2 reps=0)", caps, reps)
+	if caps != 2 {
+		t.Errorf("expected 2 captures (re-capture on structural change), got %d", caps)
+	}
+	if reps != 0 {
+		t.Errorf("expected 0 replays, got %d", reps)
+	}
+	t.Logf("PROOF 7: ordinal-swap structural change caught ✓")
+}
