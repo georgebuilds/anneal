@@ -43,20 +43,20 @@ func runBackward(loss *Tensor, targets map[uint32]bool) map[uint32]*Tensor {
 	// Forward topological order (sources before consumers).
 	topo := topoSortUOp(loss.node)
 
-	// Compute shapes for all nodes in forward order.
-	shapeCache := make(map[uint32][]int64, len(topo))
-	shapeCache[loss.node.Index()] = loss.Shape()
+	// Compute Sint shapes for all nodes in forward order.
+	shapeCache := make(map[uint32][]shape.Sint, len(topo))
+	shapeCache[loss.node.Index()] = loss.ShapeSints()
 	for _, u := range topo {
 		shapeOfNode(u, shapeCache)
 	}
 
 	// Seed: adjoint of loss is ones of the same shape.
-	lossShape := shapeCache[loss.node.Index()]
-	if lossShape == nil {
-		lossShape = []int64{}
+	lossSints := shapeCache[loss.node.Index()]
+	if lossSints == nil {
+		lossSints = []shape.Sint{}
 	}
 	adjMap := make(map[uint32]*Tensor, len(topo))
-	adjMap[loss.node.Index()] = Ones(a, lossShape, loss.dtype, device)
+	adjMap[loss.node.Index()] = FullSints(a, lossSints, 1.0, loss.dtype, device)
 
 	// Reverse traversal: accumulate adjoints.
 	for i := len(topo) - 1; i >= 0; i-- {
@@ -68,8 +68,8 @@ func runBackward(loss *Tensor, targets map[uint32]bool) map[uint32]*Tensor {
 
 		// Reconstruct a Tensor handle for this node so gradient rules can use
 		// tensor operations to express derivative UOps.
-		nodeSh := shapeCache[u.Index()]
-		nodeT := wrapGradTensor(u, nodeSh, u.DType(), device)
+		nodeSints := shapeCache[u.Index()]
+		nodeT := wrapGradTensor(u, nodeSints, u.DType(), device)
 
 		contribs := applyGradRule(u, nodeT, adj, shapeCache, device)
 		if contribs == nil {
@@ -100,7 +100,7 @@ func runBackward(loss *Tensor, targets map[uint32]bool) map[uint32]*Tensor {
 // applyGradRule returns adjoint contributions for each src of u.
 // Index i in the returned slice is the contribution to u.Src(i).
 // Nil elements and a nil slice both mean "no gradient for this op/src".
-func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]int64, device string) []*Tensor {
+func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
 	a := u.Arena()
 
 	// Helper: wrap src i as a Tensor (safe to call in rules that need src values).
@@ -111,7 +111,11 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 	}
 	// Helper: scalar constant broadcast to adj's shape.
 	k := func(v float64) *Tensor {
-		return Full(a, adj.Shape(), v, adj.dtype, device)
+		return FullSints(a, adj.ShapeSints(), v, adj.dtype, device)
+	}
+	// Helper: zero tensor with adj's shape.
+	zeros := func() *Tensor {
+		return FullSints(a, adj.ShapeSints(), 0.0, adj.dtype, device)
 	}
 
 	switch u.Op() {
@@ -171,13 +175,13 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 
 	case uop.OpMax:
 		// At ties, src[0] wins
-		zeros := Zeros(a, adj.Shape(), adj.dtype, device)
+		z := zeros()
 		s0, s1 := src(0), src(1)
 		// g0 = adj where s0 == max-output
-		g0 := Where(s0.CmpEq(nodeT), adj, zeros)
+		g0 := Where(s0.CmpEq(nodeT), adj, z)
 		// g1 = adj where s1 == max-output AND s0 is not also max (tie-break)
-		notTied := Where(s0.CmpEq(nodeT), zeros, adj)
-		g1 := Where(s1.CmpEq(nodeT), notTied, zeros)
+		notTied := Where(s0.CmpEq(nodeT), z, adj)
+		g1 := Where(s1.CmpEq(nodeT), notTied, z)
 		return []*Tensor{g0, g1}
 
 	case uop.OpMulAcc:
@@ -194,36 +198,40 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 	case uop.OpWhere:
 		// where(cond, x, y): grad_cond=nil, grad_x=where(cond,adj,0), grad_y=where(cond,0,adj)
 		cond := src(0)
-		zeros := Zeros(a, adj.Shape(), adj.dtype, device)
+		z := zeros()
 		return []*Tensor{
 			nil,
-			Where(cond, adj, zeros),
-			Where(cond, zeros, adj),
+			Where(cond, adj, z),
+			Where(cond, z, adj),
 		}
 
 	// ── Movement ops ──────────────────────────────────────────────────────────
 
 	case uop.OpReshape:
-		srcSh := shapeCache[u.Src(0).Index()]
-		if srcSh == nil {
-			srcSh = []int64{}
+		srcSints := shapeCache[u.Src(0).Index()]
+		if srcSints == nil {
+			srcSints = []shape.Sint{}
 		}
-		return []*Tensor{adj.Reshape(srcSh)}
+		return []*Tensor{adj.ReshapeSints(srcSints)}
 
 	case uop.OpExpand:
 		// The inverse of expand is sum-reduce over broadcast axes.
-		srcSh := shapeCache[u.Src(0).Index()]
-		expandedSh := shapeCache[u.Index()]
-		rank := len(expandedSh)
+		srcSints := shapeCache[u.Src(0).Index()]
+		expandedSints := shapeCache[u.Index()]
+		rank := len(expandedSints)
 
-		// srcSh always has the same rank as expandedSh (Reshape prepends 1s before Expand).
+		// srcSints always has the same rank as expandedSints (Reshape prepends 1s before Expand).
 		var sumAxes []int
 		for i := 0; i < rank; i++ {
-			si := int64(0)
-			if i < len(srcSh) {
-				si = srcSh[i]
+			var sv int64
+			if i < len(srcSints) {
+				if v, ok := srcSints[i].ConstValue(); ok {
+					sv = v
+				} else {
+					continue // symbolic src dim — never 1, not broadcast
+				}
 			}
-			if si == 1 && expandedSh[i] > 1 {
+			if sv == 1 {
 				sumAxes = append(sumAxes, i)
 			}
 		}
@@ -232,7 +240,7 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 		if len(sumAxes) > 0 {
 			g = g.Sum(sumAxes, true) // keepdim preserves rank
 		}
-		g = g.Reshape(srcSh) // drop the kept size-1 dims if srcSh is smaller
+		g = g.ReshapeSints(srcSints) // restore src shape
 		return []*Tensor{g}
 
 	case uop.OpPermute:
@@ -250,8 +258,10 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 
 	case uop.OpPad:
 		// Pad → Shrink: remove the padding from the adjoint.
+		// Pad/Shrink only operate on concrete dims (scope guard).
 		padding := u.Arg().([][2]int64)
-		srcSh := shapeCache[u.Src(0).Index()]
+		srcSints := shapeCache[u.Src(0).Index()]
+		srcSh := shape.AsInts(srcSints)
 		shrinkArg := make([][2]int64, len(padding))
 		for i, p := range padding {
 			shrinkArg[i] = [2]int64{p[0], p[0] + srcSh[i]}
@@ -261,7 +271,8 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 	case uop.OpShrink:
 		// Shrink → Pad: restore the missing elements as zero.
 		shrinkArg := u.Arg().([][2]int64)
-		srcSh := shapeCache[u.Src(0).Index()]
+		srcSints := shapeCache[u.Src(0).Index()]
+		srcSh := shape.AsInts(srcSints)
 		padArg := make([][2]int64, len(shrinkArg))
 		for i, p := range shrinkArg {
 			padArg[i] = [2]int64{p[0], srcSh[i] - p[1]}
@@ -280,36 +291,36 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 
 	case uop.OpReduceAxis:
 		ra := u.Arg().(uop.ReduceArg)
-		srcSh := shapeCache[u.Src(0).Index()]
-		if srcSh == nil {
+		srcSints := shapeCache[u.Src(0).Index()]
+		if srcSints == nil {
 			return nil
 		}
-		rank := len(srcSh)
+		rank := len(srcSints)
 
-		// Build keepdim shape: same as srcSh but with reduced axes set to 1.
-		keepSh := make([]int64, rank)
-		copy(keepSh, srcSh)
+		// Build keepdim Sint shape: same as srcSints but with reduced axes set to Const(1).
+		keepSints := make([]shape.Sint, rank)
+		copy(keepSints, srcSints)
 		axSet := make(map[int]bool, len(ra.Axes))
 		for _, ax := range ra.Axes {
 			axSet[ax] = true
-			keepSh[ax] = 1
+			keepSints[ax] = shape.Const(1)
 		}
 
 		switch ra.Op {
 		case uop.OpAdd:
 			// Sum backward: broadcast adjoint back to src shape.
-			return []*Tensor{adj.Reshape(keepSh).Expand(srcSh)}
+			return []*Tensor{adj.ReshapeSints(keepSints).ExpandSints(srcSints)}
 
 		case uop.OpMax:
 			// Max backward: route adjoint to argmax positions; split ties equally.
-			nodeExp := nodeT.Reshape(keepSh).Expand(srcSh)
-			adjExp := adj.Reshape(keepSh).Expand(srcSh)
+			nodeExp := nodeT.ReshapeSints(keepSints).ExpandSints(srcSints)
+			adjExp := adj.ReshapeSints(keepSints).ExpandSints(srcSints)
 			s0 := src(0)
 			mask := s0.CmpEq(nodeExp)
 			maskFloat := mask.Cast(adj.dtype)
-			tieCount := maskFloat.Sum(ra.Axes, true).Expand(srcSh)
-			zeros := Zeros(a, srcSh, adj.dtype, device)
-			return []*Tensor{Where(mask, adjExp.Div(tieCount), zeros)}
+			tieCount := maskFloat.Sum(ra.Axes, true).ExpandSints(srcSints)
+			zSrc := FullSints(a, srcSints, 0.0, adj.dtype, device)
+			return []*Tensor{Where(mask, adjExp.Div(tieCount), zSrc)}
 		}
 	}
 
@@ -360,35 +371,42 @@ func topoSortUOp(root uop.UOp) []uop.UOp {
 	return order
 }
 
-// shapeOfNode computes and caches the output shape of u.
+// shapeOfNode computes and caches the output Sint shape of u.
 // All of u's sources must already be in cache (guaranteed when called in topo order).
-func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
+func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 	if _, ok := cache[u.Index()]; ok {
 		return
 	}
 
-	var sh []int64
+	var sh []shape.Sint
 	switch u.Op() {
 	case uop.OpConst:
-		sh = []int64{} // scalar
+		sh = []shape.Sint{} // scalar
 
 	case uop.OpBuffer:
-		// NewLeaf stores []int64 shape in arg; Arange stores int64 n.
+		// NewLeaf stores []int64; Arange stores int64; NewSymbolicBatchInput stores ShapeSintArg.
 		switch v := u.Arg().(type) {
 		case []int64:
-			sh = cloneShape(v)
+			sh = intsToSints(v)
 		case int64:
-			sh = []int64{v}
+			sh = []shape.Sint{shape.Const(v)}
+		case uop.ShapeSintArg:
+			sh = shapeSintArgToSintsGrad(u.Arena(), v)
 		}
 		// "randn" string or nil: shape unknown without external context.
 
 	case uop.OpReshape, uop.OpExpand:
-		sh = cloneShape(u.Arg().([]int64))
+		switch v := u.Arg().(type) {
+		case []int64:
+			sh = intsToSints(v)
+		case uop.ShapeSintArg:
+			sh = shapeSintArgToSintsGrad(u.Arena(), v)
+		}
 
 	case uop.OpPermute:
 		srcSh := cache[u.Src(0).Index()]
 		perm := u.Arg().([]int64)
-		sh = make([]int64, len(perm))
+		sh = make([]shape.Sint, len(perm))
 		for i, p := range perm {
 			sh[i] = srcSh[p]
 		}
@@ -396,16 +414,20 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 	case uop.OpPad:
 		srcSh := cache[u.Src(0).Index()]
 		padding := u.Arg().([][2]int64)
-		sh = make([]int64, len(srcSh))
+		sh = make([]shape.Sint, len(srcSh))
 		for i, s := range srcSh {
-			sh[i] = s + padding[i][0] + padding[i][1]
+			if v, ok := s.ConstValue(); ok {
+				sh[i] = shape.Const(v + padding[i][0] + padding[i][1])
+			} else {
+				sh[i] = s // symbolic — pad amount must be 0 (scope guard)
+			}
 		}
 
 	case uop.OpShrink:
 		arg := u.Arg().([][2]int64)
-		sh = make([]int64, len(arg))
+		sh = make([]shape.Sint, len(arg))
 		for i, p := range arg {
-			sh[i] = p[1] - p[0]
+			sh[i] = shape.Const(p[1] - p[0])
 		}
 
 	case uop.OpFlip, uop.OpCast, uop.OpBitcast:
@@ -426,7 +448,7 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 			}
 		}
 		if sh == nil {
-			sh = []int64{} // all axes reduced → scalar
+			sh = []shape.Sint{} // all axes reduced → scalar
 		}
 
 	default:
@@ -434,18 +456,43 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]int64) {
 		if u.NSrc() > 0 {
 			sh = cache[u.Src(0).Index()]
 		} else {
-			sh = []int64{}
+			sh = []shape.Sint{}
 		}
 	}
 
 	cache[u.Index()] = sh
 }
 
-// wrapGradTensor creates a Tensor handle from a UOp with an externally provided shape.
+// wrapGradTensor creates a Tensor handle from a UOp with an externally provided Sint shape.
 // Used only within the backward pass to apply tensor ops when building gradient UOps.
-func wrapGradTensor(u uop.UOp, sh []int64, dtype *uop.DType, device string) *Tensor {
+func wrapGradTensor(u uop.UOp, sh []shape.Sint, dtype *uop.DType, device string) *Tensor {
 	if sh == nil {
-		sh = []int64{}
+		sh = []shape.Sint{}
 	}
-	return fromNode(u, shape.NewShapeTracker(sh), dtype, device)
+	return fromNode(u, shape.NewShapeTrackerSints(sh), dtype, device)
+}
+
+// ── Sint helpers ──────────────────────────────────────────────────────────────
+
+// intsToSints converts a concrete []int64 to []shape.Sint.
+func intsToSints(ints []int64) []shape.Sint {
+	sh := make([]shape.Sint, len(ints))
+	for i, v := range ints {
+		sh[i] = shape.Const(v)
+	}
+	return sh
+}
+
+// shapeSintArgToSintsGrad converts a ShapeSintArg to []shape.Sint by looking
+// up DefineVar nodes by arena index. Mirror of schedule.shapeSintArgToSints.
+func shapeSintArgToSintsGrad(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
+	sh := make([]shape.Sint, len(arg))
+	for i, d := range arg {
+		if d.Sym {
+			sh[i] = shape.SymInt{Node: a.At(d.VarIdx)}
+		} else {
+			sh[i] = shape.Const(d.V)
+		}
+	}
+	return sh
 }
