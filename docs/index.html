@@ -1328,6 +1328,14 @@
                     </table>
                 </div>
 
+                <p class="sec-body" data-i18n-html="cli.interop">
+                    The <code>tensor/npy</code> and
+                    <code>tensor/safetensors</code> packages load
+                    <code>.npy</code>/<code>.npz</code> arrays and read/write
+                    <code>.safetensors</code> checkpoints in pure Go — no Python
+                    dependency at runtime.
+                </p>
+
                 <div
                     class="terminal"
                     role="region"
@@ -1561,6 +1569,8 @@
                         "cli.explain":
                             "trace the rewrite rules that fire for one op",
                         "cli.doctor": "WebGPU / backend environment check",
+                        "cli.interop":
+                            "The <code>tensor/npy</code> and <code>tensor/safetensors</code> packages load <code>.npy</code>/<code>.npz</code> arrays and read/write <code>.safetensors</code> checkpoints in pure Go — no Python dependency at runtime.",
                         "phil.label": "design",
                         "phil.heading": "No shortcuts.",
                         "phil.body":
@@ -1635,6 +1645,8 @@
                             "trazar las reglas de reescritura que se activan para una op",
                         "cli.doctor":
                             "verificación del entorno WebGPU / backend",
+                        "cli.interop":
+                            "Los paquetes <code>tensor/npy</code> y <code>tensor/safetensors</code> cargan arrays <code>.npy</code>/<code>.npz</code> y leen/escriben checkpoints <code>.safetensors</code> en Go puro — sin dependencia de Python en tiempo de ejecución.",
                         "phil.label": "diseño",
                         "phil.heading": "Sin atajos.",
                         "phil.body":

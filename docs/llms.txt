@@ -22,6 +22,7 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 - **Language:** Go (latest stable)
 - **Dynamic batch:** the batch dimension can be symbolic — a kernel compiles once and runs at any batch size via `NewSymbolicBatchInput` / `RealizeWithBinding`. General symbolic axis movement (split/merge/pad, dynamic seq-length) is not yet supported.
 - **JIT:** `tensor.JIT` captures the scheduling plan on the first step and replays subsequent steps without re-scheduling.
+- **Migration I/O:** `tensor/npy` loads numpy `.npy`/`.npz` files; `tensor/safetensors` reads and writes HuggingFace `.safetensors` checkpoints, bidirectionally compatible with the real Python safetensors library. Pure Go, no cgo, no runtime Python. Tensor data carries as `float32`; source dtypes map with documented float32-range semantics.
 
 ## Color semantics (visualizer and TUI)
 
