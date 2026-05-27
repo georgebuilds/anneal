@@ -6,7 +6,7 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 
 ## Key claims
 
-- Autodiff is a compiler pass, not a runtime hook. Gradients are rewrite rules over the same IR as the forward graph.
+- Autodiff is a compiler pass, not a runtime hook. Gradients are computed by a typed compiler pass over the same IR as the forward graph (a typed graph traversal that produces a uniform, fusible backward graph — not a runtime tape).
 - The scheduler (rangeify) sees forward and backward together and can fuse across that boundary.
 - UOps are immutable, interned, and arena-allocated. Structural equality is identity equality.
 - No reflection in the rewrite hot path. This is a hard invariant.
@@ -16,10 +16,12 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 
 - **IR:** UOp DAG, immutable, arena-allocated, hash-consed
 - **Rewrite engine:** PatternMatcher + graph_rewrite driver
-- **Scheduler:** rangeify — fuses across the forward/backward boundary
+- **Scheduler:** rangeify — fuses across the forward/backward boundary; memoized on a structural key
 - **Codegen:** WGSL lowerer + renderer
 - **Backend:** WebGPU (primary)
 - **Language:** Go (latest stable)
+- **Dynamic batch:** the batch dimension can be symbolic — a kernel compiles once and runs at any batch size via `NewSymbolicBatchInput` / `RealizeWithBinding`. General symbolic axis movement (split/merge/pad, dynamic seq-length) is not yet supported.
+- **JIT:** `tensor.JIT` captures the scheduling plan on the first step and replays subsequent steps without re-scheduling.
 
 ## Color semantics (visualizer and TUI)
 
@@ -31,12 +33,12 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 
 ## CLI
 
-- `anneal run <file>` — realize and execute a graph
-- `anneal train <dir>` — training loop with the live TUI
+- `anneal run mlp` — realize and execute a registered example graph
+- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp; use `--batch=N` with dynmlp for dynamic batch)
 - `anneal viz` — launch the graph visualizer (WASM)
-- `anneal graph <file>` — inspect the UOp DAG
-- `anneal kernels <file>` — show generated WGSL with fusion boundaries
-- `anneal explain <op>` — trace the rewrite rules that fire for one op
+- `anneal graph mlp` — inspect the UOp DAG
+- `anneal kernels mlp` — show generated WGSL with fusion boundaries
+- `anneal explain add` — trace the rewrite rules that fire for one op
 - `anneal doctor` — WebGPU / backend environment check
 
 ## Links

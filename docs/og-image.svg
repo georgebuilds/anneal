@@ -65,7 +65,7 @@
   <text x="492" y="298"
         font-family="'Courier New', Courier, monospace"
         font-size="28" font-weight="normal"
-        fill="#F2C57C" letter-spacing="-0.5">Gradients are just rewrites.</text>
+        fill="#F2C57C" letter-spacing="-0.5">Autodiff is a compiler pass.</text>
 
   <!-- Sub-tagline -->
   <text x="492" y="337"

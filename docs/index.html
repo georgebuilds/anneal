@@ -1114,7 +1114,7 @@
 
                 <h1 class="wordmark" id="js-wordmark">anneal</h1>
                 <p class="tagline" id="js-tagline" data-i18n="hero.tagline">
-                    Gradients are just rewrites.
+                    Autodiff is a compiler pass.
                 </p>
                 <p class="disambig" id="js-disambig" data-i18n="hero.disambig">
                     a Go tensor compiler
@@ -1208,10 +1208,11 @@
                             Autodiff as a compiler pass
                         </div>
                         <p class="card-body" data-i18n="card.bwd.body">
-                            Gradients are rewrite rules applied to the same IR.
-                            No separate tape, no runtime teardown. The gradient
-                            graph lives alongside the forward graph until the
-                            scheduler decides what to fuse.
+                            Gradient computation is a typed compiler pass that
+                            walks the forward graph and emits backward UOps into
+                            the same IR — no separate tape, no runtime teardown.
+                            The gradient graph lives alongside the forward graph
+                            until the scheduler decides what to fuse.
                         </p>
                     </div>
                     <div class="arch-card">
@@ -1226,6 +1227,21 @@
                             together. It can fuse across that boundary —
                             collapsing both into a single WGSL kernel that a
                             backend-aware scheduler would never produce.
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag gold" data-i18n="card.rt.tag">
+                            runtime
+                        </div>
+                        <div class="card-title" data-i18n="card.rt.title">
+                            Dynamic batch, JIT replay, cached schedules
+                        </div>
+                        <p class="card-body" data-i18n="card.rt.body">
+                            The batch dimension can be symbolic: a kernel
+                            compiles once and runs at any batch size at runtime.
+                            <code>tensor.JIT</code> captures the execution plan
+                            on the first step and replays without re-scheduling.
+                            The scheduler is memoized on a structural key.
                         </p>
                     </div>
                 </div>
@@ -1254,7 +1270,7 @@
                         <tbody>
                             <tr>
                                 <td class="cli-cmd">
-                                    <code>anneal run &lt;file&gt;</code>
+                                    <code>anneal run &lt;model&gt;</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.run">
                                     realize and execute a graph
@@ -1262,10 +1278,10 @@
                             </tr>
                             <tr>
                                 <td class="cli-cmd">
-                                    <code>anneal train &lt;dir&gt;</code>
+                                    <code>anneal train mlp</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.train">
-                                    training loop with the live TUI
+                                    training loop with the live TUI (mlp / conv / dynmlp)
                                 </td>
                             </tr>
                             <tr>
@@ -1277,7 +1293,7 @@
                             </tr>
                             <tr>
                                 <td class="cli-cmd">
-                                    <code>anneal graph &lt;file&gt;</code>
+                                    <code>anneal graph &lt;model&gt;</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.graph">
                                     dump and inspect the UOp DAG
@@ -1285,7 +1301,7 @@
                             </tr>
                             <tr>
                                 <td class="cli-cmd">
-                                    <code>anneal kernels &lt;file&gt;</code>
+                                    <code>anneal kernels &lt;model&gt;</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.kernels">
                                     show generated WGSL with fusion boundaries
@@ -1326,7 +1342,7 @@
                         <div>
                             <span class="t-p">$</span>
                             <span class="t-cmd"
-                                >anneal train ./examples/mlp.go</span
+                                >anneal train mlp</span
                             >
                         </div>
                         <div class="t-out">device webgpu · apple m3 max</div>
@@ -1352,12 +1368,16 @@
                         <div>
                             <span class="t-p">$</span>
                             <span class="t-cmd"
-                                >anneal explain relu.backward</span
+                                >anneal explain mul</span
                             >
                         </div>
                         <div class="t-out">
-                            rule <span class="t-bwd">RELU.backward</span> →
-                            <span class="t-fwd">where(x &gt; 0, ∂out, 0)</span>
+                            symbolic <span class="t-fwd">x * 1 → x</span>
+                            multiplicative identity
+                        </div>
+                        <div class="t-out">
+                            symbolic <span class="t-fwd">x * y → y * x</span>
+                            canonicalization
                         </div>
                     </div>
                 </div>
@@ -1448,7 +1468,7 @@
                 <span class="proj-name" style="font-size: inherit">anneal</span>
             </div>
             <div class="footer-right">
-                <span class="v-badge" data-i18n="footer.v">v0.1 · mit</span>
+                <span class="v-badge" data-i18n="footer.v">v0.1 · agpl-3.0</span>
                 <a
                     href="https://github.com/georgebuilds/anneal"
                     target="_blank"
@@ -1496,8 +1516,8 @@
                         "lang.label": "Switch to Spanish",
                         "theme.to-light": "Switch to light mode",
                         "theme.to-dark": "Switch to dark mode",
-                        "page.title": "anneal — gradients are just rewrites",
-                        "hero.tagline": "Gradients are just rewrites.",
+                        "page.title": "anneal — autodiff is a compiler pass",
+                        "hero.tagline": "Autodiff is a compiler pass.",
                         "hero.disambig": "a Go tensor compiler",
                         "install.copy": "copy",
                         "install.copied": "copied",
@@ -1517,17 +1537,22 @@
                         "card.bwd.tag": "backward pass",
                         "card.bwd.title": "Autodiff as a compiler pass",
                         "card.bwd.body":
-                            "Gradients are rewrite rules applied to the same IR. No separate tape, no runtime teardown. The gradient graph lives alongside the forward graph until the scheduler decides what to fuse.",
+                            "Gradient computation is a typed compiler pass that walks the forward graph and emits backward UOps into the same IR — no separate tape, no runtime teardown. The gradient graph lives alongside the forward graph until the scheduler decides what to fuse.",
                         "card.fsd.tag": "fused kernel",
                         "card.fsd.title": "Fusion across the boundary",
                         "card.fsd.body":
                             "The rangeify scheduler sees forward and backward together. It can fuse across that boundary — collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
+                        "card.rt.tag": "runtime",
+                        "card.rt.title":
+                            "Dynamic batch, JIT replay, cached schedules",
+                        "card.rt.body":
+                            "The batch dimension can be symbolic: a kernel compiles once and runs at any batch size at runtime. tensor.JIT captures the execution plan on the first step and replays without re-scheduling. The scheduler is memoized on a structural key.",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
                             "A single static binary, verb-first. Each command exposes a layer of the compiler so the CLI doubles as a teaching surface.",
-                        "cli.run": "realize and execute a graph",
-                        "cli.train": "training loop with the live TUI",
+                        "cli.run": "realize and execute a registered example graph",
+                        "cli.train": "training loop with the live TUI (mlp / conv / dynmlp)",
                         "cli.viz":
                             "launch the graph visualizer in-browser (WASM)",
                         "cli.graph": "dump and inspect the UOp DAG",
@@ -1552,7 +1577,7 @@
                         "phil.go.h": "Written in Go",
                         "phil.go.b":
                             "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI — so the visualizer and the trainer are always in sync, by construction.",
-                        "footer.v": "v0.1 · mit",
+                        "footer.v": "v0.1 · agpl-3.0",
                     },
                     es: {
                         skip: "saltar al contenido principal",
@@ -1563,8 +1588,8 @@
                         "theme.to-light": "Cambiar a modo claro",
                         "theme.to-dark": "Cambiar a modo oscuro",
                         "page.title":
-                            "anneal — los gradientes son solo reescrituras",
-                        "hero.tagline": "Los gradientes son solo reescrituras.",
+                            "anneal — el autodiff es una pasada de compilador",
+                        "hero.tagline": "El autodiff es una pasada de compilador.",
                         "hero.disambig": "un compilador de tensores en Go",
                         "install.copy": "copiar",
                         "install.copied": "copiado",
@@ -1584,18 +1609,23 @@
                         "card.bwd.tag": "pasada hacia atrás",
                         "card.bwd.title": "Autodiff como pasada de compilador",
                         "card.bwd.body":
-                            "Los gradientes son reglas de reescritura aplicadas al mismo IR. Sin cinta separada, sin desmontaje en tiempo de ejecución. El grafo de gradientes vive junto al grafo directo hasta que el planificador decide qué fusionar.",
+                            "El cálculo de gradientes es una pasada de compilador tipada que recorre el grafo directo y emite UOps de retroceso en el mismo IR — sin cinta separada, sin desmontaje en tiempo de ejecución. El grafo de gradientes vive junto al grafo directo hasta que el planificador decide qué fusionar.",
                         "card.fsd.tag": "kernel fusionado",
                         "card.fsd.title": "Fusión a través del límite",
                         "card.fsd.body":
                             "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite — colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
+                        "card.rt.tag": "tiempo de ejecución",
+                        "card.rt.title":
+                            "Batch dinámico, replay JIT, planificaciones en caché",
+                        "card.rt.body":
+                            "La dimensión de batch puede ser simbólica: un kernel se compila una vez y ejecuta con cualquier tamaño de batch en tiempo de ejecución. tensor.JIT captura el plan de ejecución en el primer paso y repite los siguientes sin re-planificar. El planificador está memoizado sobre una clave estructural.",
                         "cli.label": "la cli",
                         "cli.heading": "Verbos que reflejan el pipeline.",
                         "cli.body":
                             "Un único binario estático, con verbos primero. Cada comando expone una capa del compilador, haciendo que la CLI sea una superficie de aprendizaje.",
-                        "cli.run": "materializar y ejecutar un grafo",
+                        "cli.run": "materializar y ejecutar un grafo de ejemplo registrado",
                         "cli.train":
-                            "bucle de entrenamiento con la TUI en vivo",
+                            "bucle de entrenamiento con la TUI en vivo (mlp / conv / dynmlp)",
                         "cli.viz":
                             "lanzar el visualizador de grafos en el navegador (WASM)",
                         "cli.graph": "volcar e inspeccionar el DAG de UOps",
@@ -1623,7 +1653,7 @@
                         "phil.go.h": "Escrito en Go",
                         "phil.go.b":
                             "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI — por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
-                        "footer.v": "v0.1 · mit",
+                        "footer.v": "v0.1 · agpl-3.0",
                     },
                 };
 
