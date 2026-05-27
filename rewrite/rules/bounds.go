@@ -131,7 +131,7 @@ func BoundsOf(u uop.UOp) Bounds {
 		// Floor modulo; tractable when divisor is a positive constant.
 		if s1.Min == s1.Max && s1.Min > 0 {
 			c := s1.Min
-			if s0.Min/c == s0.Max/c {
+			if floorDiv(s0.Min, c) == floorDiv(s0.Max, c) {
 				// Dividend stays within one modular period.
 				return Bounds{floorMod(s0.Min, c), floorMod(s0.Max, c), true}
 			}
