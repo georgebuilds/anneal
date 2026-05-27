@@ -15,7 +15,14 @@ type Buffer struct {
 // Ast is the kernel SINK-rooted UOp tree (what Phase 8 codegen renders).
 // Bufs[N] is the runtime buffer for the kernel's PARAM(arg=N).
 // PARAM(arg=0) is always the kernel's output; PARAM(arg=1..N-1) are inputs.
+// SymVars[symParamIdx] is the DefineVar name for each symbolic range parameter;
+// nil for static-only kernels.
+// WGSL, when non-empty, is a pre-rendered shader source that supersedes
+// re-rendering Ast via codegen.  Set by the cache when Ast has been zeroed to
+// release the arena reference.
 type ExecItem struct {
-	Ast  uop.UOp
-	Bufs []Buffer
+	Ast     uop.UOp
+	Bufs    []Buffer
+	SymVars []string
+	WGSL    string
 }

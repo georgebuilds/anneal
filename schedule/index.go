@@ -46,11 +46,19 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 
 	case uop.OpReshape:
 		// Flat index from output (new) shape, then decompose into source (old) shape.
-		dstShape := expr.Arg().([]int64)
-		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
-		flat := flatIndex(a, indices, dstShape)
-		srcIndices := unflatIndex(a, flat, srcShape)
-		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		srcSints := shapeMap[expr.Src(0).Index()]
+		switch v := expr.Arg().(type) {
+		case []int64:
+			flat := flatIndex(a, indices, v)
+			srcIndices := unflatIndex(a, flat, shape.AsInts(srcSints))
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		case uop.ShapeSintArg:
+			dstSints := shapeSintArgToSints(expr.Arena(), v)
+			flat := flatIndexSints(a, indices, dstSints)
+			srcIndices := unflatIndexSints(a, flat, srcSints)
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		}
+		panic("schedule/index: OpReshape: unexpected arg type")
 
 	case uop.OpPermute:
 		// perm[i] = j means "output dim i comes from source dim j".
@@ -64,10 +72,11 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 
 	case uop.OpExpand:
 		// Broadcast: source dims that were size 1 map to index 0.
+		// Use ConstValue() to avoid panicking on symbolic dims (SymInt is never size 1).
 		srcSints := shapeMap[expr.Src(0).Index()]
 		srcIndices := make([]uop.UOp, len(srcSints))
 		for i, s := range srcSints {
-			if shape.EqI(s, 1) {
+			if cv, ok := s.ConstValue(); ok && cv == 1 {
 				srcIndices[i] = a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
 			} else {
 				srcIndices[i] = indices[i]
@@ -148,10 +157,19 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		srcSints := shapeMap[expr.Src(0).Index()]
 
 		// Reduce ranges, one per reduced axis.
+		// Symbolic axes use a symbolic RANGE so the WGSL loop reads params_n at runtime.
 		reduceRanges := make([]uop.UOp, len(ra.Axes))
 		reducedAt := make(map[int]uop.UOp, len(ra.Axes))
 		for i, ax := range ra.Axes {
-			rr := rc.newRange(shape.CV(srcSints[ax]), uop.AxisReduce)
+			s := srcSints[ax]
+			var rr uop.UOp
+			if v, ok := s.ConstValue(); ok {
+				rr = rc.newRange(v, uop.AxisReduce)
+			} else {
+				sym := s.(shape.SymInt)
+				varName := sym.Node.Arg().(uop.VarArg).Name
+				rr = rc.newSymRange(varName, uop.AxisReduce)
+			}
 			reduceRanges[i] = rr
 			reducedAt[ax] = rr
 		}
@@ -262,6 +280,87 @@ func unflatIndex(a *uop.Arena, flat uop.UOp, shape []int64) []uop.UOp {
 		// preventing the flat index from leaking into the per-dim value.
 		szc := a.New(uop.OpConst, uop.Dtypes.Index, nil, s, nil)
 		out[i] = a.New(uop.OpMod, uop.Dtypes.Index, []uop.UOp{divided, szc}, nil, nil)
+	}
+	return out
+}
+
+// sintStrides computes concrete row-major strides from a Sint shape slice.
+// For Option A (symbolic dim is always outermost), all strides are concrete:
+// the symbolic dim's stride = product of the concrete trailing dims.
+func sintStrides(sh []shape.Sint) []int64 {
+	n := len(sh)
+	strides := make([]int64, n)
+	acc := int64(1)
+	for i := n - 1; i >= 0; i-- {
+		strides[i] = acc
+		if v, ok := sh[i].ConstValue(); ok {
+			acc *= v
+		}
+		// For symbolic dim: acc is not updated (it will only be used by dims to the
+		// left, which don't exist in Option A since symbolic is always outermost).
+	}
+	return strides
+}
+
+// flatIndexSints computes a row-major flat index from multi-dim indices and a
+// Sint shape. Strides are extracted as concrete int64 values via sintStrides.
+func flatIndexSints(a *uop.Arena, indices []uop.UOp, sh []shape.Sint) uop.UOp {
+	if len(indices) == 0 {
+		return a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
+	}
+	if len(indices) == 1 {
+		return indices[0]
+	}
+	strides := sintStrides(sh)
+	var result uop.UOp
+	for i, r := range indices {
+		s := strides[i]
+		var term uop.UOp
+		if s == 1 {
+			term = r
+		} else {
+			sc := a.New(uop.OpConst, uop.Dtypes.Index, nil, s, nil)
+			term = a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{r, sc}, nil, nil)
+		}
+		if !result.Valid() {
+			result = term
+		} else {
+			result = a.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{result, term}, nil, nil)
+		}
+	}
+	return result
+}
+
+// unflatIndexSints decomposes a flat index into per-dim indices for a Sint shape.
+// For concrete dims: applies the usual div+mod. For the symbolic outermost dim:
+// only applies div (no mod needed — quotient is exact for valid flat indices).
+func unflatIndexSints(a *uop.Arena, flat uop.UOp, sh []shape.Sint) []uop.UOp {
+	if len(sh) == 0 {
+		return nil
+	}
+	if len(sh) == 1 {
+		return []uop.UOp{flat}
+	}
+	strides := sintStrides(sh)
+	out := make([]uop.UOp, len(sh))
+	for i, s := range sh {
+		stride := strides[i]
+		var divided uop.UOp
+		if stride == 1 {
+			divided = flat
+		} else {
+			sc := a.New(uop.OpConst, uop.Dtypes.Index, nil, stride, nil)
+			divided = a.New(uop.OpIDiv, uop.Dtypes.Index, []uop.UOp{flat, sc}, nil, nil)
+		}
+		if _, ok := s.ConstValue(); ok {
+			// Concrete dim: modulo isolates this dimension.
+			sv, _ := s.ConstValue()
+			szc := a.New(uop.OpConst, uop.Dtypes.Index, nil, sv, nil)
+			out[i] = a.New(uop.OpMod, uop.Dtypes.Index, []uop.UOp{divided, szc}, nil, nil)
+		} else {
+			// Symbolic outermost dim: quotient is the exact index (no modulo needed).
+			out[i] = divided
+		}
 	}
 	return out
 }

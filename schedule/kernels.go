@@ -241,9 +241,12 @@ func createSchedule(calls []uop.UOp, keys []uint64) []uop.UOp {
 
 // bufSize extracts the element count from a BUFFER node's arg.
 // Leaf buffers carry []int64 shape (product gives size); scheduler-allocated
-// buffers carry int64 directly.
+// buffers carry int64 directly. Symbolic buffers (arg=nil, src[0]=DefineVar)
+// return 0 — the actual size is determined at dispatch time from the binding.
 func bufSize(bufNode uop.UOp) int64 {
 	switch v := bufNode.Arg().(type) {
+	case nil:
+		return 0 // symbolic input buffer; size unknown until binding is provided
 	case int64:
 		return v
 	case []int64:
@@ -252,6 +255,9 @@ func bufSize(bufNode uop.UOp) int64 {
 			size *= s
 		}
 		return size
+	case uop.ShapeSintArg:
+		// Multi-dim symbolic buffer; actual size determined at dispatch time.
+		return 0
 	case string:
 		// Special buffers (e.g. "randn") — return 1 as a safe fallback.
 		return 1
@@ -260,9 +266,47 @@ func bufSize(bufNode uop.UOp) int64 {
 	}
 }
 
+// symVarsFromKernel extracts symbolic variable names from a kernel SINK AST.
+// Returns SymVars[symParamIdx]=varName for each symbolic OpRange in the kernel,
+// ordered by SymParamIdx. Returns nil if the kernel has no symbolic ranges.
+func symVarsFromKernel(ast uop.UOp) []string {
+	if ast.Op() != uop.OpSink || ast.NSrc() == 0 {
+		return nil
+	}
+	end := ast.Src(0)
+	if end.Op() != uop.OpEnd {
+		return nil
+	}
+	maxIdx := -1
+	for i := 1; i < end.NSrc(); i++ {
+		r := end.Src(i)
+		if r.Op() == uop.OpRange {
+			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
+				if ra.SymParamIdx > maxIdx {
+					maxIdx = ra.SymParamIdx
+				}
+			}
+		}
+	}
+	if maxIdx < 0 {
+		return nil
+	}
+	vars := make([]string, maxIdx+1)
+	for i := 1; i < end.NSrc(); i++ {
+		r := end.Src(i)
+		if r.Op() == uop.OpRange {
+			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
+				vars[ra.SymParamIdx] = ra.VarName
+			}
+		}
+	}
+	return vars
+}
+
 // linearToSchedule converts an ordered list of CALL nodes into ExecItems.
 // Each ExecItem carries the kernel SINK AST and a Buffer descriptor for every
 // PARAM (Bufs[0]=output, Bufs[1..N-1]=inputs). Slot is initialised to -1.
+// SymVars is populated for kernels that contain symbolic OpRange nodes.
 func linearToSchedule(ordered []uop.UOp) []ExecItem {
 	items := make([]ExecItem, len(ordered))
 	for i, call := range ordered {
@@ -278,9 +322,11 @@ func linearToSchedule(ordered []uop.UOp) []ExecItem {
 				Slot:   -1,
 			}
 		}
+		ast := call.Src(0)
 		items[i] = ExecItem{
-			Ast:  call.Src(0),
-			Bufs: bufs,
+			Ast:     ast,
+			Bufs:    bufs,
+			SymVars: symVarsFromKernel(ast),
 		}
 	}
 	return items
@@ -289,12 +335,26 @@ func linearToSchedule(ordered []uop.UOp) []ExecItem {
 // bufShape extracts the per-dimension shape from a BUFFER node's arg.
 // Leaf buffers carry []int64 shape; scheduler-allocated buffers carry []int64
 // after the Phase 7b fix (old int64 total-size is treated as [n]).
+// Symbolic input buffers (arg=nil) return nil — shape is dynamic.
 func bufShape(bufNode uop.UOp) []int64 {
 	switch v := bufNode.Arg().(type) {
+	case nil:
+		return nil // symbolic buffer; shape is determined by binding at dispatch
 	case []int64:
 		return v
 	case int64:
 		return []int64{v}
+	case uop.ShapeSintArg:
+		// Multi-dim symbolic shape: 0 marks the symbolic dim.
+		sh := make([]int64, len(v))
+		for i, d := range v {
+			if d.Sym {
+				sh[i] = 0
+			} else {
+				sh[i] = d.V
+			}
+		}
+		return sh
 	case string:
 		return []int64{1}
 	default:
@@ -404,25 +464,29 @@ func memoryPlan(items []ExecItem) []ExecItem {
 
 // CreateSchedule runs all 10 passes of the rangeify pipeline on a SINK-rooted
 // tensor-level graph and returns an ordered, executable schedule.
-// NOTE: the schedule's correctness is not fully verified until Phase 8 codegen
-// can run it end-to-end against a value oracle; this function verifies structure only.
+// Results are memoized per-arena by (sinkIdx, device): a second call for the
+// same logical graph on the same arena is served from cache without re-running
+// GetKernelGraph or any downstream pass.  The cache is stored in the arena's Ext
+// field and is GC'd when the arena is collected, so training loops that create a
+// fresh arena per step incur no global retention.
 func CreateSchedule(sink uop.UOp, device string) []ExecItem {
 	a := sink.Arena()
-	// Capture arena length before GetKernelGraph so:
-	//   (a) findAfterNodes excludes AFTER nodes from prior Realize calls on the same arena
-	//   (b) StatsHook receives the tensor-level graph size (pre-scheduler expansion)
+
+	// Lookup uses the pre-expansion sink so hits skip all scheduler work.
+	// Binding values from RealizeWithBinding are NOT in the key: the schedule is
+	// structurally identical across all concrete batch sizes.
+	origSink := sink
+	if cached, ok := cacheLookup(origSink, device); ok {
+		return cached
+	}
+
 	uopsCount := a.Len()
 	startIdx := uint32(uopsCount)
 	sink = GetKernelGraph(sink, device)
 
-	// Structural keys after addBuffers: covers AFTER and END nodes used by
-	// findAfterNodes (structural sort of AFTER nodes) and splitKernels.
-	// CALL nodes do not exist yet at this point.
 	keys := uop.StructuralKeys(a)
 	_, calls := splitKernels(a, sink, startIdx, keys)
 
-	// Recompute after splitKernels adds CALL/SINK/PARAM/INDEX nodes so that
-	// createSchedule can tiebreak the Kahn frontier by CALL structural key.
 	keys = uop.StructuralKeys(a)
 	ordered := createSchedule(calls, keys)
 	items := linearToSchedule(ordered)
@@ -435,5 +499,7 @@ func CreateSchedule(sink uop.UOp, device string) []ExecItem {
 			Pass:    "memory plan",
 		})
 	}
+
+	cacheStore(origSink, device, items)
 	return items
 }

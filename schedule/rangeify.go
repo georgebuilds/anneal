@@ -67,14 +67,27 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 
 	case uop.OpBuffer:
 		switch v := u.Arg().(type) {
+		case uop.ShapeSintArg:
+			// Multi-dim symbolic input ([symbolic, d0, d1, ...]).
+			sh = shapeSintArgToSints(u.Arena(), v)
 		case []int64:
 			sh = cloneShape(shape.AsSints(v))
 		case int64:
 			sh = []shape.Sint{shape.Const(v)}
+		default:
+			// 1D symbolic: src[0]=DefineVar, arg=nil.
+			if u.NSrc() > 0 && u.Src(0).Op() == uop.OpDefineVar {
+				sh = []shape.Sint{shape.SymInt{Node: u.Src(0)}}
+			}
 		}
 
 	case uop.OpReshape, uop.OpExpand:
-		sh = cloneShape(shape.AsSints(u.Arg().([]int64)))
+		switch v := u.Arg().(type) {
+		case []int64:
+			sh = cloneShape(shape.AsSints(v))
+		case uop.ShapeSintArg:
+			sh = shapeSintArgToSints(u.Arena(), v)
+		}
 
 	case uop.OpPermute:
 		srcSh := cache[u.Src(0).Index()]
@@ -129,6 +142,21 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 		}
 	}
 	cache[u.Index()] = sh
+}
+
+// shapeSintArgToSints converts a ShapeSintArg to []shape.Sint.
+// Symbolic dims are reconstructed as SymInt by looking up the DefineVar node
+// by arena index in a.
+func shapeSintArgToSints(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
+	sh := make([]shape.Sint, len(arg))
+	for i, d := range arg {
+		if d.Sym {
+			sh[i] = shape.SymInt{Node: a.At(d.VarIdx)}
+		} else {
+			sh[i] = shape.Const(d.V)
+		}
+	}
+	return sh
 }
 
 func cloneShape(s []shape.Sint) []shape.Sint {
@@ -189,18 +217,20 @@ func buildRealizeMap(sink uop.UOp, topo []uop.UOp) map[uint32]bool {
 // ── Range context ─────────────────────────────────────────────────────────────
 
 type rangeCtx struct {
-	a            *uop.Arena
-	nextID       int
-	kernelRanges []uop.UOp // all RANGE nodes created for the current kernel
+	a             *uop.Arena
+	nextID        int
+	kernelRanges  []uop.UOp // all RANGE nodes created for the current kernel
+	symParamCount int        // symbolic params allocated for the current kernel
 }
 
 func newRangeCtx(a *uop.Arena) *rangeCtx {
 	return &rangeCtx{a: a}
 }
 
-// startKernel resets the per-kernel range accumulator.
+// startKernel resets the per-kernel range accumulators.
 func (rc *rangeCtx) startKernel() {
 	rc.kernelRanges = rc.kernelRanges[:0]
+	rc.symParamCount = 0
 }
 
 func (rc *rangeCtx) newRange(size int64, t uop.AxisType) uop.UOp {
@@ -215,10 +245,31 @@ func (rc *rangeCtx) newRange(size int64, t uop.AxisType) uop.UOp {
 	return r
 }
 
+// newSymRange creates a symbolic RANGE node whose bound is provided at dispatch
+// via the params_n buffer at slot SymParamIdx. VarName records the DefineVar name
+// so RunSymbolic can look it up in the binding map.
+func (rc *rangeCtx) newSymRange(varName string, t uop.AxisType) uop.UOp {
+	id := rc.nextID
+	rc.nextID++
+	symIdx := rc.symParamCount
+	rc.symParamCount++
+	r := rc.a.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+		ID: id, Size: 0, Type: t, Symbolic: true, SymParamIdx: symIdx, VarName: varName,
+	}, nil)
+	rc.kernelRanges = append(rc.kernelRanges, r)
+	return r
+}
+
 func (rc *rangeCtx) freshRanges(sh []shape.Sint, t uop.AxisType) []uop.UOp {
 	ranges := make([]uop.UOp, len(sh))
 	for i, s := range sh {
-		ranges[i] = rc.newRange(shape.CV(s), t)
+		if v, ok := s.ConstValue(); ok {
+			ranges[i] = rc.newRange(v, t)
+		} else {
+			sym := s.(shape.SymInt)
+			varName := sym.Node.Arg().(uop.VarArg).Name
+			ranges[i] = rc.newSymRange(varName, t)
+		}
 	}
 	return ranges
 }
