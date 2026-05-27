@@ -107,6 +107,7 @@ type ruleEntry struct {
 	pattern     string   // short pattern like "x + 0 → x"
 	description string   // human-readable explanation
 	source      string   // file:function reference
+	handler     string   // handler name in symbolic.upat (empty for gradient rules)
 }
 
 // collectSources deduplicates source references from matched rules.
@@ -153,6 +154,11 @@ func canonicalOpName(q string) string {
 }
 
 // allRules is the static rule registry.
+//
+// Symbolic entries are verified against rewrite/rules/symbolic.upat by
+// TestUpatDriftCheck: the set of (op, handler) pairs here must exactly match
+// the pairs the .upat file defines for each covered op.  Adding or removing a
+// .upat rule without updating this table will make that test fail.
 var allRules = []ruleEntry{
 	// ── Add ──────────────────────────────────────────────────────────────────
 	{
@@ -160,35 +166,40 @@ var allRules = []ruleEntry{
 		kind:        "symbolic",
 		pattern:     "x + 0 → x",
 		description: "additive identity (int and float)",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnX",
 	},
 	{
 		ops:         []string{"add"},
 		kind:        "symbolic",
 		pattern:     "x + 0.0 → x",
 		description: "additive identity (float)",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnX",
 	},
 	{
 		ops:         []string{"add"},
 		kind:        "symbolic",
 		pattern:     "Const(a) + Const(b) → Const(a+b)",
 		description: "constant folding",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldBinary",
 	},
 	{
 		ops:         []string{"add"},
 		kind:        "symbolic",
 		pattern:     "bool + bool → bool | bool",
 		description: "boolean algebra: addition becomes OR",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hBoolAdd",
 	},
 	{
 		ops:         []string{"add"},
 		kind:        "symbolic",
 		pattern:     "x + y → y + x",
 		description: "commutative canonicalization (const moves to src[1])",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hCanonicalize",
 	},
 	{
 		ops:         []string{"add"},
@@ -211,21 +222,24 @@ var allRules = []ruleEntry{
 		kind:        "symbolic",
 		pattern:     "x - 0 → x",
 		description: "subtractive identity",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnX",
 	},
 	{
 		ops:         []string{"sub"},
 		kind:        "symbolic",
 		pattern:     "x - x → 0",
 		description: "self-cancellation",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hSubSelf",
 	},
 	{
 		ops:         []string{"sub"},
 		kind:        "symbolic",
 		pattern:     "Const(a) - Const(b) → Const(a-b)",
 		description: "constant folding",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldBinary",
 	},
 	{
 		ops:         []string{"sub"},
@@ -248,28 +262,40 @@ var allRules = []ruleEntry{
 		kind:        "symbolic",
 		pattern:     "x * 1 → x",
 		description: "multiplicative identity",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnX",
 	},
 	{
 		ops:         []string{"mul"},
 		kind:        "symbolic",
 		pattern:     "x * 0 → 0",
 		description: "multiplicative absorbing element",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hMulZero",
 	},
 	{
 		ops:         []string{"mul"},
 		kind:        "symbolic",
 		pattern:     "bool * bool → bool & bool",
 		description: "boolean algebra: multiplication becomes AND",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hBoolMul",
 	},
 	{
 		ops:         []string{"mul"},
 		kind:        "symbolic",
 		pattern:     "Const(a) * Const(b) → Const(a*b)",
 		description: "constant folding",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldBinary",
+	},
+	{
+		ops:         []string{"mul"},
+		kind:        "symbolic",
+		pattern:     "x * y → y * x",
+		description: "commutative canonicalization (const moves to src[1])",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hCanonicalize",
 	},
 	{
 		ops:         []string{"mul"},
@@ -292,7 +318,8 @@ var allRules = []ruleEntry{
 		kind:        "symbolic",
 		pattern:     "Const(a) / Const(b) → Const(a/b)",
 		description: "constant folding",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldBinary",
 	},
 	{
 		ops:         []string{"fdiv"},
@@ -312,6 +339,14 @@ var allRules = []ruleEntry{
 	// ── Neg ──────────────────────────────────────────────────────────────────
 	{
 		ops:         []string{"neg"},
+		kind:        "symbolic",
+		pattern:     "Neg(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
+	{
+		ops:         []string{"neg"},
 		kind:        "gradient",
 		pattern:     "∂(-x)/∂x = -adj",
 		description: "negation flips the adjoint sign",
@@ -319,6 +354,14 @@ var allRules = []ruleEntry{
 	},
 
 	// ── Exp2 ─────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"exp2"},
+		kind:        "symbolic",
+		pattern:     "Exp2(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
 	{
 		ops:         []string{"exp2"},
 		kind:        "gradient",
@@ -330,6 +373,14 @@ var allRules = []ruleEntry{
 	// ── Log2 ─────────────────────────────────────────────────────────────────
 	{
 		ops:         []string{"log2"},
+		kind:        "symbolic",
+		pattern:     "Log2(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
+	{
+		ops:         []string{"log2"},
 		kind:        "gradient",
 		pattern:     "∂(log₂x)/∂x = 1/(x·ln2)",
 		description: "derivative of base-2 logarithm",
@@ -337,6 +388,14 @@ var allRules = []ruleEntry{
 	},
 
 	// ── Sin ──────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"sin"},
+		kind:        "symbolic",
+		pattern:     "Sin(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
 	{
 		ops:         []string{"sin"},
 		kind:        "gradient",
@@ -348,6 +407,14 @@ var allRules = []ruleEntry{
 	// ── Sqrt ─────────────────────────────────────────────────────────────────
 	{
 		ops:         []string{"sqrt"},
+		kind:        "symbolic",
+		pattern:     "Sqrt(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
+	{
+		ops:         []string{"sqrt"},
 		kind:        "gradient",
 		pattern:     "∂(√x)/∂x = 1/(2√x)",
 		description: "node IS √x; adjoint / (2·node)",
@@ -357,6 +424,14 @@ var allRules = []ruleEntry{
 	// ── Reciprocal ───────────────────────────────────────────────────────────
 	{
 		ops:         []string{"reciprocal"},
+		kind:        "symbolic",
+		pattern:     "Reciprocal(Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldUnary",
+	},
+	{
+		ops:         []string{"reciprocal"},
 		kind:        "gradient",
 		pattern:     "∂(1/x)/∂x = -node²",
 		description: "node IS 1/x; negate and square",
@@ -364,6 +439,38 @@ var allRules = []ruleEntry{
 	},
 
 	// ── Where ────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"where"},
+		kind:        "symbolic",
+		pattern:     "where(Const,Const,Const) → Const",
+		description: "constant folding",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldTernary",
+	},
+	{
+		ops:         []string{"where"},
+		kind:        "symbolic",
+		pattern:     "where(cond, v, v) → v",
+		description: "both branches equal: condition irrelevant",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnV",
+	},
+	{
+		ops:         []string{"where"},
+		kind:        "symbolic",
+		pattern:     "where(true, a, b) → a",
+		description: "constant true condition: always true branch",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnA",
+	},
+	{
+		ops:         []string{"where"},
+		kind:        "symbolic",
+		pattern:     "where(false, a, b) → b",
+		description: "constant false condition: always false branch",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnB",
+	},
 	{
 		ops:         []string{"where"},
 		kind:        "gradient",
@@ -387,6 +494,22 @@ var allRules = []ruleEntry{
 	},
 
 	// ── Cast ─────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"cast"},
+		kind:        "symbolic",
+		pattern:     "Cast(Const) → Const",
+		description: "cast a constant to a new typed constant",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hCastConstFold",
+	},
+	{
+		ops:         []string{"cast"},
+		kind:        "symbolic",
+		pattern:     "Cast(x) → x",
+		description: "identity cast: same dtype, drop the cast node",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hIdentityCast",
+	},
 	{
 		ops:         []string{"cast"},
 		kind:        "gradient",
@@ -469,23 +592,34 @@ var allRules = []ruleEntry{
 	{
 		ops:         []string{"max"},
 		kind:        "symbolic",
-		pattern:     "x | x → x",
-		description: "idempotent OR",
-		source:      "rewrite/rules/symbolic.go",
-	},
-	{
-		ops:         []string{"max"},
-		kind:        "symbolic",
 		pattern:     "max(x, x) → x",
 		description: "idempotent max",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hReturnX",
 	},
 	{
 		ops:         []string{"max"},
 		kind:        "symbolic",
 		pattern:     "Const(a) max Const(b) → Const(max(a,b))",
 		description: "constant folding",
-		source:      "rewrite/rules/symbolic.go",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hFoldBinary",
+	},
+	{
+		ops:         []string{"max"},
+		kind:        "symbolic",
+		pattern:     "bool max bool → bool | bool",
+		description: "boolean algebra: max of booleans becomes OR",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hBoolMax",
+	},
+	{
+		ops:         []string{"max"},
+		kind:        "symbolic",
+		pattern:     "max(x,y) → max(y,x)",
+		description: "commutative canonicalization (const moves to src[1])",
+		source:      "rewrite/rules/symbolic.upat",
+		handler:     "hCanonicalize",
 	},
 	{
 		ops:         []string{"max"},
@@ -532,7 +666,7 @@ func matmulExplain() string {
 // symbolicOverview returns the overview of all symbolic simplification rules.
 func symbolicOverview() string {
 	var b strings.Builder
-	b.WriteString("symbolic simplification rules (rewrite/rules/symbolic.go)\n")
+	b.WriteString("symbolic simplification rules (rewrite/rules/symbolic.upat)\n")
 	b.WriteString("\n")
 	b.WriteString("12 rule groups fire bottom-up on every UOp node:\n")
 	b.WriteString("   1. constant folding         — fold all-const nodes at compile time\n")
