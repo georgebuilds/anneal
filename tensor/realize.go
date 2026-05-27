@@ -70,6 +70,37 @@ func Realize(tensors ...*Tensor) error {
 	return nil
 }
 
+// RealizeWithBinding executes the computation graphs with at least one symbolic
+// dim bound to a concrete value. binding maps DefineVar name → int64 value.
+// The registered DefaultExecutor must implement backend.SymbolicExecutor.
+func RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) error {
+	if len(tensors) == 0 {
+		return nil
+	}
+	exec, ok := DefaultExecutor.(backend.SymbolicExecutor)
+	if !ok {
+		return fmt.Errorf("tensor: registered executor does not implement SymbolicExecutor")
+	}
+	a := tensors[0].arena()
+	device := tensors[0].device
+	srcs := make([]uop.UOp, len(tensors))
+	for i, t := range tensors {
+		srcs[i] = t.node
+	}
+	sink := a.New(uop.OpSink, uop.Dtypes.Void, srcs, nil, nil)
+	items := schedule.CreateSchedule(sink, device)
+	if len(items) == 0 {
+		return nil
+	}
+	inputs := leafInputs(tensors)
+	outputs, err := exec.RunSymbolic(items, inputs, binding)
+	if err != nil {
+		return fmt.Errorf("tensor: realize with binding: %w", err)
+	}
+	assignOutputs(tensors, items, outputs)
+	return nil
+}
+
 // leafInputs DFS-walks the UOp graph rooted at each tensor's node and collects
 // data for every OpBuffer node that has had SetData called (registered in
 // leafRegistry). This handles the common case where Realize(output) is called

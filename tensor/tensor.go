@@ -25,7 +25,8 @@ func (t *Tensor) Node() uop.UOp { return t.node }
 func (t *Tensor) Shape() []int64 { return t.st.Shape() }
 
 // Rank returns the number of dimensions.
-func (t *Tensor) Rank() int { return len(t.st.Shape()) }
+// Uses ShapeSints so it works for symbolic shapes without panicking.
+func (t *Tensor) Rank() int { return len(t.st.ShapeSints()) }
 
 // DType returns the element data type.
 func (t *Tensor) DType() *uop.DType { return t.dtype }
@@ -70,6 +71,43 @@ func NewLeaf(a *uop.Arena, sh []int64, dtype *uop.DType, device string) *Tensor 
 	return &Tensor{node: node, st: shape.NewShapeTracker(sh), dtype: dtype, device: device}
 }
 
+// NewSymbolicInput creates a leaf tensor backed by a BUFFER node whose shape
+// contains one symbolic dimension [n] where n ∈ [min, max]. The dimension is
+// represented as a DefineVar UOp stored as src[0] of the BUFFER node (arg=nil).
+// The scheduler recognises this pattern and builds a symbolic OpRange for n.
+// Use RealizeWithBinding to provide a concrete value at dispatch time.
+func NewSymbolicInput(a *uop.Arena, name string, min, max int64, dtype *uop.DType, device string) *Tensor {
+	defVar := a.DefineVar(name, min, max)
+	node := a.New(uop.OpBuffer, dtype, []uop.UOp{defVar}, nil, nil)
+	sh := []shape.Sint{shape.SymInt{Node: defVar}}
+	return &Tensor{node: node, st: shape.NewShapeTrackerSints(sh), dtype: dtype, device: device}
+}
+
+// NewSymbolicBatchInput creates a leaf tensor with shape [n, d0, d1, ...] where
+// n ∈ [min, max] is the symbolic outer (batch) dim and d0... are concrete inner dims.
+// The arg is a ShapeSintArg encoding the full shape; the scheduler builds a
+// symbolic OpRange for n and concrete OpRanges for d0....
+// Use RealizeWithBinding to provide the concrete batch size at dispatch time.
+func NewSymbolicBatchInput(a *uop.Arena, name string, min, max int64, innerShape []int64, dtype *uop.DType, device string) *Tensor {
+	defVar := a.DefineVar(name, min, max)
+	arg := make(uop.ShapeSintArg, 1+len(innerShape))
+	arg[0] = uop.ShapeDim{Sym: true, VarIdx: defVar.Index()}
+	for i, s := range innerShape {
+		arg[i+1] = uop.ShapeDim{V: s}
+	}
+	node := a.New(uop.OpBuffer, dtype, []uop.UOp{defVar}, uop.ShapeSintArg(arg), nil)
+	sh := make([]shape.Sint, 1+len(innerShape))
+	sh[0] = shape.SymInt{Node: defVar}
+	for i, s := range innerShape {
+		sh[i+1] = shape.Const(s)
+	}
+	return &Tensor{node: node, st: shape.NewShapeTrackerSints(sh), dtype: dtype, device: device}
+}
+
+// ShapeSints returns the Sint slice of the current logical shape.
+// Use this to inspect symbolic dimensions without forcing concretisation.
+func (t *Tensor) ShapeSints() []shape.Sint { return t.st.ShapeSints() }
+
 // ConstScalar creates a scalar constant graph node.
 func ConstScalar(a *uop.Arena, val float64, dtype *uop.DType, device string) *Tensor {
 	var arg any
@@ -95,6 +133,27 @@ func Full(a *uop.Arena, sh []int64, val float64, dtype *uop.DType, device string
 	}
 	t = t.Reshape(ones)
 	t = t.Expand(sh)
+	return t
+}
+
+// FullSints creates a constant tensor of Sint shape sh filled with val.
+// For fully-concrete shapes, delegates to Full. For symbolic shapes, builds a
+// scalar constant and expands it via ReshapeSints + ExpandSints.
+func FullSints(a *uop.Arena, sh []shape.Sint, val float64, dtype *uop.DType, device string) *Tensor {
+	if !shape.HasSymbolic(sh) {
+		return Full(a, shape.AsInts(sh), val, dtype, device)
+	}
+	t := ConstScalar(a, val, dtype, device)
+	if len(sh) == 0 {
+		return t
+	}
+	// Reshape scalar to all-ones shape, then expand to target.
+	ones := make([]int64, len(sh))
+	for i := range ones {
+		ones[i] = 1
+	}
+	t = t.Reshape(ones)
+	t = t.ExpandSints(sh)
 	return t
 }
 
@@ -169,6 +228,73 @@ func BroadcastTo(t *Tensor, targetShape []int64) *Tensor {
 	return t
 }
 
+// BroadcastToSints returns t expanded to targetShape (Sint slice), prepending
+// rank-1 dims as needed. Handles symbolic dims in targetShape via ReshapeSints
+// and ExpandSints.
+func BroadcastToSints(t *Tensor, targetShape []shape.Sint) *Tensor {
+	cur := t.ShapeSints()
+	if len(cur) > len(targetShape) {
+		panic(fmt.Sprintf("tensor: broadcastToSints: rank too high %d > %d", len(cur), len(targetShape)))
+	}
+	if len(cur) < len(targetShape) {
+		newShape := make([]shape.Sint, len(targetShape))
+		off := len(targetShape) - len(cur)
+		for i := 0; i < off; i++ {
+			newShape[i] = shape.Const(1)
+		}
+		copy(newShape[off:], cur)
+		t = t.ReshapeSints(newShape)
+	}
+	if !shape.SintShapesEqual(t.ShapeSints(), targetShape) {
+		t = t.ExpandSints(targetShape)
+	}
+	return t
+}
+
+// broadcastShapesSints computes the Sint broadcast output shape for two shapes.
+// Concrete dims follow normal broadcast rules; symbolic dims must be structurally
+// equal, or one side must be concrete-1 (which the symbolic dim wins).
+func broadcastShapesSints(a, b []shape.Sint) []shape.Sint {
+	na, nb := len(a), len(b)
+	n := na
+	if nb > n {
+		n = nb
+	}
+	out := make([]shape.Sint, n)
+	for i := 0; i < n; i++ {
+		ai := i - (n - na)
+		bi := i - (n - nb)
+		var av, bv shape.Sint
+		if ai >= 0 {
+			av = a[ai]
+		} else {
+			av = shape.Const(1)
+		}
+		if bi >= 0 {
+			bv = b[bi]
+		} else {
+			bv = shape.Const(1)
+		}
+		if shape.SintShapesEqual([]shape.Sint{av}, []shape.Sint{bv}) {
+			out[i] = av
+			continue
+		}
+		avv, aok := av.ConstValue()
+		bvv, bok := bv.ConstValue()
+		switch {
+		case aok && avv == 1:
+			out[i] = bv
+		case bok && bvv == 1:
+			out[i] = av
+		case aok && bok && avv == bvv:
+			out[i] = av
+		default:
+			panic(fmt.Sprintf("tensor: broadcastShapesSints: incompatible dims at %d", i))
+		}
+	}
+	return out
+}
+
 // broadcastShapes returns aligned shapes and broadcast output shape.
 func broadcastShapes(a, b []int64) (aOut, bOut []int64, out []int64) {
 	na, nb := len(a), len(b)
@@ -207,7 +333,18 @@ func broadcastShapes(a, b []int64) (aOut, bOut []int64, out []int64) {
 }
 
 // broadcast returns a and b expanded to their common broadcast shape.
+// For purely concrete shapes it uses broadcastShapes. For symbolic shapes
+// (Option A: batch is the outermost dim), it uses Sint-aware broadcast.
 func broadcast(a, b *Tensor) (*Tensor, *Tensor) {
+	aSints := a.st.ShapeSints()
+	bSints := b.st.ShapeSints()
+	if shape.SintShapesEqual(aSints, bSints) {
+		return a, b
+	}
+	if shape.HasSymbolic(aSints) || shape.HasSymbolic(bSints) {
+		out := broadcastShapesSints(aSints, bSints)
+		return BroadcastToSints(a, out), BroadcastToSints(b, out)
+	}
 	_, _, out := broadcastShapes(a.Shape(), b.Shape())
 	return BroadcastTo(a, out), BroadcastTo(b, out)
 }

@@ -165,3 +165,51 @@ func (t *Tensor) Unsqueeze(dim int) *Tensor {
 func newShapeTracker(sh []int64) shape.ShapeTracker {
 	return shape.NewShapeTracker(sh)
 }
+
+// ReshapeSints reshapes t to newShape which may contain symbolic dimensions.
+// For fully-concrete newShape, falls back to the regular []int64 Reshape path.
+// For shapes with symbolic dims, creates an OpReshape with ShapeSintArg.
+func (t *Tensor) ReshapeSints(newShape []shape.Sint) *Tensor {
+	// Fast path: all concrete → use regular Reshape (byte-identical static path)
+	if !shape.HasSymbolic(newShape) {
+		return t.Reshape(shape.AsInts(newShape))
+	}
+	if shape.SintShapesEqual(t.st.ShapeSints(), newShape) {
+		return t
+	}
+	newST := t.st.ReshapeSints(newShape)
+	arg := toShapeSintArg(newShape)
+	node := t.arena().New(uop.OpReshape, t.dtype, []uop.UOp{t.node}, arg, nil)
+	return fromNode(node, newST, t.dtype, t.device)
+}
+
+// ExpandSints broadcasts t to newShape which may contain symbolic dimensions.
+// For fully-concrete newShape, falls back to the regular []int64 Expand path.
+// For shapes with symbolic dims, creates an OpExpand with ShapeSintArg.
+func (t *Tensor) ExpandSints(newShape []shape.Sint) *Tensor {
+	if !shape.HasSymbolic(newShape) {
+		return t.Expand(shape.AsInts(newShape))
+	}
+	if shape.SintShapesEqual(t.st.ShapeSints(), newShape) {
+		return t
+	}
+	newST := t.st.ExpandSints(newShape)
+	arg := toShapeSintArg(newShape)
+	node := t.arena().New(uop.OpExpand, t.dtype, []uop.UOp{t.node}, arg, nil)
+	return fromNode(node, newST, t.dtype, t.device)
+}
+
+// toShapeSintArg converts a []shape.Sint to a uop.ShapeSintArg for use as a
+// UOp arg. SymInt dims encode their DefineVar node's arena index in VarIdx.
+func toShapeSintArg(sh []shape.Sint) uop.ShapeSintArg {
+	result := make(uop.ShapeSintArg, len(sh))
+	for i, s := range sh {
+		if sym, ok := s.(shape.SymInt); ok {
+			result[i] = uop.ShapeDim{Sym: true, VarIdx: sym.Node.Index()}
+		} else {
+			v, _ := s.ConstValue()
+			result[i] = uop.ShapeDim{V: v}
+		}
+	}
+	return result
+}

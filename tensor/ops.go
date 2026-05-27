@@ -48,13 +48,13 @@ func (t *Tensor) Trunc() *Tensor { return t.unary(uop.OpTrunc) }
 
 // Exp returns eˣ expressed as exp2(x / ln2)
 func (t *Tensor) Exp() *Tensor {
-	scale := Full(t.arena(), t.Shape(), 1.0/ln2, t.dtype, t.device)
+	scale := FullSints(t.arena(), t.ShapeSints(), 1.0/ln2, t.dtype, t.device)
 	return t.Mul(scale).Exp2()
 }
 
 // Log returns ln(x) expressed as log2(x) * ln2.
 func (t *Tensor) Log() *Tensor {
-	scale := Full(t.arena(), t.Shape(), ln2, t.dtype, t.device)
+	scale := FullSints(t.arena(), t.ShapeSints(), ln2, t.dtype, t.device)
 	return t.Log2().Mul(scale)
 }
 
@@ -115,7 +115,7 @@ func (t *Tensor) CmpEq(other *Tensor) *Tensor {
 func Where(cond, x, y *Tensor) *Tensor {
 	dtype := uop.LeastUpperDType(x.dtype, y.dtype)
 	xp, yp := broadcast(x.Cast(dtype), y.Cast(dtype))
-	c := BroadcastTo(cond, xp.Shape())
+	c := BroadcastToSints(cond, xp.ShapeSints())
 	node := x.arena().New(uop.OpWhere, dtype, []uop.UOp{c.node, xp.node, yp.node}, nil, nil)
 	return fromNode(node, xp.st, dtype, x.device)
 }

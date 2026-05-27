@@ -13,8 +13,8 @@ import (
 // reduce is the shared implementation of all reduction ops.
 // axes may contain negative indices; duplicates are silently de-duped.
 func (t *Tensor) reduce(op uop.Op, axes []int, keepdim bool) *Tensor {
-	sh := t.Shape()
-	rank := len(sh)
+	sints := t.ShapeSints()
+	rank := len(sints)
 
 	// Normalize axes.
 	seen := make(map[int]bool, len(axes))
@@ -33,20 +33,20 @@ func (t *Tensor) reduce(op uop.Op, axes []int, keepdim bool) *Tensor {
 	}
 	sort.Ints(normAxes)
 
-	// Compute output shape.
-	outShape := make([]int64, 0, rank)
-	for i, s := range sh {
+	// Compute output Sint shape (preserves symbolic dims on non-reduced axes).
+	outSints := make([]shape.Sint, 0, rank)
+	for i, s := range sints {
 		isReduced := seen[i]
 		if !isReduced {
-			outShape = append(outShape, s)
+			outSints = append(outSints, s)
 		} else if keepdim {
-			outShape = append(outShape, 1)
+			outSints = append(outSints, shape.Const(1))
 		}
 	}
 
 	arg := uop.ReduceArg{Op: op, Axes: normAxes}
 	node := t.arena().New(uop.OpReduceAxis, t.dtype, []uop.UOp{t.node}, arg, nil)
-	return fromNode(node, shape.NewShapeTracker(outShape), t.dtype, t.device)
+	return fromNode(node, shape.NewShapeTrackerSints(outSints), t.dtype, t.device)
 }
 
 // Sum reduces along axes, optionally keeping dimensions.
@@ -72,18 +72,22 @@ func (t *Tensor) Mean(axes []int, keepdim bool) *Tensor {
 	if len(axes) == 0 {
 		axes = allAxes(t.Rank())
 	}
-	sh := t.Shape()
+	sints := t.ShapeSints()
 	n := int64(1)
 	for _, ax := range axes {
 		a := ax
 		if a < 0 {
-			a += len(sh)
+			a += len(sints)
 		}
-		n *= sh[a]
+		sv, ok := sints[a].ConstValue()
+		if !ok {
+			panic("tensor: Mean: reducing over symbolic axis not supported")
+		}
+		n *= sv
 	}
 	summed := t.Sum(axes, keepdim)
 	dtype := uop.LeastUpperDType(t.dtype, uop.Dtypes.Float32)
-	divisor := Full(t.arena(), summed.Shape(), float64(n), dtype, t.device)
+	divisor := FullSints(t.arena(), summed.ShapeSints(), float64(n), dtype, t.device)
 	return summed.Cast(dtype).Div(divisor)
 }
 
@@ -97,52 +101,65 @@ func (t *Tensor) Mean(axes []int, keepdim bool) *Tensor {
 //  3. Multiply element-wise → [..., M, K, N].
 //  4. Sum over K (axis=-2) → [..., M, N].
 //
-// This exposes the full graph to autodiff and the scheduler without a matmul
-// primitive
+// Supports symbolic outer (batch) dims in A (Option A): K and N must be concrete.
 func (t *Tensor) Matmul(other *Tensor) *Tensor {
-	aShape := t.Shape()
-	bShape := other.Shape()
+	aSints := t.ShapeSints()
+	bSints := other.ShapeSints()
 
-	if len(aShape) == 0 || len(bShape) == 0 {
+	if len(aSints) == 0 || len(bSints) == 0 {
 		panic("tensor: Matmul: operands must be at least 1D")
 	}
 
-	K := aShape[len(aShape)-1]
+	// K = innermost dim of A (must be concrete for Option A)
+	Ks := aSints[len(aSints)-1]
+	Kv, ok := Ks.ConstValue()
+	if !ok {
+		panic("tensor: Matmul: inner dim K must be concrete")
+	}
 
 	// Matrix-vector: A[..., M, K] @ B[K] → A[..., M]
-	if len(bShape) == 1 {
-		if bShape[0] != K {
-			panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch %d != %d", K, bShape[0]))
+	if len(bSints) == 1 {
+		bv, ok := bSints[0].ConstValue()
+		if !ok || bv != Kv {
+			panic(fmt.Sprintf("tensor: Matmul: vector dim mismatch"))
 		}
-		b := BroadcastTo(other, aShape)
+		b := BroadcastToSints(other, aSints)
 		prod := t.Mul(b)
-		return prod.Sum([]int{len(aShape) - 1}, false)
+		return prod.Sum([]int{len(aSints) - 1}, false)
 	}
 
-	kDim := bShape[len(bShape)-2]
-	if K != kDim {
-		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch %d != %d", K, kDim))
+	// N = last dim of B; K-check
+	Ns := bSints[len(bSints)-1]
+	Nv, ok := Ns.ConstValue()
+	if !ok {
+		panic("tensor: Matmul: output dim N must be concrete")
 	}
-	N := bShape[len(bShape)-1]
+	kDimS := bSints[len(bSints)-2]
+	kDimV, ok := kDimS.ConstValue()
+	if !ok || kDimV != Kv {
+		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch"))
+	}
 
 	// Unsqueeze A: [..., M, K] → [..., M, K, 1]
-	aNew := make([]int64, len(aShape)+1)
-	copy(aNew, aShape)
-	aNew[len(aShape)] = 1
-	a := t.Reshape(aNew)
+	aNew := make([]shape.Sint, len(aSints)+1)
+	copy(aNew, aSints)
+	aNew[len(aSints)] = shape.Const(1)
+	a := t.ReshapeSints(aNew)
 
-	// Unsqueeze B: [..., K, N] → [..., 1, K, N]
-	bNew := make([]int64, len(bShape)+1)
-	copy(bNew[:len(bShape)-2], bShape[:len(bShape)-2])
-	bNew[len(bShape)-2] = 1
-	bNew[len(bShape)-1] = K
-	bNew[len(bShape)] = N
+	// Unsqueeze B: [..., K, N] → [..., 1, K, N]  (B is always concrete)
+	bNew := make([]int64, len(bSints)+1)
+	for i := 0; i < len(bSints)-2; i++ {
+		sv, _ := bSints[i].ConstValue()
+		bNew[i] = sv
+	}
+	bNew[len(bSints)-2] = 1
+	bNew[len(bSints)-1] = Kv
+	bNew[len(bSints)] = Nv
 	b := other.Reshape(bNew)
 
-	// Broadcast batch dims together.
+	// Broadcast (Sint-aware for symbolic batch).
 	ab, bb := broadcast(a, b)
 
-	// Element-wise multiply, then sum over K (second-to-last axis).
 	prod := ab.Mul(bb)
 	kAxis := prod.Rank() - 2
 	return prod.Sum([]int{kAxis}, false)

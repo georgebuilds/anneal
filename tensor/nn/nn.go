@@ -106,22 +106,22 @@ func (opt *SGD) Step(grads map[*tensor.Tensor]*tensor.Tensor) {
 
 // ReLU returns max(0, x) expressed via the Maximum primitive.
 func ReLU(x *tensor.Tensor) *tensor.Tensor {
-	zero := tensor.Full(x.Arena(), x.Shape(), 0.0, x.DType(), x.Device())
+	zero := tensor.FullSints(x.Arena(), x.ShapeSints(), 0.0, x.DType(), x.Device())
 	return x.Maximum(zero)
 }
 
 // Sigmoid returns 1 / (1 + exp(-x)) via primitives.
 func Sigmoid(x *tensor.Tensor) *tensor.Tensor {
 	a := x.Arena()
-	one := tensor.Full(a, x.Shape(), 1.0, x.DType(), x.Device())
+	one := tensor.FullSints(a, x.ShapeSints(), 1.0, x.DType(), x.Device())
 	return one.Div(one.Add(x.Neg().Exp()))
 }
 
 // Tanh returns tanh(x) = 2*sigmoid(2x) - 1.
 func Tanh(x *tensor.Tensor) *tensor.Tensor {
 	a := x.Arena()
-	two := tensor.Full(a, x.Shape(), 2.0, x.DType(), x.Device())
-	one := tensor.Full(a, x.Shape(), 1.0, x.DType(), x.Device())
+	two := tensor.FullSints(a, x.ShapeSints(), 2.0, x.DType(), x.Device())
+	one := tensor.FullSints(a, x.ShapeSints(), 1.0, x.DType(), x.Device())
 	return two.Mul(Sigmoid(two.Mul(x))).Sub(one)
 }
 
@@ -153,7 +153,7 @@ func (l *Linear) Forward(x *tensor.Tensor) *tensor.Tensor {
 	out := x.Matmul(l.Weight.T.Permute([]int{1, 0}))
 	if l.Bias != nil {
 		// bias: [OutFeatures] → broadcast to [..., OutFeatures]
-		b := tensor.BroadcastTo(l.Bias.T, out.Shape())
+		b := tensor.BroadcastToSints(l.Bias.T, out.ShapeSints())
 		out = out.Add(b)
 	}
 	return out
