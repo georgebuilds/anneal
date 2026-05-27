@@ -32,6 +32,7 @@ type Arena struct {
 	leaves     map[uint32][]float32 // leaf data indexed by local UOp index; released with the arena
 	provenance []Phase              // parallel to nodes; set once at first construction
 	phase      Phase                // current build phase; new allocations inherit this
+	Ext        any                  // arena-scoped extension slot; GC'd with the arena
 }
 
 // uopNode is the stored, immutable representation of one UOp.
@@ -295,8 +296,9 @@ type RangeArg struct {
 	ID          int
 	Size        int64
 	Type        AxisType
-	Symbolic    bool // true → read bound from params_n[SymParamIdx] at dispatch
-	SymParamIdx int  // index into the per-kernel params_n buffer (only when Symbolic)
+	Symbolic    bool   // true → read bound from params_n[SymParamIdx] at dispatch
+	SymParamIdx int    // index into the per-kernel params_n buffer (only when Symbolic)
+	VarName     string // DefineVar name for symbolic ranges; "" for static
 }
 
 // BufferizeArg is the arg payload for OpBufferize nodes.
@@ -311,6 +313,21 @@ type BufferizeArg struct {
 // Two DefineVars with the same name and bounds intern to one node;
 // different names produce distinct nodes.
 type VarArg struct{ Name string }
+
+// ShapeDim is one element of a ShapeSintArg.
+// Sym=false: V is a concrete dimension size.
+// Sym=true: VarIdx is the arena index of the corresponding DefineVar UOp.
+type ShapeDim struct {
+	V      int64
+	Sym    bool
+	VarIdx uint32
+}
+
+// ShapeSintArg is the arg payload for OpReshape and OpExpand nodes whose shape
+// contains at least one symbolic dimension. Concrete dims carry their size in V;
+// symbolic dims set Sym=true and VarIdx to the DefineVar UOp's arena index.
+// This type supplements the plain []int64 arg used for fully-concrete shapes.
+type ShapeSintArg []ShapeDim
 
 // DefineVar creates (or retrieves interned) a symbolic variable with name
 // and inclusive integer bounds [min, max]. The resulting UOp has dtype Index
@@ -386,6 +403,9 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 			h = mix(h, 0)
 		}
 		h = mix(h, uint64(v.SymParamIdx))
+		for i := 0; i < len(v.VarName); i++ {
+			h = mix(h, uint64(v.VarName[i]))
+		}
 		return h
 	case BufferizeArg:
 		h = mix(h, 9)
@@ -404,6 +424,19 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 		h = mix(h, 12)
 		for i := 0; i < len(v.Name); i++ {
 			h = mix(h, uint64(v.Name[i]))
+		}
+		return h
+	case ShapeSintArg:
+		h = mix(h, 13)
+		h = mix(h, uint64(len(v)))
+		for _, d := range v {
+			if d.Sym {
+				h = mix(h, 1)
+				h = mix(h, uint64(d.VarIdx))
+			} else {
+				h = mix(h, 0)
+				h = mix(h, uint64(d.V))
+			}
 		}
 		return h
 	default:
@@ -495,6 +528,17 @@ func equalArg(a, b any) bool {
 	case VarArg:
 		bv, ok := b.(VarArg)
 		return ok && av == bv
+	case ShapeSintArg:
+		bv, ok := b.(ShapeSintArg)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+		return true
 	default:
 		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))
 	}
