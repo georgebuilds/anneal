@@ -14,6 +14,15 @@ func NewShapeTracker(shape []int64) ShapeTracker {
 	return ShapeTracker{Views: []View{NewContiguousView(AsSints(shape))}}
 }
 
+// NewShapeTrackerSints returns a ShapeTracker with a single contiguous View
+// built directly from a Sint slice. Use this when dimensions are symbolic.
+func NewShapeTrackerSints(sh []Sint) ShapeTracker {
+	return ShapeTracker{Views: []View{NewContiguousView(sh)}}
+}
+
+// ShapeSints returns the Sint slice of the active view.
+func (st ShapeTracker) ShapeSints() []Sint { return st.ActiveView().Shape }
+
 // ActiveView returns the last (active) view.
 func (st ShapeTracker) ActiveView() View { return st.Views[len(st.Views)-1] }
 
@@ -75,4 +84,22 @@ func (st ShapeTracker) Shrink(arg [][2]int64) ShapeTracker {
 // Flip reverses elements along specified axes (see View.Flip).
 func (st ShapeTracker) Flip(axes []bool) ShapeTracker {
 	return st.withLastView(st.ActiveView().Flip(axes))
+}
+
+// ReshapeSints applies a reshape using a Sint slice, preserving symbolic dims.
+// If the active view can reuse its strides (e.g. it is contiguous), the view
+// is updated in place; otherwise a fresh contiguous view is pushed.
+func (st ShapeTracker) ReshapeSints(newShape []Sint) ShapeTracker {
+	if SintShapesEqual(st.ActiveView().Shape, newShape) {
+		return st
+	}
+	if v, ok := st.ActiveView().Reshape(newShape); ok {
+		return st.withLastView(v)
+	}
+	return st.withPushedView(NewContiguousView(newShape))
+}
+
+// ExpandSints broadcasts dimensions using a Sint slice target shape.
+func (st ShapeTracker) ExpandSints(newShape []Sint) ShapeTracker {
+	return st.withLastView(st.ActiveView().Expand(newShape))
 }

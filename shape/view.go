@@ -36,25 +36,33 @@ func NewContiguousView(shape []Sint) View {
 // ── stride helpers ────────────────────────────────────────────────────────────
 
 // stridesForShape returns C-contiguous (row-major) strides for shape.
-// Dimensions of size 1 get stride 0 (canonicalized).
+// Dimensions of size 1 get stride 0 (broadcast canonicalization).
+// Uses Sint arithmetic so that symbolic dimensions accumulate correctly:
+// for shape (4, n), strides are [SymInt(n), Const(1)]; for shape (n, 4),
+// strides are [Const(4), Const(1)] (the symbolic outermost dim is never read
+// since there is no dim to its left).
 func stridesForShape(shape []Sint) []Sint {
 	n := len(shape)
 	if n == 0 {
 		return []Sint{}
 	}
 	st := make([]Sint, n)
-	acc := int64(1)
+	acc := Sint(Const(1))
 	for i := n - 1; i >= 0; i-- {
-		sv := cv(shape[i])
-		if sv != 1 {
-			st[i] = Const(acc)
+		sv, isConcrete := shape[i].ConstValue()
+		if isConcrete && sv == 1 {
+			st[i] = Const(0) // size-1 dim: stride 0 (broadcast canonicalization)
 		} else {
-			st[i] = Const(0)
+			st[i] = acc
 		}
-		acc *= sv
+		acc = Mul(acc, shape[i])
 	}
 	return st
 }
+
+// StridesForShape is the exported wrapper for stridesForShape.
+// Used by tests that verify symbolic stride computation.
+func StridesForShape(shape []Sint) []Sint { return stridesForShape(shape) }
 
 // ── mask helpers ──────────────────────────────────────────────────────────────
 
@@ -75,19 +83,26 @@ func normalizeMask(mask [][2]Sint, shape []Sint) [][2]Sint {
 
 // Expand broadcasts dimensions.  Caller must ensure new_shape[i] == shape[i]
 // for all dims where shape[i] != 1.  Expanded dims keep stride 0.
+// Handles symbolic newShape: a concrete size-1 source dim may be expanded to
+// a symbolic target dim (Option A: symbolic batch is always the outermost dim).
 func (v View) Expand(newShape []Sint) View {
 	if len(newShape) != len(v.Shape) {
 		panic(fmt.Sprintf("shape: expand: rank mismatch %d vs %d", len(v.Shape), len(newShape)))
 	}
 	for i, s := range v.Shape {
-		if !Eq(s, newShape[i]) && cv(s) != 1 {
-			panic(fmt.Sprintf("shape: expand: cannot expand dim %d size %d to %d", i, cv(s), cv(newShape[i])))
+		if SintShapesEqual([]Sint{s}, []Sint{newShape[i]}) {
+			continue // same dim — no expansion
 		}
+		sv, ok := s.ConstValue()
+		if !ok || sv != 1 {
+			panic(fmt.Sprintf("shape: expand: cannot expand non-unit dim %d", i))
+		}
+		// s is concrete 1 → expanding to newShape[i] (may be symbolic)
 	}
 
 	// zero-size input → fresh contiguous view
 	for _, s := range v.Shape {
-		if cv(s) == 0 {
+		if sv, ok := s.ConstValue(); ok && sv == 0 {
 			return NewContiguousView(newShape)
 		}
 	}
@@ -99,12 +114,14 @@ func (v View) Expand(newShape []Sint) View {
 	}
 
 	for i, ns := range newShape {
-		if Eq(v.Shape[i], ns) {
+		if SintShapesEqual([]Sint{v.Shape[i]}, []Sint{ns}) {
 			continue
 		}
 		// Expanding size-1 dim; its stride is already 0 from canonicalization.
 		if mask != nil {
-			if cv(v.Mask[i][0]) == 0 && cv(v.Mask[i][1]) == 1 {
+			m0, ok0 := v.Mask[i][0].ConstValue()
+			m1, ok1 := v.Mask[i][1].ConstValue()
+			if ok0 && ok1 && m0 == 0 && m1 == 1 {
 				mask[i] = [2]Sint{Const(0), ns}
 			} else {
 				mask[i] = [2]Sint{Const(0), Const(0)}
@@ -202,17 +219,23 @@ func (v View) Flip(axes []bool) View {
 // Returns (newView, true) on success.
 // Returns (View{}, false) if strides or mask cannot be expressed in newShape;
 // callers (ShapeTracker) must then push a fresh contiguous view.
+// Symbolic shapes (either source or dest) bypass size validation; contiguous
+// symbolic views always succeed via the fast path.
 func (v View) Reshape(newShape []Sint) (View, bool) {
-	if !sizeMatch(v.Shape, newShape) {
-		panic(fmt.Sprintf("shape: reshape: size mismatch %v -> %v", AsInts(v.Shape), AsInts(newShape)))
-	}
-	if slintsEqual(v.Shape, newShape) {
+	if SintShapesEqual(v.Shape, newShape) {
 		return v, true
+	}
+
+	// Validate size for fully concrete shapes only.
+	if !hasSym(v.Shape) && !hasSym(newShape) {
+		if !sizeMatch(v.Shape, newShape) {
+			panic(fmt.Sprintf("shape: reshape: size mismatch %v -> %v", AsInts(v.Shape), AsInts(newShape)))
+		}
 	}
 
 	// Zero-size source → any new shape is a fresh contiguous view.
 	for _, s := range v.Shape {
-		if cv(s) == 0 {
+		if sv, ok := s.ConstValue(); ok && sv == 0 {
 			return NewContiguousView(newShape), true
 		}
 	}
@@ -228,6 +251,11 @@ func (v View) Reshape(newShape []Sint) (View, bool) {
 
 	if v.Contiguous {
 		return NewContiguousView(newShape), true
+	}
+
+	// Non-contiguous reshape requires concrete shapes for the helper functions.
+	if hasSym(v.Shape) || hasSym(newShape) {
+		return View{}, false // caller pushes a fresh contiguous view
 	}
 
 	// Extract int64 arrays for the internal reshape helpers.
@@ -544,19 +572,23 @@ func cloneMaskSint(m [][2]Sint) [][2]Sint {
 	return c
 }
 
-func slintsEqual(a, b []Sint) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if cv(a[i]) != cv(b[i]) {
-			return false
+func slintsEqual(a, b []Sint) bool { return SintShapesEqual(a, b) }
+
+// hasSym reports whether any element of s is symbolic (SymInt).
+func hasSym(s []Sint) bool {
+	for _, d := range s {
+		if _, ok := d.ConstValue(); !ok {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func sizeMatch(a, b []Sint) bool {
+	// Conservative: if either slice has a symbolic dim, trust the caller.
+	if hasSym(a) || hasSym(b) {
+		return true
+	}
 	pa, pb := int64(1), int64(1)
 	for _, s := range a {
 		pa *= cv(s)

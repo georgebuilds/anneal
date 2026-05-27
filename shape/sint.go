@@ -38,6 +38,32 @@ func CV(s Sint) int64 { return cv(s) }
 // Const wraps a literal int64 as a Sint.
 func Const(v int64) Sint { return ConstInt{V: v} }
 
+// SintShapesEqual reports whether two Sint slices are structurally equal without
+// forcing concretisation. ConstInt dims are compared by value; SymInt dims are
+// compared by UOp identity (same arena index in the same arena).
+func SintShapesEqual(a, b []Sint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		switch av := a[i].(type) {
+		case ConstInt:
+			bv, ok := b[i].(ConstInt)
+			if !ok || av.V != bv.V {
+				return false
+			}
+		case SymInt:
+			bv, ok := b[i].(SymInt)
+			if !ok || av.Node != bv.Node {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // symArena returns the arena from the first SymInt operand.
 // Caller must ensure at least one operand is SymInt.
 func symArena(a, b Sint) *uop.Arena {
@@ -222,4 +248,14 @@ func Product(dims []Sint) Sint {
 		acc *= cv(d)
 	}
 	return ConstInt{V: acc}
+}
+
+// HasSymbolic reports whether any element of sh is a SymInt.
+func HasSymbolic(sh []Sint) bool {
+	for _, s := range sh {
+		if _, ok := s.ConstValue(); !ok {
+			return true
+		}
+	}
+	return false
 }
