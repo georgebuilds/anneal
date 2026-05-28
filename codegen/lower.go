@@ -80,10 +80,29 @@ func Lower(item schedule.ExecItem) []Instr {
 }
 
 type lowerer struct {
-	item   schedule.ExecItem
-	instrs []Instr
-	exprOf map[uint32]string // arenaIdx → WGSL expression / variable name
-	accCnt int               // counter for accumulator variable names
+	item     schedule.ExecItem
+	instrs   []Instr
+	exprOf   map[uint32]string // arenaIdx → WGSL expression / variable name
+	accCnt   int               // counter for accumulator variable names
+	widenF16 bool              // when true, f16 loads/ops are widened to f32 in reduce body
+}
+
+// computeDType returns the effective WGSL dtype for u.
+// bf16 is always promoted to f32 (no native WGSL bf16 type; storage is array<u32>).
+// f16 is promoted to f32 only when widenF16 is set (inside a f16 reduce body).
+func (l *lowerer) computeDType(u uop.UOp) *uop.DType {
+	d := u.DType()
+	if d == nil {
+		return d
+	}
+	s := d.Scalar()
+	if s == uop.Dtypes.BFloat16 {
+		return uop.Dtypes.Float32
+	}
+	if l.widenF16 && s == uop.Dtypes.Float16 {
+		return uop.Dtypes.Float32
+	}
+	return d
 }
 
 func (l *lowerer) emit(ins Instr) { l.instrs = append(l.instrs, ins) }
@@ -167,7 +186,13 @@ func (l *lowerer) lowerSink() []Instr {
 	bodyExpr := l.emitExpr(body)
 
 	// Output store: flat index is gid_x for multi-element output, 0 for scalar.
-	l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr})
+	// DType carries the output buffer element type so the renderer can emit the
+	// correct narrowing (e.g. bitcast+mask for bf16, identity for f32/f16).
+	var outBufDType *uop.DType
+	if len(l.item.Bufs) > 0 {
+		outBufDType = l.item.Bufs[0].DType
+	}
+	l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr, DType: outBufDType})
 
 	return l.instrs
 }
@@ -248,8 +273,25 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 
 	// Emit as a let binding so multi-use nodes aren't re-evaluated.
 	rhs := fmt.Sprintf("data%d[%s]", paramIdx, flatExpr)
+
+	emitDType := u.DType()
+	if emitDType != nil {
+		s := emitDType.Scalar()
+		if s == uop.Dtypes.BFloat16 {
+			// bf16 is stored as u32 (high 16 bits = bf16 bits, low 16 zeroed).
+			// bitcast<f32> recovers the bf16-approximated f32 value at load time.
+			rhs = fmt.Sprintf("bitcast<f32>(%s)", rhs)
+			emitDType = uop.Dtypes.Float32
+		} else if l.widenF16 && s == uop.Dtypes.Float16 {
+			// Inside a f16 reduce body, widen f16 loads to f32 immediately.
+			// This implements f32(a) * f32(b) semantics.
+			rhs = fmt.Sprintf("f32(%s)", rhs)
+			emitDType = uop.Dtypes.Float32
+		}
+	}
+
 	letName := fmt.Sprintf("t%d", u.Index())
-	l.emit(Instr{Kind: InstrLet, NodeIdx: u.Index(), DType: u.DType(), Expr: rhs})
+	l.emit(Instr{Kind: InstrLet, NodeIdx: u.Index(), DType: emitDType, Expr: rhs})
 	l.exprOf[u.Index()] = letName
 	return letName
 }
@@ -258,14 +300,31 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 // Emits: accumulator init, loop begins, element expr, accumulator update, loop ends.
 // Some reduce ranges may be OpConst(0) when rangeify folded a size-1 dimension to
 // a constant; those require no loop — the index is always 0.
+//
+// For f16 reductions: the accumulator is f32 and operands are widened to f32
+// before arithmetic (f32(a) * f32(b) semantics). The result is narrowed back to
+// f16 with a single f16() cast at the use site. Ref: PyTorch/cuBLAS default for
+// mixed-precision matmul (TVM test_to_mixed_precision atol=1e-2, rtol=1e-3).
 func (l *lowerer) emitReduce(u uop.UOp) string {
 	accOp := u.Arg().(uop.Op)
 	elemNode := u.Src(0)
 	accIdx := l.accCnt
 	l.accCnt++
 
-	wt := wgslDType(u.DType())
-	id := reduceIdentity(accOp, u.DType())
+	outDType := u.DType()
+	isF16Reduce := outDType != nil && outDType.Scalar() == uop.Dtypes.Float16
+	isBF16Reduce := outDType != nil && outDType.Scalar() == uop.Dtypes.BFloat16
+
+	var wt, id string
+	if isF16Reduce || isBF16Reduce {
+		// Use f32 accumulator; narrow back to f16/bf16 at the store boundary.
+		// For bf16: the store emits bitcast<u32>(acc) & 0xFFFF0000u.
+		wt = "f32"
+		id = reduceIdentity(accOp, uop.Dtypes.Float32)
+	} else {
+		wt = wgslDType(outDType)
+		id = reduceIdentity(accOp, outDType)
+	}
 	l.emit(Instr{Kind: InstrAccInit, AccIdx: accIdx, WGSLType: wt, Identity: id})
 
 	// Emit loop begins for each AxisReduce range and register them in exprOf
@@ -292,7 +351,16 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 		}
 	}
 
+	// For f16 reductions, set widenF16 so loads/ops in the element expression are
+	// promoted to f32. bf16 is always promoted via computeDType — no flag needed.
+	if isF16Reduce {
+		l.widenF16 = true
+	}
 	elemExpr := l.emitExpr(elemNode)
+	if isF16Reduce {
+		l.widenF16 = false
+	}
+
 	l.emit(Instr{Kind: InstrAccUpdate, AccIdx: accIdx, AccOp: accOp, Expr: elemExpr})
 
 	for i := range redRanges {
@@ -301,7 +369,15 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 		}
 	}
 
-	name := fmt.Sprintf("acc%d", accIdx)
+	// For f16 reductions wrap the f32 accumulator back to f16 at every use site.
+	// For bf16, the accumulator stays f32 — the InstrStore renderer handles narrowing
+	// via bitcast<u32>(acc) & 0xFFFF0000u so the truncation happens exactly once.
+	var name string
+	if isF16Reduce {
+		name = fmt.Sprintf("f16(acc%d)", accIdx)
+	} else {
+		name = fmt.Sprintf("acc%d", accIdx)
+	}
 	l.exprOf[u.Index()] = name
 	return name
 }
@@ -313,10 +389,12 @@ func (l *lowerer) emitALU(u uop.UOp) string {
 		srcs[i] = l.emitExpr(u.Src(i))
 	}
 
-	rhs := aluExpr(u.Op(), srcs, u.DType())
+	// Use promoted dtype when in a f16 reduce body (widenF16=true).
+	dt := l.computeDType(u)
+	rhs := aluExpr(u.Op(), srcs, dt)
 
 	letName := fmt.Sprintf("t%d", u.Index())
-	l.emit(Instr{Kind: InstrLet, NodeIdx: u.Index(), DType: u.DType(), Expr: rhs})
+	l.emit(Instr{Kind: InstrLet, NodeIdx: u.Index(), DType: dt, Expr: rhs})
 	l.exprOf[u.Index()] = letName
 	return letName
 }

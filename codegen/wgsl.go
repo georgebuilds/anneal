@@ -18,8 +18,25 @@ func init() {
 	schedule.WGSLRenderFunc = RenderWGSL
 }
 
+// kernelUsesF16 reports whether any buffer in the kernel has an f16 element type.
+func kernelUsesF16(item schedule.ExecItem) bool {
+	for _, buf := range item.Bufs {
+		if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
+			return true
+		}
+	}
+	return false
+}
+
+// CompileWGSL converts a kernel's SINK AST to WGSL.
+func CompileWGSL(item schedule.ExecItem) (string, error) {
+	instrs := Lower(item)
+	return renderInstrs(instrs, item), nil
+}
+
 // RenderWGSL converts a kernel's SINK AST to a WGSL compute shader string.
-// It runs the lowerer internally; callers only need to supply the ExecItem.
+// It is wired as schedule.WGSLRenderFunc and must not panic — the cache
+// callback runs inside CreateSchedule where panics are uncaught.
 func RenderWGSL(item schedule.ExecItem) string {
 	instrs := Lower(item)
 	return renderInstrs(instrs, item)
@@ -27,6 +44,13 @@ func RenderWGSL(item schedule.ExecItem) string {
 
 func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 	var b strings.Builder
+
+	// WGSL f16 extension — must be the first directive in the shader, before any
+	// global declarations. Emitted only when the kernel actually uses f16 buffers.
+	// The shader-f16 device feature must also be enabled at device-open time (slice 2).
+	if kernelUsesF16(item) {
+		b.WriteString("enable f16;\n\n")
+	}
 
 	// Detect whether any range is symbolic; if so we emit a trailing params_n
 	// storage buffer that carries runtime dim values.
@@ -142,12 +166,17 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 		case InstrStore:
 			var idxExpr string
 			if !ins.Symbolic && ins.TotalN <= 1 {
-				// Exactly one output element (scalar kernel): fixed index.
 				idxExpr = "0u"
 			} else {
 				idxExpr = "gid_x"
 			}
-			fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
+			if ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16 {
+				// bf16 storage: clear the low 16 mantissa bits to produce a bf16-precision
+				// value stored in a u32 slot. bitcast<f32> at load time recovers the value.
+				fmt.Fprintf(&b, "%sdata0[%s] = bitcast<u32>(%s) & 0xFFFF0000u;\n", indent(), idxExpr, ins.Expr)
+			} else {
+				fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
+			}
 		}
 	}
 
@@ -242,21 +271,36 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 // constLiteral renders a CONST UOp as a WGSL literal.
 func constLiteral(u uop.UOp) string {
 	dtype := u.DType()
+	isF16 := dtype != nil && dtype.Scalar() == uop.Dtypes.Float16
 	switch v := u.Arg().(type) {
 	case float64:
 		if math.IsInf(v, -1) {
+			if isF16 {
+				// Most-negative finite f16 (0xFBFF = -65504).
+				return "bitcast<f16>(0xFBFFu)"
+			}
 			// Most-negative finite f32 — used as max-reduce identity.
 			return "bitcast<f32>(0xff7fffffu)"
 		}
 		if math.IsInf(v, 1) {
+			if isF16 {
+				// Most-positive finite f16 (0x7BFF = +65504).
+				return "bitcast<f16>(0x7BFFu)"
+			}
 			return "bitcast<f32>(0x7f7fffffu)"
 		}
 		if math.IsNaN(v) {
+			if isF16 {
+				return "bitcast<f16>(0x7E00u)" // f16 qNaN
+			}
 			return "bitcast<f32>(0x7fc00000u)"
 		}
 		s := strconv.FormatFloat(v, 'f', -1, 32)
 		if !strings.Contains(s, ".") {
 			s += ".0"
+		}
+		if isF16 {
+			return fmt.Sprintf("f16(%s)", s)
 		}
 		return s
 	case int64:
@@ -274,19 +318,30 @@ func constLiteral(u uop.UOp) string {
 
 // reduceIdentity returns the WGSL literal for the identity element of a reduce op.
 func reduceIdentity(op uop.Op, dtype *uop.DType) string {
+	isF16 := dtype != nil && dtype.Scalar() == uop.Dtypes.Float16
 	switch op {
 	case uop.OpAdd:
 		if dtype.IsFloat() {
+			if isF16 {
+				return "f16(0.0)"
+			}
 			return "0.0"
 		}
 		return "0"
 	case uop.OpMul:
 		if dtype.IsFloat() {
+			if isF16 {
+				return "f16(1.0)"
+			}
 			return "1.0"
 		}
 		return "1"
 	case uop.OpMax:
 		if dtype.IsFloat() {
+			if isF16 {
+				// bitcast of 0xFBFF = most negative finite f16 (-65504).
+				return "bitcast<f16>(0xFBFFu)"
+			}
 			// bitcast of 0xFF7FFFFF = most negative finite f32 (~-3.4e38).
 			// This is the correct lower bound; any real computation value dominates it.
 			return "bitcast<f32>(0xff7fffffu)"
@@ -297,6 +352,9 @@ func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 		return "-2147483648" // INT32_MIN
 	default:
 		if dtype.IsFloat() {
+			if isF16 {
+				return "f16(0.0)"
+			}
 			return "0.0"
 		}
 		return "0"
@@ -341,14 +399,18 @@ func wgslDType(d *uop.DType) string {
 }
 
 // wgslBufferElemType returns the WGSL element type for a storage buffer declaration.
+// bf16 is stored as u32 (bf16 bits in the high 16, low 16 zeroed); load/store use
+// bitcast<f32>/bitcast<u32> so all arithmetic runs in f32.
 // Bool cannot be stored in WGSL storage buffers; we promote it to u32.
 func wgslBufferElemType(d *uop.DType) string {
 	if d == nil {
 		return "f32"
 	}
-	// For pointer dtypes, use the base element type.
 	if d.IsPtr() {
 		d = d.Base()
+	}
+	if d.Scalar() == uop.Dtypes.BFloat16 {
+		return "u32"
 	}
 	t := wgslDType(d.Scalar())
 	if t == "bool" {
