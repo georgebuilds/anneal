@@ -38,14 +38,16 @@ type GraphData struct {
 
 // NodeData describes one node in the visualization.
 type NodeData struct {
-	ID    uint32  `json:"id"`
-	Op    string  `json:"op"`
-	DType string  `json:"dtype"`
-	Shape []int64 `json:"shape,omitempty"`
-	Class string  `json:"class"` // ClassForward or ClassBackward
-	Kind  string  `json:"kind"`  // KindDefault, KindLeaf, KindReduce, KindSink
-	Label string  `json:"label"`
-	Arg   string  `json:"arg,omitempty"`
+	ID           uint32  `json:"id"`
+	Op           string  `json:"op"`
+	DType        string  `json:"dtype"`
+	Shape        []int64 `json:"shape,omitempty"`
+	Class        string  `json:"class"` // ClassForward or ClassBackward
+	Kind         string  `json:"kind"`  // KindDefault, KindLeaf, KindReduce, KindSink
+	Label        string  `json:"label"`
+	Arg          string  `json:"arg,omitempty"`
+	GradRule     string  `json:"gradRule,omitempty"`
+	GradFiredSeq int     `json:"gradFiredSeq,omitempty"`
 }
 
 // EdgeData is a directed edge from source to consumer in the DAG.
@@ -102,8 +104,9 @@ func BuildGraph(name string) (*GraphData, error) {
 	// inside Backward is stamped PhaseBackward by the arena's phase field;
 	// forward nodes reused via interning keep their original PhaseForward.
 	var grads map[*tensor.Tensor]*tensor.Tensor
+	var trace *tensor.GradTrace
 	if len(result.Leaves) > 0 {
-		grads = tensor.Backward(loss, result.Leaves)
+		grads, trace = tensor.BackwardWithTrace(loss, result.Leaves)
 	}
 
 	// Collect all output roots: the loss and each gradient tensor.
@@ -137,6 +140,23 @@ func BuildGraph(name string) (*GraphData, error) {
 	var edges []EdgeData
 	fwdCount, bwdCount := 0, 0
 
+	type ruleInfo struct {
+		rule string
+		seq  int
+	}
+	attribution := make(map[uint32]ruleInfo)
+	if trace != nil {
+		for _, ev := range trace.Events {
+			for _, idx := range ev.ProducedIdx {
+				if idx != tensor.TraceSentinel {
+					if _, exists := attribution[idx]; !exists {
+						attribution[idx] = ruleInfo{ev.ForwardOp.String(), ev.Seq}
+					}
+				}
+			}
+		}
+	}
+
 	for _, u := range topo {
 		// Classify using durable per-node provenance stamped at construction time.
 		// Scheduler nodes are not reachable from vizRoots and do not appear here.
@@ -151,15 +171,26 @@ func BuildGraph(name string) (*GraphData, error) {
 			bwdCount++
 		}
 
+		firedSeq := -1
+		var rule string
+		if class == ClassBackward {
+			if info, ok := attribution[u.Index()]; ok {
+				rule = info.rule
+				firedSeq = info.seq
+			}
+		}
+
 		nd := NodeData{
-			ID:    u.Index(),
-			Op:    u.Op().String(),
-			DType: dtypeStr(u.DType()),
-			Shape: bufShape(u),
-			Class: class,
-			Kind:  kindOf(u, a),
-			Label: nodeLabel(u),
-			Arg:   argStr(u),
+			ID:           u.Index(),
+			Op:           u.Op().String(),
+			DType:        dtypeStr(u.DType()),
+			Shape:        bufShape(u),
+			Class:        class,
+			Kind:         kindOf(u, a),
+			Label:        nodeLabel(u),
+			Arg:          argStr(u),
+			GradRule:     rule,
+			GradFiredSeq: firedSeq,
 		}
 		nodes = append(nodes, nd)
 
