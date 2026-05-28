@@ -91,6 +91,11 @@ var bypassInternSet = map[Op]bool{
 	OpUnique:  true,
 	OpLUnique: true,
 	OpBuffer:  true,
+	// OpRange nodes are unique loop variables; two ranges with the same
+	// (ID, Size, Type) from different kernels or realize calls must not
+	// alias. Without this, hash-consing would collapse them to the same
+	// arena index, corrupting getFusedRanges sort order.
+	OpRange: true,
 }
 
 // New constructs or retrieves an interned UOp in a.
@@ -280,8 +285,10 @@ type ReduceArg struct {
 type AxisType int8
 
 const (
-	AxisLoop   AxisType = 0 // standard forward iteration
-	AxisReduce AxisType = 1 // inner reduction axis (accumulate, not store)
+	AxisLoop      AxisType = 0 // standard forward iteration
+	AxisReduce    AxisType = 1 // inner reduction axis (accumulate, not store)
+	AxisWorkgroup AxisType = 2 // split-out workgroup dimension
+	AxisLocal     AxisType = 3 // split-out local dimension
 )
 
 // RangeArg is the arg payload for OpRange nodes.
