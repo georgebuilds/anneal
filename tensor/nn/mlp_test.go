@@ -38,10 +38,10 @@ type mlp struct {
 	l2 *nn.Linear
 }
 
-func newMLP(a *uop.Arena, inSize, hiddenSize, outSize int64) *mlp {
+func newMLP(a *uop.Arena, inSize, hiddenSize, outSize int64, dtype *uop.DType) *mlp {
 	return &mlp{
-		l1: nn.NewLinear(a, inSize, hiddenSize, true, uop.Dtypes.Float32, "webgpu"),
-		l2: nn.NewLinear(a, hiddenSize, outSize, true, uop.Dtypes.Float32, "webgpu"),
+		l1: nn.NewLinear(a, inSize, hiddenSize, true, dtype, "webgpu"),
+		l2: nn.NewLinear(a, hiddenSize, outSize, true, dtype, "webgpu"),
 	}
 }
 
@@ -169,7 +169,7 @@ func TestMLPGradientCheck(t *testing.T) {
 	xData, yData := toyDataset()
 
 	a0 := uop.NewArena(64)
-	model := newMLP(a0, 2, mlpHidden, 1)
+	model := newMLP(a0, 2, mlpHidden, 1, uop.Dtypes.Float32)
 	rng := rand.New(rand.NewSource(7))
 	heInit(model.l1.Weight, 2, rng)
 	heInit(model.l2.Weight, int(mlpHidden), rng)
@@ -260,7 +260,7 @@ func TestMLPConvergence(t *testing.T) {
 	xData, yData := toyDataset()
 
 	a0 := uop.NewArena(64)
-	model := newMLP(a0, 2, mlpHidden, 1)
+	model := newMLP(a0, 2, mlpHidden, 1, uop.Dtypes.Float32)
 	rng := rand.New(rand.NewSource(42))
 	heInit(model.l1.Weight, 2, rng)
 	heInit(model.l2.Weight, int(mlpHidden), rng)

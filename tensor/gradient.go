@@ -150,7 +150,8 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 
 	case uop.OpCast, uop.OpBitcast:
 		if u.Src(0).DType().IsFloat() {
-			return []*Tensor{adj.Cast(u.Src(0).DType())}
+			dtype := uop.LeastUpperDType(adj.dtype, u.Src(0).DType())
+			return []*Tensor{adj.Cast(dtype)}
 		}
 		return nil
 

@@ -95,7 +95,7 @@ func TestDynBatchLearnableConvergence(t *testing.T) {
 
 	// ── dyn-batch training ────────────────────────────────────────────────────
 	a0 := uop.NewArena(64)
-	dynModel := newMLP(a0, 2, mlpHidden, 1)
+	dynModel := newMLP(a0, 2, mlpHidden, 1, uop.Dtypes.Float32)
 	rng := rand.New(rand.NewSource(42))
 	heInit(dynModel.l1.Weight, 2, rng)
 	heInit(dynModel.l2.Weight, int(mlpHidden), rng)
@@ -120,7 +120,7 @@ func TestDynBatchLearnableConvergence(t *testing.T) {
 
 	// ── static baseline (same init, same task) ────────────────────────────────
 	a1 := uop.NewArena(64)
-	staticModel := newMLP(a1, 2, mlpHidden, 1)
+	staticModel := newMLP(a1, 2, mlpHidden, 1, uop.Dtypes.Float32)
 	rng2 := rand.New(rand.NewSource(42))
 	heInit(staticModel.l1.Weight, 2, rng2)
 	heInit(staticModel.l2.Weight, int(mlpHidden), rng2)

@@ -50,19 +50,22 @@ func NewParameter(a *uop.Arena, sh []int64, dtype *uop.DType, device string) *Pa
 // Returns the leaf tensor for use in this step's computation graph.
 // p.T is updated so that layer Forward() methods see the current-step leaf.
 //
-// The data path is: p.Value → copy → a.leaves[newLeaf.Index()].
-// No index or pointer from any prior arena is used to locate p.Value.
+// If p.dtype is f16 or bf16, the data is quantized during upload (via SetData),
+// but the master weight p.Value remains full-precision f32. This implements
+// implicit mixed-precision training: f32 master weights, f16/bf16 storage.
 func (p *Parameter) Load(a *uop.Arena) *tensor.Tensor {
 	leaf := tensor.NewLeaf(a, p.shape, p.dtype, p.device)
-	data := make([]float32, len(p.Value))
-	copy(data, p.Value)
-	leaf.SetData(data)
+	leaf.SetData(p.Value)
 	p.T = leaf
 	return leaf
 }
 
 // SGDStep applies one step of plain SGD in-place: p.Value[i] -= lr * grad[i].
 // No arena reference is used; the update is purely on the Parameter-owned Value slice.
+//
+// Updates are performed in full f32 precision on the master weights. The next
+// call to Load() will re-quantize the updated value to the parameter's target
+// dtype (e.g. f16 or bf16) for the next forward pass.
 func (p *Parameter) SGDStep(grad []float32, lr float32) {
 	if len(grad) != len(p.Value) {
 		panic(fmt.Sprintf("nn: SGDStep: gradient length %d != parameter length %d", len(grad), len(p.Value)))
