@@ -384,7 +384,11 @@ func (d *DType) StructuralHash() uint64 {
 
 // ── conversion and quantization ───────────────────────────────────────────────
 
-// Float32ToFloat16 converts a float32 to its nearest IEEE 754 half-precision bit pattern.
+// Float32ToFloat16 converts a float32 to its nearest IEEE 754 half-precision bit pattern
+// using round-to-nearest-even (RTNE) rounding.
+//
+// Implementation derived from the common bit-twiddling approach for IEEE 754
+// narrowing, ensuring that NaN-ness is preserved and ties round to even.
 func Float32ToFloat16(f float32) uint16 {
 	bits := math.Float32bits(f)
 	sign := uint16(bits >> 31)
@@ -392,20 +396,50 @@ func Float32ToFloat16(f float32) uint16 {
 	frac := bits & 0x7FFFFF
 
 	switch {
+	case exp == 128: // NaN or Inf
+		if frac != 0 {
+			// NaN: preserve NaN-ness. Shift mantissa and ensure at least one bit
+			// is set so it doesn't become Infinity.
+			m16 := uint16(frac >> 13)
+			if m16 == 0 {
+				m16 = 1
+			}
+			return (sign << 15) | 0x7C00 | m16
+		}
+		return (sign << 15) | 0x7C00 // Inf
 	case exp > 15:
 		// Overflow → ±Inf in f16.
 		return (sign << 15) | 0x7C00
-	case exp < -24:
-		// Too small → ±zero.
+	case exp < -25:
+		// Underflow → ±zero. (Halfway point for RTNE to zero is 2^-25).
 		return sign << 15
 	case exp < -14:
-		// Subnormal f16.
-		frac |= 0x800000
-		shift := uint32(-14 - exp)
-		frac >>= shift
-		return (sign << 15) | uint16(frac>>13)
+		// Subnormal f16. Round with RTNE.
+		// bit 23 is implicit 1.
+		m := frac | 0x800000
+		shift := uint32(-1 - exp) // 14 for e=-15, 23 for e=-24
+		m_round := m >> (shift - 1)
+		if (m_round&1 != 0) && (m_round&2 != 0 || (m&( (1<<(shift-1)) - 1) != 0)) {
+			m_round += 2
+		}
+		return (sign << 15) | uint16(m_round>>1)
 	default:
-		return (sign << 15) | (uint16(exp+15) << 10) | uint16(frac>>13)
+		// Normal f16. Round with RTNE.
+		m_round := frac >> 12
+		if (m_round&1 != 0) && (m_round&2 != 0 || (frac&0xFFF != 0)) {
+			m_round += 2
+		}
+		m16 := uint16(m_round >> 1)
+		e16 := exp + 15
+		if m16&0x400 != 0 {
+			// Rounding overflowed into exponent.
+			m16 &= 0x3FF
+			e16++
+		}
+		if e16 > 30 {
+			return (sign << 15) | 0x7C00 // Rounded to infinity
+		}
+		return (sign << 15) | (uint16(e16) << 10) | m16
 	}
 }
 
