@@ -8,10 +8,29 @@
 package schedule
 
 import (
+	"fmt"
+	"os"
 	"sort"
 
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// DebugBufRanges captures range info for BUFFERIZE nodes with 2 outRanges and a symbolic redRange.
+// Key = BUFFERIZE arena index. Call DebugBufRangesFlush to write to a file.
+var DebugBufRanges []string
+
+// DebugBufRangesEnabled enables range capture in addBuffers.
+var DebugBufRangesEnabled bool
+
+// DebugBufRangesFlush writes captured info to the given path and clears the buffer.
+func DebugBufRangesFlush(path string) {
+	var out string
+	for _, s := range DebugBufRanges {
+		out += s + "\n"
+	}
+	os.WriteFile(path, []byte(out), 0644)
+	DebugBufRanges = nil
+}
 
 // GetKernelGraph runs passes 1–6 of the rangeify scheduler.
 //
@@ -545,6 +564,28 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 				outShape[ri] = r.Arg().(uop.RangeArg).Size
 			} else {
 				outShape[ri] = 1
+			}
+		}
+
+		// Debug: log kernels with 2 outRanges and a symbolic redRange.
+		if DebugBufRangesEnabled && len(outRanges) == 2 && len(redRanges) == 1 {
+			if redRanges[0].Op() == uop.OpRange && redRanges[0].Arg().(uop.RangeArg).Symbolic {
+				var ra0desc, ra1desc string
+				if outRanges[0].Op() == uop.OpRange {
+					ra0 := outRanges[0].Arg().(uop.RangeArg)
+					ra0desc = fmt.Sprintf("id=%d,sz=%d,arenaIdx=%d", ra0.ID, ra0.Size, outRanges[0].Index())
+				} else {
+					ra0desc = fmt.Sprintf("OpConst,arenaIdx=%d", outRanges[0].Index())
+				}
+				if outRanges[1].Op() == uop.OpRange {
+					ra1 := outRanges[1].Arg().(uop.RangeArg)
+					ra1desc = fmt.Sprintf("id=%d,sz=%d,arenaIdx=%d", ra1.ID, ra1.Size, outRanges[1].Index())
+				} else {
+					ra1desc = fmt.Sprintf("OpConst,arenaIdx=%d", outRanges[1].Index())
+				}
+				DebugBufRanges = append(DebugBufRanges, fmt.Sprintf(
+					"addBuffers BUFFERIZE idx=%d: outRanges=[%s  %s] outShape=%v",
+					u.Index(), ra0desc, ra1desc, outShape))
 			}
 		}
 
