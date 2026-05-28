@@ -6,11 +6,11 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 
 ## Key claims
 
-- Autodiff is a compiler pass, not a runtime hook. Gradients are computed by a typed compiler pass over the same IR as the forward graph (a typed graph traversal that produces a uniform, fusible backward graph — not a runtime tape).
+- Autodiff is a compiler pass, not a runtime hook. Per-op gradient rules are dispatched through a ruleset (`map[uop.Op]→GradRule`) over the same UOp IR as the forward graph, drift-checked against the curated `explain` documentation. The output is a uniform, fusible backward graph — not a runtime tape.
 - The scheduler (rangeify) sees forward and backward together and can fuse across that boundary.
 - UOps are immutable, interned, and arena-allocated. Structural equality is identity equality.
 - No reflection in the rewrite hot path. This is a hard invariant.
-- `anneal viz` runs the actual compiler frontend compiled to WebAssembly and renders the real UOp graph in-browser — not a mock.
+- `anneal viz` runs the actual compiler frontend compiled to WebAssembly and renders the real UOp graph in-browser — not a mock. JSON output identifies which gradient rule produced each backward node.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 - **Dynamic batch:** the batch dimension can be symbolic — a kernel compiles once and runs at any batch size via `NewSymbolicBatchInput` / `RealizeWithBinding`. General symbolic axis movement (split/merge/pad, dynamic seq-length) is not yet supported.
 - **JIT:** `tensor.JIT` captures the scheduling plan on the first step and replays subsequent steps without re-scheduling.
 - **Migration I/O:** `tensor/npy` loads numpy `.npy`/`.npz` files; `tensor/safetensors` reads and writes HuggingFace `.safetensors` checkpoints, bidirectionally compatible with the real Python safetensors library. Pure Go, no cgo, no runtime Python. Tensor data carries as `float32`; source dtypes map with documented float32-range semantics.
-- **Low-precision dtypes:** `tensor.Tensor` and `nn.Parameter` accept `Dtypes.Float16` (storage + arithmetic, requires `shader-f16` WebGPU extension; fails closed on unavailability with clear error) and `Dtypes.BFloat16` (storage-only; arithmetic runs in f32 via bitcast/shift conversion at buffer boundaries). Reduction accumulators stay f32 even with f16 operands. `Parameter.Value` is f32 master; `Load` quantizes to device dtype each step (implicit mixed precision). FP16/FP16 fast path is deferred.
+- **Low-precision dtypes:** `tensor.Tensor` and `nn.Parameter` accept `Dtypes.Float16` (storage + arithmetic, narrowing uses IEEE 754 round-to-nearest-even; requires `shader-f16` WebGPU extension; fails closed on unavailability with clear error) and `Dtypes.BFloat16` (storage-only; arithmetic runs in f32 via bitcast/shift conversion at buffer boundaries). Reduction accumulators stay f32 even with f16 operands. `Parameter.Value` is f32 master; `Load` quantizes to device dtype each step (implicit mixed precision). FP16/FP16 fast path is deferred.
 
 ## Color semantics (visualizer and TUI)
 

@@ -1158,7 +1158,9 @@
                 <p class="sec-body" data-i18n="arch.body">
                     Autodiff and optimization are first-class compiler passes
                     over one immutable UOp IR — not runtime hooks bolted onto a
-                    separate tape. The scheduler sees the whole computation,
+                    separate tape. Per-op gradient rules are dispatched through
+                    a drift-checked ruleset, producing a uniform, fusible
+                    backward graph. The scheduler sees the whole computation,
                     forward and backward together, and fuses across that
                     boundary as a natural consequence.
                 </p>
@@ -1209,10 +1211,12 @@
                         </div>
                         <p class="card-body" data-i18n="card.bwd.body">
                             Gradient computation is a typed compiler pass that
-                            walks the forward graph and emits backward UOps into
-                            the same IR — no separate tape, no runtime teardown.
-                            The gradient graph lives alongside the forward graph
-                            until the scheduler decides what to fuse.
+                            walks the forward graph and emits backward UOps via
+                            a ruleset drift-checked against curated
+                            documentation. The gradient graph lives alongside
+                            the forward graph, with per-node rule attribution
+                            visible in the visualizer, until the scheduler
+                            decides what to fuse.
                         </p>
                     </div>
                     <div class="arch-card">
@@ -1239,8 +1243,8 @@
                         <p class="card-body" data-i18n="card.rt.body">
                             The batch dimension can be symbolic: a kernel
                             compiles once and runs at any batch size. f16
-                            support (via shader-f16) and bf16 storage-only (f32
-                            compute) enable low-precision workflows.
+                            support (narrowing uses IEEE 754 RTNE) and bf16
+                            storage-only enable low-precision workflows.
                             <code>tensor.JIT</code> captures the execution plan;
                             the scheduler is memoized on a structural key.
                         </p>
@@ -1441,7 +1445,8 @@
                         <p class="phil-body" data-i18n-html="phil.viz.b">
                             <code>anneal viz</code> compiles the frontend and
                             rewrite engine to WASM and renders the actual UOp
-                            graph in-browser. The marketing artifact and the
+                            graph in-browser. JSON output carries per-node rule
+                            attribution. The marketing artifact and the
                             integration test for the rewrite path are the same
                             artifact.
                         </p>
@@ -1533,7 +1538,7 @@
                         "arch.label": "how it works",
                         "arch.heading": "One graph, fully fused.",
                         "arch.body":
-                            "Autodiff and optimization are first-class compiler passes over one immutable UOp IR — not runtime hooks bolted onto a separate tape. The scheduler sees the whole computation, forward and backward together, and fuses across that boundary as a natural consequence.",
+                            "Autodiff and optimization are first-class compiler passes over one immutable UOp IR — not runtime hooks bolted onto a separate tape. Per-op gradient rules are dispatched through a drift-checked ruleset, producing a uniform, fusible backward graph. The scheduler sees the whole computation, forward and backward together, and fuses across that boundary as a natural consequence.",
                         "leg.teal":
                             "<strong>teal</strong> — forward pass (solid)",
                         "leg.ember":
@@ -1546,7 +1551,7 @@
                         "card.bwd.tag": "backward pass",
                         "card.bwd.title": "Autodiff as a compiler pass",
                         "card.bwd.body":
-                            "Gradient computation is a typed compiler pass that walks the forward graph and emits backward UOps into the same IR — no separate tape, no runtime teardown. The gradient graph lives alongside the forward graph until the scheduler decides what to fuse.",
+                            "Gradient computation is a typed compiler pass that walks the forward graph and emits backward UOps via a ruleset drift-checked against curated documentation. The gradient graph lives alongside the forward graph, with per-node rule attribution visible in the visualizer, until the scheduler decides what to fuse.",
                         "card.fsd.tag": "fused kernel",
                         "card.fsd.title": "Fusion across the boundary",
                         "card.fsd.body":
@@ -1555,7 +1560,7 @@
                         "card.rt.title":
                             "Dynamic batch, JIT, f16/bf16 support",
                         "card.rt.body":
-                            "The batch dimension can be symbolic: a kernel compiles once and runs at any batch size. f16 support (via shader-f16) and bf16 storage-only (f32 compute) enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key.",
+                            "The batch dimension can be symbolic: a kernel compiles once and runs at any batch size. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key.",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
@@ -1584,7 +1589,7 @@
                             "A hard invariant. Pattern matching against the IR uses typed accessors, not runtime introspection. The hot path stays predictable, verifiable, and fast.",
                         "phil.viz.h": "The visualizer runs the real compiler",
                         "phil.viz.b":
-                            "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. The marketing artifact and the integration test for the rewrite path are the same artifact.",
+                            "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. JSON output carries per-node rule attribution. The marketing artifact and the integration test for the rewrite path are the same artifact.",
                         "phil.go.h": "Written in Go",
                         "phil.go.b":
                             "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI — so the visualizer and the trainer are always in sync, by construction.",
@@ -1607,7 +1612,7 @@
                         "arch.label": "cómo funciona",
                         "arch.heading": "Un grafo, completamente fusionado.",
                         "arch.body":
-                            "El autodiff y la optimización son pasadas de compilador de primera clase sobre un IR UOp inmutable — no hooks en tiempo de ejecución sobre una cinta separada. El planificador ve toda la computación, hacia adelante y hacia atrás juntas, y fusiona a través de ese límite de forma natural.",
+                            "El autodiff y la optimización son pasadas de compilador de primera clase sobre un IR UOp inmutable — no hooks en tiempo de ejecución sobre una cinta separada. Las reglas de gradiente se despachan a través de un ruleset con verificación de deriva, produciendo un grafo de retroceso uniforme y fusible. El planificador ve toda la computación, hacia adelante y hacia atrás juntas, y fusiona a través de ese límite de forma natural.",
                         "leg.teal":
                             "<strong>teal</strong> — pasada hacia adelante (sólida)",
                         "leg.ember":
@@ -1620,7 +1625,7 @@
                         "card.bwd.tag": "pasada hacia atrás",
                         "card.bwd.title": "Autodiff como pasada de compilador",
                         "card.bwd.body":
-                            "El cálculo de gradientes es una pasada de compilador tipada que recorre el grafo directo y emite UOps de retroceso en el mismo IR — sin cinta separada, sin desmontaje en tiempo de ejecución. El grafo de gradientes vive junto al grafo directo hasta que el planificador decide qué fusionar.",
+                            "El cálculo de gradientes es una pasada de compilador tipada que recorre el grafo directo y emite UOps de retroceso mediante un ruleset verificado contra la documentación. El grafo de gradientes vive junto al grafo directo, con atribución de reglas por nodo visible en el visualizador, hasta que el planificador decide qué fusionar.",
                         "card.fsd.tag": "kernel fusionado",
                         "card.fsd.title": "Fusión a través del límite",
                         "card.fsd.body":
@@ -1629,7 +1634,7 @@
                         "card.rt.title":
                             "Batch dinámico, JIT, soporte f16/bf16",
                         "card.rt.body":
-                            "La dimensión de batch puede ser simbólica: un kernel se compila una vez y ejecuta con cualquier tamaño. El soporte para f16 (vía shader-f16) y bf16 (solo almacenamiento, cómputo f32) permite flujos de baja precisión. tensor.JIT captura el plan de ejecución; el planificador está memoizado.",
+                            "La dimensión de batch puede ser simbólica: un kernel se compila una vez y ejecuta con cualquier tamaño. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado.",
                         "cli.label": "la cli",
                         "cli.heading": "Verbos que reflejan el pipeline.",
                         "cli.body":
@@ -1662,7 +1667,7 @@
                         "phil.viz.h":
                             "El visualizador ejecuta el compilador real",
                         "phil.viz.b":
-                            "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto.",
+                            "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. La salida JSON incluye atribución de reglas por nodo. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto.",
                         "phil.go.h": "Escrito en Go",
                         "phil.go.b":
                             "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI — por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
