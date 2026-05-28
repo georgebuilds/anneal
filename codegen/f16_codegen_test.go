@@ -24,10 +24,11 @@ func TestF16_EnableDirective(t *testing.T) {
 		if len(items) == 0 {
 			t.Fatal("no schedule items")
 		}
-		wgsl, err := codegen.CompileWGSL(items[0])
+		res, err := codegen.CompileWGSL(items[0])
 		if err != nil {
 			t.Fatalf("CompileWGSL: %v", err)
 		}
+		wgsl := res.WGSL
 		if !strings.HasPrefix(wgsl, "enable f16;") {
 			t.Errorf("f16 kernel must start with 'enable f16;'\nshader:\n%s", wgsl)
 		}
@@ -43,10 +44,11 @@ func TestF16_EnableDirective(t *testing.T) {
 		if len(items) == 0 {
 			t.Fatal("no schedule items")
 		}
-		wgsl, err := codegen.CompileWGSL(items[0])
+		res, err := codegen.CompileWGSL(items[0])
 		if err != nil {
 			t.Fatalf("CompileWGSL: %v", err)
 		}
+		wgsl := res.WGSL
 		assertNotContains(t, wgsl, "enable f16;")
 		assertContains(t, wgsl, "array<f32>")
 	})
@@ -67,10 +69,11 @@ func TestBF16_WGSL(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatal("no schedule items")
 	}
-	wgsl, err := codegen.CompileWGSL(items[0])
+	res, err := codegen.CompileWGSL(items[0])
 	if err != nil {
 		t.Fatalf("CompileWGSL: %v", err)
 	}
+	wgsl := res.WGSL
 	t.Logf("bf16 elementwise WGSL:\n%s", wgsl)
 
 	assertContains(t, wgsl, "array<u32>")
@@ -92,10 +95,11 @@ func TestBF16_ReduceWGSL(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatal("no schedule items")
 	}
-	wgsl, err := codegen.CompileWGSL(items[0])
+	res, err := codegen.CompileWGSL(items[0])
 	if err != nil {
 		t.Fatalf("CompileWGSL: %v", err)
 	}
+	wgsl := res.WGSL
 	t.Logf("bf16 reduce WGSL:\n%s", wgsl)
 
 	assertContains(t, wgsl, "var acc0: f32")
@@ -115,10 +119,11 @@ func TestF16_ReduceF32Accumulator(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatal("no schedule items")
 	}
-	wgsl, err := codegen.CompileWGSL(items[0])
+	res, err := codegen.CompileWGSL(items[0])
 	if err != nil {
 		t.Fatalf("CompileWGSL: %v", err)
 	}
+	wgsl := res.WGSL
 	t.Logf("f16 reduce WGSL:\n%s", wgsl)
 
 	// Accumulator must be f32, not f16.
@@ -144,10 +149,11 @@ func TestF16_MatmulF32Accumulator(t *testing.T) {
 
 	foundReduce := false
 	for _, item := range items {
-		wgsl, err := codegen.CompileWGSL(item)
+		res, err := codegen.CompileWGSL(item)
 		if err != nil {
 			t.Fatalf("CompileWGSL: %v", err)
 		}
+		wgsl := res.WGSL
 		if !strings.Contains(wgsl, "for (") {
 			continue // elementwise kernel — skip
 		}
@@ -184,10 +190,11 @@ func TestF16_CastRoundTrip(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatal("no schedule items")
 	}
-	wgsl, err := codegen.CompileWGSL(items[0])
+	res, err := codegen.CompileWGSL(items[0])
 	if err != nil {
 		t.Fatalf("CompileWGSL: %v", err)
 	}
+	wgsl := res.WGSL
 	t.Logf("f16 cast round-trip WGSL:\n%s", wgsl)
 
 	assertContains(t, wgsl, "f32(")
@@ -206,10 +213,11 @@ func TestF16_BufferTypes(t *testing.T) {
 	if len(items) == 0 {
 		t.Fatal("no schedule items")
 	}
-	wgsl, err := codegen.CompileWGSL(items[0])
+	res, err := codegen.CompileWGSL(items[0])
 	if err != nil {
 		t.Fatalf("CompileWGSL: %v", err)
 	}
+	wgsl := res.WGSL
 	t.Logf("f16 elementwise WGSL:\n%s", wgsl)
 
 	assertContains(t, wgsl, "array<f16>")
@@ -228,7 +236,7 @@ func TestF16_F32KernelUnchanged(t *testing.T) {
 			wantSub: []string{
 				"array<f32>",
 				"exp2(",
-				"@compute @workgroup_size(64)",
+				"@compute @workgroup_size(64, 1, 1)",
 			},
 		},
 		{
@@ -261,10 +269,11 @@ func TestF16_F32KernelUnchanged(t *testing.T) {
 				}
 				item = items[0]
 			}
-			wgsl, err := codegen.CompileWGSL(item)
+			res, err := codegen.CompileWGSL(item)
 			if err != nil {
 				t.Fatalf("CompileWGSL: %v", err)
 			}
+			wgsl := res.WGSL
 			for _, sub := range tc.wantSub {
 				if !strings.Contains(wgsl, sub) {
 					t.Errorf("f32 kernel %q missing %q\nshader:\n%s", tc.name, sub, wgsl)

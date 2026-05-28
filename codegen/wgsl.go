@@ -10,8 +10,6 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-const workgroupSize = 64 // default 1-D workgroup size; tunable in Phase 8b
-
 func init() {
 	// Wire the WGSL renderer into the schedule cache so cacheStore can pre-render
 	// and zero Ast, releasing the arena reference before storing.
@@ -29,31 +27,26 @@ func kernelUsesF16(item schedule.ExecItem) bool {
 }
 
 // CompileWGSL converts a kernel's SINK AST to WGSL.
-func CompileWGSL(item schedule.ExecItem) (string, error) {
-	instrs := Lower(item)
-	return renderInstrs(instrs, item), nil
+func CompileWGSL(item schedule.ExecItem) (schedule.RenderResult, error) {
+	instrs, ws, wc := Lower(item)
+	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc}, nil
 }
 
 // RenderWGSL converts a kernel's SINK AST to a WGSL compute shader string.
-// It is wired as schedule.WGSLRenderFunc and must not panic — the cache
-// callback runs inside CreateSchedule where panics are uncaught.
-func RenderWGSL(item schedule.ExecItem) string {
-	instrs := Lower(item)
-	return renderInstrs(instrs, item)
+func RenderWGSL(item schedule.ExecItem) schedule.RenderResult {
+	instrs, ws, wc := Lower(item)
+	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc}
 }
 
-func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
+func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) string {
 	var b strings.Builder
 
-	// WGSL f16 extension — must be the first directive in the shader, before any
-	// global declarations. Emitted only when the kernel actually uses f16 buffers.
-	// The shader-f16 device feature must also be enabled at device-open time (slice 2).
+	// WGSL f16 extension
 	if kernelUsesF16(item) {
 		b.WriteString("enable f16;\n\n")
 	}
 
-	// Detect whether any range is symbolic; if so we emit a trailing params_n
-	// storage buffer that carries runtime dim values.
+	// Detect whether any range is symbolic
 	hasSymDim := false
 	for _, ins := range instrs {
 		if ins.Symbolic && (ins.Kind == InstrBoundsCheck || ins.Kind == InstrGIDVar || ins.Kind == InstrLoopBegin) {
@@ -76,13 +69,6 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, %s> data%d: array<%s>;\n",
 			i, access, i, elemType)
 	}
-	// Symbolic-shapes params uniform: holds runtime dim values as u32 words.
-	// Uses a uniform buffer (not storage) to stay under Metal's 8-storage-buffer-
-	// per-stage limit when backward-pass kernels already saturate the data slots.
-	// Individual u32 fields (not array<u32,N>) because WGSL uniform-address-space
-	// arrays have element stride = max(SizeOf, 16) = 16, which would make the
-	// binding 64 bytes; individual fields have stride 4, keeping it at 16 bytes.
-	// Binding slot = ki.NumParams (immediately after all data bindings).
 	if hasSymDim {
 		fmt.Fprintf(&b, "struct ParamsN { n0: u32, n1: u32, n2: u32, n3: u32 };\n")
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<uniform> params_n: ParamsN;\n",
@@ -91,50 +77,91 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 
 	b.WriteString("\n")
 
-	// ── compute entry point ────────────────────────────────────────────────
-	fmt.Fprintf(&b, "@compute @workgroup_size(%d)\n", workgroupSize)
-	b.WriteString("fn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n")
-	b.WriteString("  let gid_x = gid.x;\n")
+	// Global flat index for symbolic/large grids.
+	// WC and WS components are used to compute the stride of each dimension.
+	// For B1, we spread components into Y and Z if X overflows.
+	fmt.Fprintf(&b, "@compute @workgroup_size(%d, %d, %d)\n", ws[0], ws[1], ws[2])
+	b.WriteString("fn main(\n")
+	b.WriteString("  @builtin(global_invocation_id) gid: vec3<u32>,\n")
+	b.WriteString("  @builtin(workgroup_id) wid: vec3<u32>,\n")
+	b.WriteString("  @builtin(local_invocation_id) lid: vec3<u32>\n")
+	b.WriteString(") {\n")
 
-	depth := 1 // current indent depth (starts at 1 for inside fn)
+	// Detect if Dimension 0 was spread into Y/Z.
+	// This happens in lowerSink if dim 1 and 2 were originally unused.
+	// We check if Dimension 1 was used by any GIDVar.
+	dim1Used := false
+	dim2Used := false
+	for _, ins := range instrs {
+		if ins.Kind == InstrGIDVar {
+			if ins.Component == 1 {
+				dim1Used = true
+			}
+			if ins.Component == 2 {
+				dim2Used = true
+			}
+		}
+	}
 
+	// Compute flattened component IDs.
+	// If dim1/dim2 are unused by the IR, then gid.y/z are for spreading dim 0.
+	dimX := int64(wc[0] * ws[0])
+	dimY := int64(wc[1] * ws[1])
+
+	if !dim1Used && !dim2Used {
+		fmt.Fprintf(&b, "  let flat_gid_x = gid.x + (gid.y * %du) + (gid.z * %du);\n", dimX, dimX*dimY)
+		fmt.Fprintf(&b, "  let flat_wid_x = wid.x + (wid.y * %du) + (wid.z * %du);\n", wc[0], wc[0]*wc[1])
+	} else {
+		b.WriteString("  let flat_gid_x = gid.x;\n")
+		b.WriteString("  let flat_wid_x = wid.x;\n")
+	}
+	b.WriteString("  let flat_gid_y = gid.y;\n")
+	b.WriteString("  let flat_wid_y = wid.y;\n")
+	b.WriteString("  let flat_gid_z = gid.z;\n")
+	b.WriteString("  let flat_wid_z = wid.z;\n")
+
+	// gid_x is always the full linear index for stores and symbolic bounds.
+	fmt.Fprintf(&b, "  let gid_x = gid.x + (gid.y * %du) + (gid.z * %du);\n", dimX, dimX*dimY)
+
+	depth := 1
 	indent := func() string { return strings.Repeat("  ", depth) }
 
 	for _, ins := range instrs {
 		switch ins.Kind {
 		case InstrBoundsCheck:
 			if ins.Symbolic {
-				// Bound is unknown at compile time; read from the params_n buffer.
-				// For multi-dim symbolic ([batch, features]), multiply by the
-				// concrete trailing dimension count so the total equals batch*features.
 				if ins.ConcreteTrailing > 1 {
 					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0 * %du) { return; }\n", indent(), ins.ConcreteTrailing)
 				} else {
 					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0) { return; }\n", indent())
 				}
-			} else {
-				fmt.Fprintf(&b, "%sif (gid_x >= %du) { return; }\n", indent(), ins.TotalN)
 			}
 
 		case InstrGIDVar:
-			// let r_ID: i32 = i32((gid_x / Stride) % Size);
+			comp := [...]string{"x", "y", "z"}[ins.Component]
+			level := [...]string{"gid", "wid", "lid"}[ins.Level]
+			base := fmt.Sprintf("%s.%s", level, comp)
+			if level != "lid" {
+				base = fmt.Sprintf("flat_%s_%s", level, comp)
+			}
+
 			var expr string
 			if ins.Symbolic {
 				if ins.Stride == 1 {
-					// Single-dim symbolic: gid_x IS the loop variable (bounds-checked above).
-					// Avoids a runtime division by the symbolic bound.
-					expr = "i32(gid_x)"
+					expr = fmt.Sprintf("i32(%s)", base)
 				} else {
-					// Multi-dim with one symbolic axis: static strides still apply.
-					expr = fmt.Sprintf("i32(gid_x / %du)", ins.Stride)
+					expr = fmt.Sprintf("i32(%s / %du)", base, ins.Stride)
 				}
-			} else if ins.Stride == 1 && len(instrs) > 0 {
-				// last (innermost) dimension: no division needed
-				expr = fmt.Sprintf("i32(gid_x %% %du)", ins.RangeSize)
+			} else if ins.Stride == 1 {
+				expr = fmt.Sprintf("i32(%s %% %du)", base, ins.RangeSize)
 			} else {
-				expr = fmt.Sprintf("i32((gid_x / %du) %% %du)", ins.Stride, ins.RangeSize)
+				expr = fmt.Sprintf("i32((%s / %du) %% %du)", base, ins.Stride, ins.RangeSize)
 			}
 			fmt.Fprintf(&b, "%slet r%d: i32 = %s;\n", indent(), ins.RangeID, expr)
+			// Axis guard: mask out threads in the padding of a workgroup dimension.
+			if !ins.Symbolic && ins.RangeSize > 1 {
+				fmt.Fprintf(&b, "%sif (r%d >= %d) { return; }\n", indent(), ins.RangeID, ins.RangeSize)
+			}
 
 		case InstrLoopBegin:
 			if ins.Symbolic {
@@ -164,15 +191,8 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 			fmt.Fprintf(&b, "%slet t%d: %s = %s;\n", indent(), ins.NodeIdx, wt, ins.Expr)
 
 		case InstrStore:
-			var idxExpr string
-			if !ins.Symbolic && ins.TotalN <= 1 {
-				idxExpr = "0u"
-			} else {
-				idxExpr = "gid_x"
-			}
+			idxExpr := ins.IndexExpr
 			if ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16 {
-				// bf16 storage: clear the low 16 mantissa bits to produce a bf16-precision
-				// value stored in a u32 slot. bitcast<f32> at load time recovers the value.
 				fmt.Fprintf(&b, "%sdata0[%s] = bitcast<u32>(%s) & 0xFFFF0000u;\n", indent(), idxExpr, ins.Expr)
 			} else {
 				fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
@@ -184,7 +204,6 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem) string {
 	return b.String()
 }
 
-// accUpdateExpr builds the WGSL RHS for an accumulator update.
 func accUpdateExpr(op uop.Op, accName, elemExpr string) string {
 	switch op {
 	case uop.OpAdd:
@@ -194,15 +213,12 @@ func accUpdateExpr(op uop.Op, accName, elemExpr string) string {
 	case uop.OpMax:
 		return fmt.Sprintf("max(%s, %s)", accName, elemExpr)
 	default:
-		// Fallback: additive
 		return fmt.Sprintf("%s + %s", accName, elemExpr)
 	}
 }
 
-// aluExpr builds the WGSL expression string for one ALU node.
 func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 	switch op {
-	// Unary
 	case uop.OpExp2:
 		return fmt.Sprintf("exp2(%s)", srcs[0])
 	case uop.OpLog2:
@@ -217,7 +233,6 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 		return fmt.Sprintf("(-%s)", srcs[0])
 	case uop.OpTrunc:
 		return fmt.Sprintf("trunc(%s)", srcs[0])
-	// Binary
 	case uop.OpAdd:
 		return fmt.Sprintf("(%s + %s)", srcs[0], srcs[1])
 	case uop.OpSub:
@@ -227,8 +242,6 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 	case uop.OpFDiv:
 		return fmt.Sprintf("(%s / %s)", srcs[0], srcs[1])
 	case uop.OpIDiv:
-		// WGSL integer division truncates toward zero; index values are non-negative
-		// so this matches Go's integer division semantics for valid indices.
 		return fmt.Sprintf("(%s / %s)", srcs[0], srcs[1])
 	case uop.OpMod:
 		return fmt.Sprintf("(%s %% %s)", srcs[0], srcs[1])
@@ -252,13 +265,10 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 		return fmt.Sprintf("(%s == %s)", srcs[0], srcs[1])
 	case uop.OpPow:
 		return fmt.Sprintf("pow(%s, %s)", srcs[0], srcs[1])
-	// Ternary
 	case uop.OpWhere:
-		// WHERE(cond, true_val, false_val) → WGSL select(false_val, true_val, cond)
 		return fmt.Sprintf("select(%s, %s, %s)", srcs[2], srcs[1], srcs[0])
 	case uop.OpMulAcc:
 		return fmt.Sprintf("(%s + (%s * %s))", srcs[0], srcs[1], srcs[2])
-	// Cast
 	case uop.OpCast:
 		return fmt.Sprintf("%s(%s)", wgslDType(dtype), srcs[0])
 	case uop.OpBitcast:
@@ -268,7 +278,6 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 	}
 }
 
-// constLiteral renders a CONST UOp as a WGSL literal.
 func constLiteral(u uop.UOp) string {
 	dtype := u.DType()
 	isF16 := dtype != nil && dtype.Scalar() == uop.Dtypes.Float16
@@ -276,22 +285,19 @@ func constLiteral(u uop.UOp) string {
 	case float64:
 		if math.IsInf(v, -1) {
 			if isF16 {
-				// Most-negative finite f16 (0xFBFF = -65504).
 				return "bitcast<f16>(0xFBFFu)"
 			}
-			// Most-negative finite f32 — used as max-reduce identity.
 			return "bitcast<f32>(0xff7fffffu)"
 		}
 		if math.IsInf(v, 1) {
 			if isF16 {
-				// Most-positive finite f16 (0x7BFF = +65504).
 				return "bitcast<f16>(0x7BFFu)"
 			}
 			return "bitcast<f32>(0x7f7fffffu)"
 		}
 		if math.IsNaN(v) {
 			if isF16 {
-				return "bitcast<f16>(0x7E00u)" // f16 qNaN
+				return "bitcast<f16>(0x7E00u)"
 			}
 			return "bitcast<f32>(0x7fc00000u)"
 		}
@@ -304,7 +310,6 @@ func constLiteral(u uop.UOp) string {
 		}
 		return s
 	case int64:
-		_ = dtype
 		return strconv.FormatInt(v, 10)
 	case bool:
 		if v {
@@ -316,7 +321,6 @@ func constLiteral(u uop.UOp) string {
 	}
 }
 
-// reduceIdentity returns the WGSL literal for the identity element of a reduce op.
 func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 	isF16 := dtype != nil && dtype.Scalar() == uop.Dtypes.Float16
 	switch op {
@@ -339,17 +343,14 @@ func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 	case uop.OpMax:
 		if dtype.IsFloat() {
 			if isF16 {
-				// bitcast of 0xFBFF = most negative finite f16 (-65504).
 				return "bitcast<f16>(0xFBFFu)"
 			}
-			// bitcast of 0xFF7FFFFF = most negative finite f32 (~-3.4e38).
-			// This is the correct lower bound; any real computation value dominates it.
 			return "bitcast<f32>(0xff7fffffu)"
 		}
 		if dtype.IsUnsigned() {
 			return "0u"
 		}
-		return "-2147483648" // INT32_MIN
+		return "-2147483648"
 	default:
 		if dtype.IsFloat() {
 			if isF16 {
@@ -361,9 +362,6 @@ func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 	}
 }
 
-// wgslDType maps an anneal DType to its WGSL scalar type name.
-// Index dtype maps to i32 (WGSL has no platform-pointer-sized integer in v1).
-// Bool maps to bool (valid in expressions; storage buffers use wgslBufferElemType).
 func wgslDType(d *uop.DType) string {
 	if d == nil || d == uop.Dtypes.Void {
 		return "f32"
@@ -373,7 +371,7 @@ func wgslDType(d *uop.DType) string {
 	case uop.Dtypes.Float32:
 		return "f32"
 	case uop.Dtypes.Float16:
-		return "f16" // requires "enable f16;" — noted but not emitted in v1
+		return "f16"
 	case uop.Dtypes.Int32:
 		return "i32"
 	case uop.Dtypes.UInt32:
@@ -383,11 +381,11 @@ func wgslDType(d *uop.DType) string {
 	case uop.Dtypes.Bool:
 		return "bool"
 	case uop.Dtypes.Int8, uop.Dtypes.Int16:
-		return "i32" // promoted
+		return "i32"
 	case uop.Dtypes.UInt8, uop.Dtypes.UInt16:
-		return "u32" // promoted
+		return "u32"
 	case uop.Dtypes.Int64:
-		return "i32" // WGSL has no i64; truncate (only affects non-standard workloads)
+		return "i32"
 	case uop.Dtypes.UInt64:
 		return "u32"
 	default:
@@ -398,10 +396,6 @@ func wgslDType(d *uop.DType) string {
 	}
 }
 
-// wgslBufferElemType returns the WGSL element type for a storage buffer declaration.
-// bf16 is stored as u32 (bf16 bits in the high 16, low 16 zeroed); load/store use
-// bitcast<f32>/bitcast<u32> so all arithmetic runs in f32.
-// Bool cannot be stored in WGSL storage buffers; we promote it to u32.
 func wgslBufferElemType(d *uop.DType) string {
 	if d == nil {
 		return "f32"

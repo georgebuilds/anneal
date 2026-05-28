@@ -46,6 +46,9 @@ type Device struct {
 	// Only touched on the GPU-owner goroutine, so it needs no synchronization.
 	symCache map[string]*SymKernelHandle
 
+	// pipelineCache maps compiled WGSL source → handle for compile-once concrete kernels.
+	pipelineCache map[string]*kernelPipeline
+
 	// jobs delivers closures to the GPU-owner goroutine. Closed by Close, which
 	// terminates the owner goroutine (and thereby its locked OS thread).
 	jobs chan gpuJob
@@ -121,12 +124,34 @@ func Open() (*Device, error) {
 		return nil, err
 	}
 	d.symCache = make(map[string]*SymKernelHandle)
+	d.pipelineCache = make(map[string]*kernelPipeline)
 	return d, nil
+}
+
+// kernelPipeline holds GPU objects for a compiled concrete kernel.
+type kernelPipeline struct {
+	shader         *wgpu.ShaderModule
+	bgLayout       *wgpu.BindGroupLayout
+	pipelineLayout *wgpu.PipelineLayout
+	pipeline       *wgpu.ComputePipeline
+}
+
+func (k *kernelPipeline) Release() {
+	k.pipeline.Release()
+	k.pipelineLayout.Release()
+	k.bgLayout.Release()
+	k.shader.Release()
 }
 
 // Close releases all GPU resources and terminates the GPU-owner goroutine.
 func (d *Device) Close() {
 	_ = d.onGPU(func() error {
+		for _, k := range d.symCache {
+			k.Release()
+		}
+		for _, k := range d.pipelineCache {
+			k.Release()
+		}
 		if d.device != nil {
 			d.device.Release()
 		}

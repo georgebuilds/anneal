@@ -57,7 +57,7 @@ func kernelsCmdW(args []string, w io.Writer) int {
 	fmt.Fprintln(w)
 
 	for i, item := range items {
-		wgsl := codegen.RenderWGSL(item)
+		wgsl := codegen.RenderWGSL(item).WGSL
 
 		ktype := kernelType(wgsl)
 		fusedOps := countFusedOps(wgsl)

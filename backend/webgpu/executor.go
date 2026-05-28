@@ -13,7 +13,9 @@ import (
 	"github.com/gogpu/wgpu"
 )
 
-const workgroupSize = 64 // must match codegen/wgsl.go
+const (
+	// Metadata for symbolic dispatch
+)
 
 // Run executes a compiled schedule on this device.
 // inputs maps Buffer.UOpIdx → flat float32 data for leaf (external-input) buffers.
@@ -49,11 +51,15 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 
 	// ── Render all WGSL shaders before touching the GPU ───────────────────
 	wgsls := make([]string, len(items))
-	for i, item := range items {
-		if item.WGSL != "" {
-			wgsls[i] = item.WGSL // pre-rendered by cache; Ast may be zeroed
+	for i := range items {
+		if items[i].WGSL != "" {
+			wgsls[i] = items[i].WGSL // pre-rendered by cache; Ast may be zeroed
 		} else {
-			wgsls[i] = codegen.RenderWGSL(item)
+			res := codegen.RenderWGSL(items[i])
+			wgsls[i] = res.WGSL
+			items[i].WGSL = res.WGSL
+			items[i].LocalSize = res.LocalSize
+			items[i].WorkgroupCount = res.WorkgroupCount
 		}
 	}
 
@@ -332,10 +338,9 @@ func (d *Device) runKernel(item schedule.ExecItem, wgsl string, gpuBufs map[uint
 	}
 
 	// ── Dispatch ──────────────────────────────────────────────────────────
-	outElems := item.Bufs[0].Size
-	workgroups := uint32((outElems + workgroupSize - 1) / workgroupSize)
-	if workgroups == 0 {
-		workgroups = 1
+	wc := item.WorkgroupCount
+	if wc[0] == 0 {
+		wc = [3]int{1, 1, 1}
 	}
 
 	enc, err := d.device.CreateCommandEncoder(nil)
@@ -358,7 +363,7 @@ func (d *Device) runKernel(item schedule.ExecItem, wgsl string, gpuBufs map[uint
 	}
 	pass.SetPipeline(pipeline)
 	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(workgroups, 1, 1)
+	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
 	if err := pass.End(); err != nil {
 		bg.Release()
 		pipeline.Release()
@@ -598,17 +603,21 @@ func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32]
 	// Symbolic kernels → CompileSymKernel (cached handle); concrete → just WGSL.
 	wgsls := make([]string, len(items))
 	handles := make([]*SymKernelHandle, len(items)) // nil for concrete kernels
-	for i, item := range items {
-		if item.WGSL != "" {
-			wgsls[i] = item.WGSL // pre-rendered by cache; Ast may be zeroed
+	for i := range items {
+		if items[i].WGSL != "" {
+			wgsls[i] = items[i].WGSL // pre-rendered by cache; Ast may be zeroed
 		} else {
-			wgsls[i] = codegen.RenderWGSL(item)
+			res := codegen.RenderWGSL(items[i])
+			wgsls[i] = res.WGSL
+			items[i].WGSL = res.WGSL
+			items[i].LocalSize = res.LocalSize
+			items[i].WorkgroupCount = res.WorkgroupCount
 		}
-		if len(item.SymVars) > 0 {
+		if len(items[i].SymVars) > 0 {
 			handle, cached := d.symCache[wgsls[i]]
 			if !cached {
 				var err error
-				handle, err = d.compileSymKernelLocked(item)
+				handle, err = d.compileSymKernelLocked(items[i])
 				if err != nil {
 					return nil, fmt.Errorf("RunSymbolic compile kernel %d: %w", i, err)
 				}
@@ -867,9 +876,25 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 	if outElems == 0 {
 		outElems = n
 	}
-	wgs := uint32((outElems + workgroupSize - 1) / workgroupSize)
+	wgs := uint32((outElems + int64(handle.LocalSize[0]) - 1) / int64(handle.LocalSize[0]))
 	if wgs == 0 {
 		wgs = 1
+	}
+
+	wc := item.WorkgroupCount
+	wc[0] = int(wgs)
+
+	// Scalability spreading: if Dim 0 was forced to 1D (typical for symbolic kernels),
+	// spread it across Y and Z if it exceeds 65535.
+	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
+		totalWGs := int64(wc[0])
+		wc[0] = 65535
+		wc[1] = int((totalWGs + 65534) / 65535)
+		if wc[1] > 65535 {
+			totalWGs2 := int64(wc[1])
+			wc[1] = 65535
+			wc[2] = int((totalWGs2 + 65534) / 65535)
+		}
 	}
 
 	enc, err := d.device.CreateCommandEncoder(nil)
@@ -882,7 +907,7 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 	}
 	pass.SetPipeline(handle.pipeline)
 	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(wgs, 1, 1)
+	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
 	if err := pass.End(); err != nil {
 		return fmt.Errorf("ComputePass.End: %w", err)
 	}
@@ -949,6 +974,8 @@ type SymKernelHandle struct {
 	pipeline       *wgpu.ComputePipeline
 	numDataParams  int // number of data buffer bindings (PARAM count from KernelInfo)
 	wgsl           string
+	LocalSize      [3]int
+	WorkgroupCount [3]int
 }
 
 // WGSL returns the compiled shader source, useful for debugging.
@@ -1015,10 +1042,16 @@ func (d *Device) CompileSymKernel(item schedule.ExecItem) (*SymKernelHandle, err
 // executing on the GPU-owner goroutine and must not call onGPU.
 func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandle, error) {
 	var wgsl string
+	var ws, wc [3]int
 	if item.WGSL != "" {
 		wgsl = item.WGSL
+		ws = item.LocalSize
+		wc = item.WorkgroupCount
 	} else {
-		wgsl = codegen.RenderWGSL(item)
+		res := codegen.RenderWGSL(item)
+		wgsl = res.WGSL
+		ws = res.LocalSize
+		wc = res.WorkgroupCount
 	}
 	var numData int
 	if item.Ast.Valid() {
@@ -1088,6 +1121,8 @@ func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandl
 		pipeline:       pipeline,
 		numDataParams:  numData,
 		wgsl:           wgsl,
+		LocalSize:      ws,
+		WorkgroupCount: wc,
 	}, nil
 }
 
@@ -1201,9 +1236,24 @@ func (d *Device) dispatchSymKernelLocked(k *SymKernelHandle, n int64, inputs [][
 	defer bg.Release()
 
 	// ── Dispatch ──────────────────────────────────────────────────────────
-	wgs := uint32((n + workgroupSize - 1) / workgroupSize)
+	wgs := uint32((n + int64(k.LocalSize[0]) - 1) / int64(k.LocalSize[0]))
 	if wgs == 0 {
 		wgs = 1
+	}
+
+	wc := k.WorkgroupCount
+	wc[0] = int(wgs)
+
+	// Scalability spreading for Slice 1 symbolic kernels (always 1D).
+	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
+		totalWGs := int64(wc[0])
+		wc[0] = 65535
+		wc[1] = int((totalWGs + 65534) / 65535)
+		if wc[1] > 65535 {
+			totalWGs2 := int64(wc[1])
+			wc[1] = 65535
+			wc[2] = int((totalWGs2 + 65534) / 65535)
+		}
 	}
 
 	enc, err := d.device.CreateCommandEncoder(nil)
@@ -1216,7 +1266,7 @@ func (d *Device) dispatchSymKernelLocked(k *SymKernelHandle, n int64, inputs [][
 	}
 	pass.SetPipeline(k.pipeline)
 	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(wgs, 1, 1)
+	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
 	if perr := pass.End(); perr != nil {
 		return nil, 0, fmt.Errorf("DispatchSymKernel ComputePass.End: %w", perr)
 	}

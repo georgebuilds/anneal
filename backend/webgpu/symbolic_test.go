@@ -70,7 +70,7 @@ func TestSymbolicShapeProof(t *testing.T) {
 	}
 
 	// ── 2. Render WGSL and log it for inspection ──────────────────────────
-	wgslSrc := codegen.RenderWGSL(item)
+	wgslSrc := codegen.RenderWGSL(item).WGSL
 	t.Logf("=== Generated WGSL (compiled once) ===\n%s", wgslSrc)
 
 	// ── 3. Compile exactly once ───────────────────────────────────────────
@@ -172,7 +172,7 @@ func TestSymbolicShape_StaticCodegenUnaffected(t *testing.T) {
 		Bufs: []schedule.Buffer{{DType: uop.Dtypes.Float32, Slot: -1}, {DType: uop.Dtypes.Float32, Slot: -1}},
 	}
 
-	wgslSrc := codegen.RenderWGSL(item)
+	wgslSrc := codegen.RenderWGSL(item).WGSL
 	t.Logf("Static kernel WGSL:\n%s", wgslSrc)
 
 	// Static kernels must NOT contain params_n.

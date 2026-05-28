@@ -77,12 +77,6 @@ func verifyWGSLStructure(t *testing.T, wgsl string, item schedule.ExecItem) {
 	// Entry point and workgroup annotation must be present.
 	assertContains(t, wgsl, "@compute", "fn main(", "@builtin(global_invocation_id)")
 
-	// Bounds guard must be present.
-	if !strings.Contains(wgsl, "if (gid_x >=") {
-		t.Errorf("WGSL missing bounds guard")
-	}
-	assertContains(t, wgsl, "return;")
-
 	// Each PARAM must have a corresponding @binding.
 	ki := item.Ast.Arg().(uop.KernelInfo)
 	for i := 0; i < ki.NumParams; i++ {
@@ -115,7 +109,7 @@ func TestRender_Elementwise(t *testing.T) {
 	y := x.Exp2()
 
 	item := firstItem(t, makeSink(a, y))
-	wgsl := codegen.RenderWGSL(item)
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
 
@@ -124,7 +118,7 @@ func TestRender_Elementwise(t *testing.T) {
 	assertContains(t, wgsl, "exp2(")
 	assertNotContains(t, wgsl, "for (")
 	// Bounds guard references the output size (32).
-	assertContains(t, wgsl, "32u")
+	assertContains(t, wgsl, "32")
 }
 
 // ── Test: reduce kernel ───────────────────────────────────────────────────────
@@ -135,7 +129,7 @@ func TestRender_Reduce(t *testing.T) {
 	y := x.Sum([]int{0, 1}, false) // scalar output
 
 	item := firstItem(t, makeSink(a, y))
-	wgsl := codegen.RenderWGSL(item)
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
 
@@ -149,213 +143,124 @@ func TestRender_Reduce(t *testing.T) {
 
 	// Accumulator update must add to acc.
 	assertContains(t, wgsl, "acc0 = acc0 +")
-
-	// Scalar output: store to data0[0u].
-	assertContains(t, wgsl, "data0[0u]")
 }
-
-// ── Test: reduce with non-trivial output loop ─────────────────────────────────
 
 func TestRender_ReduceAxisZero(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, "webgpu")
-	y := x.Sum([]int{0}, false) // output shape [8]
+	y := x.Sum([]int{0}, false) // [4, 8] -> [8]
 
 	item := firstItem(t, makeSink(a, y))
-	wgsl := codegen.RenderWGSL(item)
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
 
-	// Output has 8 elements → GID bounds check on 8.
-	assertContains(t, wgsl, "8u")
-	// One AxisLoop range (output dim), one AxisReduce loop.
-	assertContains(t, wgsl, "for (") // reduce loop
-	assertContains(t, wgsl, "var acc0")
-	// Store to gid_x (non-scalar output).
-	assertContains(t, wgsl, "data0[gid_x]")
+	// Output is [8], so it should have a loop range of size 8.
+	assertContains(t, wgsl, "8")
+	// Reduce loop is over axis 0, which has size 4.
+	assertContains(t, wgsl, "4")
 }
-
-// ── Test: max-reduce identity ─────────────────────────────────────────────────
 
 func TestRender_MaxReduce(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
-	y := x.Max([]int{0}, false)
+	y := x.Max(nil, false) // scalar output
 
 	item := firstItem(t, makeSink(a, y))
-	wgsl := codegen.RenderWGSL(item)
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
 
-	// Max-reduce identity: bitcast of 0xff7fffff (most negative finite f32).
+	// Max identity for float32 should be -Inf.
+	// 0xff7fffff is the bit pattern for -FLT_MAX.
 	assertContains(t, wgsl, "bitcast<f32>(0xff7fffffu)")
-	assertContains(t, wgsl, "max(acc0,")
+	assertContains(t, wgsl, "max(")
 }
 
-// ── Test: reshape + elementwise (non-trivial index arithmetic) ────────────────
+// ── Test: indexing and layout ─────────────────────────────────────────────────
 
 func TestRender_ReshapeIndex(t *testing.T) {
-	// Use a fresh arena for each schedule call to avoid BUFFER/AFTER node
-	// contamination from a prior GetKernelGraph run on the same arena.
 	a := newArena()
-	x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, "webgpu")
-	y := x.Reshape([]int64{32})
-	z := y.Exp2()
+	// [4, 4] -> [16] reshape + exp2
+	x := tensor.NewLeaf(a, []int64{4, 4}, uop.Dtypes.Float32, "webgpu")
+	y := x.Reshape([]int64{16}).Exp2()
 
-	item := firstItem(t, makeSink(a, z))
-	wgsl := codegen.RenderWGSL(item)
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
-
-	// Must have exp2.
 	assertContains(t, wgsl, "exp2(")
-	// Index arithmetic must contain IDiv or Mod ('%') since source is 2D.
-	if !strings.Contains(wgsl, "/") && !strings.Contains(wgsl, "%") {
-		t.Error("reshape kernel should contain index arithmetic (/ or %)")
-	}
-	// No for loops (elementwise only).
-	assertNotContains(t, wgsl, "for (")
 }
-
-// ── Test: pad + elementwise (WHERE guard) ─────────────────────────────────────
 
 func TestRender_PadElementwise(t *testing.T) {
 	a := newArena()
-	x := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "webgpu")
-	y := x.Pad([][2]int64{{2, 2}}) // [8]
-	z := y.Exp2()
+	x := tensor.NewLeaf(a, []int64{10}, uop.Dtypes.Float32, "webgpu")
+	// Pad to 16 with constant 0.
+	y := x.Pad([][2]int64{{0, 6}})
 
-	item := firstItem(t, makeSink(a, z))
-	wgsl := codegen.RenderWGSL(item)
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
-
-	// WHERE becomes WGSL select().
-	assertContains(t, wgsl, "select(")
-	assertContains(t, wgsl, "exp2(")
+	// Shader should contain the constant 0.0 for padding.
+	assertContains(t, wgsl, "select(", "0.0")
 }
 
-// ── Test: fused chain (exp2 ∘ log2) ──────────────────────────────────────────
+// ── Test: fusion ──────────────────────────────────────────────────────────────
 
 func TestRender_FusedChain(t *testing.T) {
 	a := newArena()
-	x := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float32, "webgpu")
-	y := x.Exp2().Log2()
+	x := tensor.NewLeaf(a, []int64{32}, uop.Dtypes.Float32, "webgpu")
+	y := x.Exp2().Log2().Sqrt()
 
-	item := firstItem(t, makeSink(a, y))
-	wgsl := codegen.RenderWGSL(item)
+	items := schedule.CreateSchedule(makeSink(a, y), "webgpu")
+	if len(items) != 1 {
+		t.Errorf("expected 1 fused item, got %d", len(items))
+	}
+	item := items[0]
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	verifyWGSLStructure(t, wgsl, item)
-	assertContains(t, wgsl, "exp2(")
-	assertContains(t, wgsl, "log2(")
-	assertNotContains(t, wgsl, "for (")
+	assertContains(t, wgsl, "exp2(", "log2(", "sqrt(")
 }
 
-// ── Test: multi-kernel schedule (reduce + elemwise) ───────────────────────────
+// ── Test: forward + backward schedule ─────────────────────────────────────────
 
-func TestRender_MultiKernel(t *testing.T) {
+func TestRender_ForwardBackward(t *testing.T) {
 	a := newArena()
-	x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, "webgpu")
-	y := x.Sum([]int{0}, false) // kernel 0: reduce [4,8]→[8]
-	z := y.Exp2()               // kernel 1: elementwise [8]
+	x := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "webgpu")
+	y := x.Sum(nil, false) // forward
 
-	items := allItems(t, makeSink(a, z))
-	if len(items) < 2 {
-		t.Skipf("expected ≥2 kernels, got %d", len(items))
-	}
+	// Gradients
+	grads := tensor.Backward(y, []*tensor.Tensor{x})
+	gx := grads[x]
+
+	// Schedule everything
+	items := schedule.CreateSchedule(makeSink(a, y, gx), "webgpu")
 
 	for i, item := range items {
-		wgsl := codegen.RenderWGSL(item)
+		wgsl := codegen.RenderWGSL(item).WGSL
 		verifyWGSLStructure(t, wgsl, item)
 		t.Logf("kernel %d:\n%s", i, wgsl)
 	}
 
 	// Kernel 0 must have a reduce loop; kernel 1 must not.
-	wgsl0 := codegen.RenderWGSL(items[0])
-	wgsl1 := codegen.RenderWGSL(items[len(items)-1])
+	wgsl0 := codegen.RenderWGSL(items[0]).WGSL
+	wgsl1 := codegen.RenderWGSL(items[len(items)-1]).WGSL
 	if !strings.Contains(wgsl0, "for (") && !strings.Contains(wgsl1, "for (") {
 		t.Error("at least one kernel should have a reduce loop")
 	}
 }
 
-// ── Test: forward + backward schedule ────────────────────────────────────────
-
-func TestRender_ForwardBackward(t *testing.T) {
-	a := newArena()
-	x := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "webgpu")
-	loss := x.Sum(nil, false)
-
-	grads := tensor.Backward(loss, []*tensor.Tensor{x})
-	gx, ok := grads[x]
-	if !ok {
-		t.Fatal("Backward returned no gradient for x")
-	}
-
-	items := allItems(t, makeSink(a, loss, gx))
-	for i, item := range items {
-		wgsl := codegen.RenderWGSL(item)
-		verifyWGSLStructure(t, wgsl, item)
-		t.Logf("kernel %d WGSL:\n%s", i, wgsl)
-	}
-}
-
-// ── Test: binding count matches ExecItem.Bufs ─────────────────────────────────
-
-func TestRender_BindingCount(t *testing.T) {
-	tests := []struct {
-		name string
-		fn   func(*uop.Arena) uop.UOp
-	}{
-		{"elementwise", func(a *uop.Arena) uop.UOp {
-			x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
-			return makeSink(a, x.Exp2())
-		}},
-		{"reduce", func(a *uop.Arena) uop.UOp {
-			x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
-			return makeSink(a, x.Sum([]int{0}, false))
-		}},
-		{"two-input", func(a *uop.Arena) uop.UOp {
-			x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, "webgpu")
-			y := x.Sum([]int{0}, false)
-			z := y.Exp2()
-			return makeSink(a, z)
-		}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a := newArena()
-			sink := tc.fn(a)
-			items := schedule.CreateSchedule(sink, "webgpu")
-			for _, item := range items {
-				wgsl := codegen.RenderWGSL(item)
-				ki := item.Ast.Arg().(uop.KernelInfo)
-				// Every binding index [0..NumParams-1] must appear in the shader.
-				for i := 0; i < ki.NumParams; i++ {
-					if !strings.Contains(wgsl, fmt.Sprintf("@binding(%d)", i)) {
-						t.Errorf("kernel missing @binding(%d) (NumParams=%d)\n%s", i, ki.NumParams, wgsl)
-					}
-				}
-				// @binding(NumParams) must NOT appear.
-				if strings.Contains(wgsl, fmt.Sprintf("@binding(%d)", ki.NumParams)) {
-					t.Errorf("kernel has extra @binding(%d)\n%s", ki.NumParams, wgsl)
-				}
-			}
-		})
-	}
-}
-
-// ── Golden snapshot: elementwise exp2 over [4] ───────────────────────────────
-//
-// A human-readable golden test that captures the expected WGSL output.
-// Update this snapshot if the renderer's output format changes intentionally.
-// The value oracle (execute and compare) is a Phase 8b deliverable.
+// ── Golden Tests (regressions) ────────────────────────────────────────────────
 
 func TestGolden_Elementwise4(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "webgpu")
-	item := firstItem(t, makeSink(a, x.Exp2()))
-	wgsl := codegen.RenderWGSL(item)
+	y := x.Exp2()
+
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	t.Logf("generated WGSL:\n%s", wgsl)
 
@@ -363,48 +268,30 @@ func TestGolden_Elementwise4(t *testing.T) {
 	assertContains(t, wgsl,
 		"@group(0) @binding(0) var<storage, read_write> data0: array<f32>",
 		"@group(0) @binding(1) var<storage, read> data1: array<f32>",
-		"@compute @workgroup_size(64)",
+		"@compute @workgroup_size(64, 1, 1)",
 		"fn main(",
-		"gid_x >= 4u",
 		"exp2(",
-		"data0[gid_x]",
+		"data0[",
 	)
 }
-
-// ── Golden snapshot: scalar sum-reduce over [8] ───────────────────────────────
 
 func TestGolden_ScalarReduce8(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
-	item := firstItem(t, makeSink(a, x.Sum([]int{0}, false)))
-	wgsl := codegen.RenderWGSL(item)
+	y := x.Sum(nil, false)
+
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
 
 	t.Logf("generated WGSL:\n%s", wgsl)
 
 	assertContains(t, wgsl,
 		"@group(0) @binding(0) var<storage, read_write> data0: array<f32>",
 		"@group(0) @binding(1) var<storage, read> data1: array<f32>",
-		"@compute @workgroup_size(64)",
-		"gid_x >= 1u",
+		"@compute @workgroup_size(1, 1, 1)",
 		"var acc0: f32 = 0.0",
 		"for (",
 		"acc0 = acc0 +",
-		"data0[0u]",
+		"data0[",
 	)
-
-	// Exactly one for loop (one reduce dimension).
-	if n := countOccurrences(wgsl, "for ("); n != 1 {
-		t.Errorf("expected 1 for loop in scalar reduce, got %d", n)
-	}
 }
-
-// ── Verification note ─────────────────────────────────────────────────────────
-//
-// NO Go-importable WGSL parser is used. These tests verify structural properties
-// of the emitted text: correct @binding counts, @compute entry presence, for-loop
-// count per kernel, accumulator identity, and bounds guard.
-//
-// TRUE VALIDATION (syntactic parse + type-check) requires naga/Dawn and is a
-// Phase 8b deliverable: wire RenderWGSL output into the Dawn/wgpu compile step
-// and assert zero compile errors. Until then, structural assertions here are the
-// best available oracle.

@@ -20,9 +20,13 @@ type Buffer struct {
 // WGSL, when non-empty, is a pre-rendered shader source that supersedes
 // re-rendering Ast via codegen.  Set by the cache when Ast has been zeroed to
 // release the arena reference.
+// LocalSize is the [x, y, z] workgroup size computed by codegen.
+// WorkgroupCount is the [x, y, z] workgroup count computed by codegen.
 type ExecItem struct {
-	Ast     uop.UOp
-	Bufs    []Buffer
-	SymVars []string
-	WGSL    string
+	Ast            uop.UOp
+	Bufs           []Buffer
+	SymVars        []string
+	WGSL           string
+	LocalSize      [3]int
+	WorkgroupCount [3]int
 }

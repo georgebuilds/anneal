@@ -12,6 +12,22 @@ type Executor interface {
 	Close()
 }
 
+// BenchmarkResult holds timing statistics for a kernel benchmark.
+type BenchmarkResult struct {
+	MinMicros    float64
+	MedianMicros float64
+	MaxMicros    float64
+	MeanMicros   float64
+	StdDevMicros float64
+	CV           float64 // Coefficient of Variation: StdDev / Mean
+}
+
+// Benchmarker is an optional interface implemented by backends that support
+// per-kernel timing.
+type Benchmarker interface {
+	Benchmark(item schedule.ExecItem, warmup, iterations int) (BenchmarkResult, error)
+}
+
 // SymbolicExecutor is an optional interface implemented by backends that support
 // runtime-bound symbolic kernels. Kernels with symbolic dims are compiled once
 // and dispatched multiple times with different concrete bindings.
