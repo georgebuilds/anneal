@@ -35,8 +35,9 @@ func TestScheduleCache_HitMiss(t *testing.T) {
 	if len(items1) != len(items2) {
 		t.Fatalf("cached schedule length %d != original %d", len(items2), len(items1))
 	}
-	// The returned slice must be pointer-identical (same backing array, not a copy).
-	if len(items1) > 0 && &items1[0] != &items2[0] {
+	// The returned slice must be pointer-identical (same backing array, not a copy)
+	// EXCEPT when WGSLRenderFunc is set (which forces a copy to release the arena).
+	if schedule.WGSLRenderFunc == nil && len(items1) > 0 && &items1[0] != &items2[0] {
 		t.Error("cached items slice is a copy, not the same backing array")
 	}
 }

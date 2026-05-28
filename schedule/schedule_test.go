@@ -452,13 +452,47 @@ func TestGetKernelGraph_ReduceThenElemwise(t *testing.T) {
 	sink := makeSink(a, z)
 	result := schedule.GetKernelGraph(sink, "cpu")
 
-	if n := kernelCount(result); n != 2 {
-		t.Errorf("expected 2 kernels (reduce + elemwise), got %d", n)
+	// Pre-fusion: 2 kernels (reduce + elemwise)
+	// Post-fusion: 1 kernel (fused reduce + exp2)
+	if n := kernelCount(result); n != 1 {
+		t.Errorf("expected 1 kernel (fused reduce + elemwise), got %d", n)
 	}
 	verifyKernelGraph(t, result)
 }
 
-// ── Multiple SINK outputs ─────────────────────────────────────────────────────
+func TestGetKernelGraph_FusionRespectsBufferLimit(t *testing.T) {
+	a := newArena()
+	// Create a reduce with 4 inputs. (Total 5 buffers: 4 in, 1 out)
+	in1 := tensor.NewLeaf(a, []int64{16, 16}, uop.Dtypes.Float32, "webgpu")
+	in2 := tensor.NewLeaf(a, []int64{16, 16}, uop.Dtypes.Float32, "webgpu")
+	in3 := tensor.NewLeaf(a, []int64{16, 16}, uop.Dtypes.Float32, "webgpu")
+	in4 := tensor.NewLeaf(a, []int64{16, 16}, uop.Dtypes.Float32, "webgpu")
+	red := in1.Add(in2).Add(in3).Add(in4).Sum([]int{0}, false) // [16]
+
+	// Create an elementwise consumer with 4 OTHER inputs.
+	// Total buffers if fused:
+	//   Producers of red: in1, in2, in3, in4 (4)
+	//   Other inputs of consumer: in5, in6, in7, in8 (4)
+	//   Output of consumer: res (1)
+	//   Total = 4 + 4 + 1 = 9 buffers. (Exceeds 8)
+	in5 := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float32, "webgpu")
+	in6 := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float32, "webgpu")
+	in7 := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float32, "webgpu")
+	in8 := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float32, "webgpu")
+	res := red.Add(in5).Add(in6).Add(in7).Add(in8)
+
+	sink := makeSink(a, res)
+	// Use "webgpu" device to ensure the 8-buffer limit is relevant.
+	// Note: removeBufferize currently has hardcoded 8 limit anyway.
+	result := schedule.GetKernelGraph(sink, "webgpu")
+
+	// Should NOT fuse because 9 buffers > 8.
+	// Expected 2 kernels: one for red (5 bufs), one for res (5 bufs: red, in5, in6, in7, in8).
+	if n := kernelCount(result); n != 2 {
+		t.Errorf("expected 2 kernels due to buffer limit, got %d", n)
+	}
+	verifyKernelGraph(t, result)
+}
 
 func TestGetKernelGraph_TwoIndependentOutputs(t *testing.T) {
 	a := newArena()
