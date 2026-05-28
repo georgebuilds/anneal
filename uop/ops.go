@@ -1,6 +1,9 @@
 package uop
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Op is a single opcode in the UOp IR.
 // Numeric values control toposort ordering within the scheduler — do not reorder casually.
@@ -257,6 +260,32 @@ func (op Op) String() string {
 		}
 	}
 	return fmt.Sprintf("Op(%d)", int(op))
+}
+
+var opsByName map[string]Op
+
+func init() {
+	opsByName = make(map[string]Op, len(opNames))
+	for i, name := range opNames {
+		if name != "" {
+			opsByName[name] = Op(i)
+		}
+	}
+}
+
+// OpFromString returns the Op with the given name (case-insensitive).
+func OpFromString(s string) (Op, bool) {
+	// Try exact match first
+	if op, ok := opsByName[s]; ok {
+		return op, true
+	}
+	// Try case-insensitive
+	for name, op := range opsByName {
+		if strings.EqualFold(name, s) {
+			return op, true
+		}
+	}
+	return 0, false
 }
 
 // ── op sets ───────────────────────────────────────────────────────────────────
