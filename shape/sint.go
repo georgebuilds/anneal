@@ -2,8 +2,13 @@ package shape
 
 import "github.com/georgebuilds/anneal/uop"
 
-// Sint is the symbolic-integer seam. In slices 1–2 every Sint is a ConstInt.
-// SymInt exists as a type-complete stub; its methods panic until slice 3.
+// Sint is the symbolic-integer seam: either a concrete ConstInt or a SymInt backed
+// by a UOp node. SymInt is the production Option-A dynamic-batch representation;
+// arithmetic (Add/Sub/Mul/Neg/IDiv/Mod) builds real UOp expressions exercised by
+// every dynamic-batch test. The comparison functions Lt/Le/Eq deliberately panic for
+// symbolic operands — they are the Option-A/Option-B fence (SPEC §6.4): if code ever
+// needs to compare two symbolic values arithmetically, that is Option B territory
+// (deferred). Do not silently enable these.
 type Sint interface {
 	isSint()
 	ConstValue() (int64, bool)

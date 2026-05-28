@@ -265,6 +265,17 @@ type jitLeaf struct {
 // and tensor output nodes always precede any scheduler-added nodes (which have
 // higher indices), this function is safe to call after storeCapture has run
 // Realize (which adds scheduling nodes to the arena).
+//
+// INVARIANT (SPEC §7.5c): the guard is keyed on the OUTPUT EXPRESSION's structural
+// key, not on per-leaf SK. Two same-shape OpBuffer leaves have identical leaf-level
+// structural keys (no srcs, identical arg, off-graph Value), so leaf-SK alone cannot
+// discriminate sibling leaves. The output-expression SK catches any structural
+// difference between capture and replay.
+//
+// Harmlessly-passing case: structurally-identical graphs with permuted leaves
+// (e.g. W1*x+W2 → W2*x+W1) intentionally pass the guard. The DFS remap's
+// permutation cancels the expression's permutation and the result is correct.
+// Do NOT over-tighten the guard to reject these.
 func subgraphSK(tensors []*Tensor) uint64 {
 	if len(tensors) == 0 {
 		return 0

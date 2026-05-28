@@ -23,6 +23,7 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 - **Dynamic batch:** the batch dimension can be symbolic — a kernel compiles once and runs at any batch size via `NewSymbolicBatchInput` / `RealizeWithBinding`. General symbolic axis movement (split/merge/pad, dynamic seq-length) is not yet supported.
 - **JIT:** `tensor.JIT` captures the scheduling plan on the first step and replays subsequent steps without re-scheduling.
 - **Migration I/O:** `tensor/npy` loads numpy `.npy`/`.npz` files; `tensor/safetensors` reads and writes HuggingFace `.safetensors` checkpoints, bidirectionally compatible with the real Python safetensors library. Pure Go, no cgo, no runtime Python. Tensor data carries as `float32`; source dtypes map with documented float32-range semantics.
+- **Low-precision dtypes:** `tensor.Tensor` and `nn.Parameter` accept `Dtypes.Float16` (storage + arithmetic, requires `shader-f16` WebGPU extension; fails closed on unavailability with clear error) and `Dtypes.BFloat16` (storage-only; arithmetic runs in f32 via bitcast/shift conversion at buffer boundaries). Reduction accumulators stay f32 even with f16 operands. `Parameter.Value` is f32 master; `Load` quantizes to device dtype each step (implicit mixed precision). FP16/FP16 fast path is deferred.
 
 ## Color semantics (visualizer and TUI)
 

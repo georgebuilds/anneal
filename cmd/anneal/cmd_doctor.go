@@ -33,9 +33,14 @@ func doctorCmdW(args []string, w io.Writer) int {
 
 	name := dev.AdapterName()
 	backend := detectBackend()
+	shaderF16 := "NO"
+	if dev.HasShaderF16 {
+		shaderF16 = "yes"
+	}
 
 	fmt.Fprintf(w, "device: %s\n", name)
 	fmt.Fprintf(w, "backend: %s\n", backend)
+	fmt.Fprintf(w, "shader-f16: %s\n", shaderF16)
 	fmt.Fprintf(w, "status: %s\n", bold("ready"))
 	return 0
 }

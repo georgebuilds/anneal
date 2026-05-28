@@ -24,6 +24,7 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 - **Schedule cache.** `CreateSchedule` memoized on a structural key (in-process, single-arena). The former determinism BLOCKER is resolved (§7.6 pass-7b notes).
 - **`.upat` DSL codegen migration.** The symbolic ruleset is compiled from `rewrite/rules/symbolic.upat` (§4.1).
 - **Migration I/O.** `tensor/npy` (load `.npy`/`.npz`) and `tensor/safetensors` (save/load HuggingFace checkpoints, bidirectionally compatible with the real Python library). Both pure-Go, no cgo, no runtime Python.
+- **Low-precision dtypes.** f16 via `shader-f16` extension (fail-closed); bf16 as storage-only with f32 compute. Reduction accumulators stay f32 (§11 Q3).
 
 **Still deferred / dropped:**
 - General symbolic axis movement (Option B) — see §6.4 / §11. Picked up only when LLM seq-len reshaping is actually the goal.
@@ -31,7 +32,6 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 - `ImageDType` and image-specific codegen paths. Dropped.
 - BEAM search / autotuning + cost-based fusion (Pass 5 stub). The known v1 performance ceiling — every reduce is a hard kernel boundary. Real fusion + BEAM both relax it.
 - Backends beyond the first. v1 targets one backend (§7).
-- f16/bf16 WGSL runtime rendering — see §11 Q3.
 
 ---
 
@@ -48,7 +48,7 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 | JIT | ✅ Capture/replay (`tensor.JIT`; §7.5c) |
 | Schedule cache | ✅ Memoized on structural key (§7.6) |
 | Migration I/O | ✅ `.npy`/`.npz` load; `.safetensors` save/load |
-| Dtypes | `float32`, `int32`, `bool` runtime-verified; `float16`, `bfloat16`, `float64`, `int8/16/64`, `uint8/16/32/64`, `fp8e4m3/e5m2` present in dtype system and promotion lattice; WGSL rendering for f16/bf16 is an open sub-question (§11 Q3) |
+| Dtypes | `float32`, `int32`, `bool` runtime-verified; f16 ✅ via `shader-f16` (fail-closed if unavailable); bf16 ✅ storage-only (f32 compute); fp8 ⛔ Deferred. |
 | Image dtype | ⛔ Not supported |
 | BEAM autotuning / cost-based fusion | ⛔ Deferred |
 
@@ -131,6 +131,8 @@ Tested directly via table-driven cases in `bounds_test.go` (90% line coverage on
 Gradients are computed by `tensor.Backward()` — a typed iterative reverse traversal of the forward UOp DAG. The per-op derivative rules live in `applyGradRule()`, a Go `switch` over `uop.Op` in `tensor/gradient.go`. Adjoints converging from multiple consumers are summed by injecting `OpAdd` nodes. The output is an augmented graph containing forward + backward UOps on the same arena, which the scheduler sees whole and fuses across.
 
 `gradient.go`'s shape handling carries `[]shape.Sint` (not `[]int64`) so a symbolic batch dim flows through the backward pass as an opaque passthrough axis. See §6.4.
+
+**Adjoint precision through Cast backward.** To preserve precision through narrowing/widening forwards, the backward rule for `OpCast`/`OpBitcast` uses `LeastUpperDType(adj.dtype, src.dtype)` for the resulting adjoint. This ensures that a forward narrowing (e.g. f32 → bf16) does not silently truncate the backward gradient to the narrow type; it stays f32. `TestGradientThroughCastBF16ToF32` serves as the value oracle (calculating `y = (1 + 1/256)·x` where the gradient `1.00390625` would truncate to `1.0` if narrowed).
 
 **This was a deliberate implementation choice.** D1 is fully achieved: every backward node is an ordinary interned `UOp` with no tape, no closures, and no `requires_grad` flag on the execution path. **D1 has been VERIFIED end-to-end:** the scheduler fuses forward and gradient kernels, and finite-difference checks confirm correctness across static and dynamic-batch nets.
 
@@ -278,6 +280,12 @@ Each kernel's SINK-rooted UOp tree is lowered to a linear `[]Instr` sequence by 
 
 **Codegen targets WGSL exclusively** (`codegen/lower.go` + `codegen/wgsl.go`). The C-style renderer family (for CUDA/Metal Phase 2/3) is deferred.
 
+**Low-precision dtypes (f16/bf16).**
+- `enable f16;` directive emitted when any f16 buffer is in scope.
+- f16 native types and arithmetic for elementwise ops.
+- **Reduction accumulators widen to f32 even when operands are f16** (load-bearing correctness — pure FP16/FP16 is a deferred opt-in, not the default).
+- bf16 as `array<u32>` storage with bitcast/shift widening at boundaries; no `enable f16;` required for bf16-only kernels.
+
 For symbolic kernels (§6.4), the symbolic dim is rendered as a WGSL **uniform** buffer (not a storage buffer — uniforms don't count against Metal's 8-storage-buffer limit, restoring full data-buffer budget on symbolic kernels). The uniform must be a struct of `u32` fields, not `array<u32,N>` — array element stride is 16 bytes in the uniform address space; struct fields pack at 4 bytes. A prior memory-corruption-at-step-1200 bug came from this exact pitfall and has been fixed.
 
 ### 7.8 Backend strategy
@@ -357,6 +365,10 @@ Module path: github.com/georgebuilds/anneal
 - Migration I/O — `tensor/npy` (load) and `tensor/safetensors` (save+load, bidirectional with the real Python library).
 - `explain` symbolic-rule drift check vs `symbolic.upat`.
 - Bounds-system test coverage + `OpMod` floor-div fix.
+- f16 in WGSL codegen with f32 accumulator (Slice 1).
+- shader-f16 extension negotiation + bf16 storage-only (Slice 2).
+- Tensor/nn f16/bf16 surface; implicit mixed precision via f32 master weights (Slice 3).
+- FD gradient checks for f16/bf16 with literature-calibrated tolerances; OpCast adjoint precision fix (Slice 4).
 
 ---
 
@@ -376,6 +388,8 @@ Module path: github.com/georgebuilds/anneal
 - All Metal-touching calls go through the `onGPU` owner-goroutine funnel (§7.8). Bypassing it reintroduces the autorelease-pool race.
 - JIT replay's match guard is keyed on the captured output expression's structural key, not on per-leaf identity. Same-shape sibling `OpBuffer` leaves cannot be discriminated at the leaf level (§7.5c).
 - Symbolic comparisons (`Lt/Le/Eq` on `SymInt`) panic by design — they are the Option-A/Option-B fence (§6.4). If a code path needs one, that path is Option B and must be scoped as such, not silently unfenced.
+- Reduction accumulators are f32 even when operands are f16; never accumulate in f16. The FP16/FP16 fast path is a deferred opt-in, not the default.
+- Adjoint precision through OpCast/OpBitcast backward uses `LeastUpperDType(adj.dtype, src.dtype)`. A forward dtype narrowing must never silently narrow the backward adjoint.
 
 ---
 
@@ -385,7 +399,12 @@ Module path: github.com/georgebuilds/anneal
 
 2. **v0 matcher → codegen migration trigger. RESOLVED.** The `.upat` DSL was built and the symbolic ruleset migrated (§4.1). Drift check (`TestUpatDriftCheck`) enforces curated-prose ↔ `.upat` correspondence. The gradient ruleset remains the natural next user of the DSL — that migration is optional (D1 holds either way) and would unlock live derivation of `explain`'s gradient half and a "rules firing" backward animation in the visualizer.
 
-3. **Dtype breadth — runtime lowering (partially resolved).** `f16`, `bf16`, `fp8e4m3`, `fp8e5m2` are present in the dtype system with full interning, `IsFloat()` membership, and promotion lattice integration. **Open sub-question:** runtime lowering in WGSL — WGSL `f16` requires the `shader-f16` extension; `bf16` has no standard WGSL representation. Decide whether to add the WGSL extension path or defer to Phase 2 (CUDA/PTX where native f16/bf16 exist).
+3. **Dtype breadth — runtime lowering. RESOLVED.**
+   - **f16** via `shader-f16` WGSL extension; reductions use an f32 accumulator for precision (narrows at write).
+   - **bf16** as storage-only with f32 compute (`bitcast<u32>(expr) & 0xFFFF0000u` on store, `bitcast<f32>(u32_buffer[i])` on load).
+   - **Fail-closed:** the engine fails before any GPU allocation if a requested f16/bf16 surface is unavailable; no silent fp32 fallback. `anneal doctor` reports availability per device.
+   - **Tolerances:** elementwise atol=1e-3 (f16 ε ≈ 9.77e-4); small matmul atol=1e-2 rtol=1e-3 (TVM `test_to_mixed_precision`); chained atol=5e-2 rtol=1e-2 (tinygrad PR #7973: rtol=atol=2e-3 violated after 7 convs); bf16 FD atol=rtol=0.3 (7-bit mantissa quantization noise/h analysis).
+   - **Deferred:** FP16/FP16 accumulation (fast-path opt-in); explicit mixed-precision training with loss scaling (Parameter.Value as f32 master gives implicit mixed precision; named API is deferred).
 
 4. **Renderer target. RESOLVED: WGSL-only.** Codegen is WGSL-only (`codegen/lower.go` + `codegen/wgsl.go`). The C-style renderer family (for CUDA/Metal Phase 2/3) is deferred.
 
@@ -405,5 +424,7 @@ This spec is calibrated against the as-built implementation. Original Phases 1�
 - **Migration I/O:** `.npy` round-trip vs real `np.save()` fixtures (big-endian + Fortran-order); safetensors BIDIRECTIONALLY round-tripped against the real Python library; save→load→identical-forward (max-abs-diff 0).
 - **`OpMod` floor-div fix:** surfaced by bounds-system table-driven coverage (28% → 90%); adversarial cases for `[-3,3] mod 4` and `[-1,1] mod 2` now produce the correct `[0,3]` and `[0,1]` rather than the buggy `[1,3]` and `[1,1]`.
 - **`.upat` drift check:** bidirectional (op, handler) correspondence enforced as a build-failing test.
+- **f16/bf16 support:** f16 elementwise atol=1e-3 (ε ≈ 9.77e-4); bf16 FD atol=rtol=0.3 (calibrated to 7-bit mantissa noise floor); bf16-storage MLP trains at f32 quality (Pearson 0.9810 vs f32 baseline 0.9735).
+- **OpCast adjoint fix:** `TestGradientThroughCastBF16ToF32` precision oracle proves the fix (`y = (1 + 1/256)·x` — gradient `1.00390625` would have narrowed to `1.0` pre-fix).
 
 For any claim about current behavior, the code is the source of truth; this spec describes intent and invariants, not surface details that may evolve.
