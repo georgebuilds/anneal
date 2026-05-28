@@ -128,7 +128,7 @@ Tested directly via table-driven cases in `bounds_test.go` (90% line coverage on
 
 ## 5. Autodiff
 
-Gradients are computed by `tensor.Backward()` — a typed iterative reverse traversal of the forward UOp DAG. The per-op derivative rules live in `applyGradRule()`, a Go `switch` over `uop.Op` in `tensor/gradient.go`. Adjoints converging from multiple consumers are summed by injecting `OpAdd` nodes. The output is an augmented graph containing forward + backward UOps on the same arena, which the scheduler sees whole and fuses across.
+Gradients are computed by `tensor.Backward()` — a typed iterative reverse traversal of the forward UOp DAG. Per-op derivative dispatch is via `Gradient`, a `map[uop.Op]GradRule` ruleset in `tensor/gradient_ruleset.go`. The original typed-switch implementation (`applyGradRule`) is retained in `tensor/gradient_oracle_test.go` as the differential equivalence oracle — `TestGradientRulesetEquivalence` enforces bit-exact equivalence on every test run, so any future ruleset edit must match it. Adjoints converging from multiple consumers are summed by injecting `OpAdd` nodes. The output is an augmented graph containing forward + backward UOps on the same arena, which the scheduler sees whole and fuses across.
 
 `gradient.go`'s shape handling carries `[]shape.Sint` (not `[]int64`) so a symbolic batch dim flows through the backward pass as an opaque passthrough axis. See §6.4.
 

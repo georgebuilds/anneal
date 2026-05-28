@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/georgebuilds/anneal/tensor"
+	"github.com/georgebuilds/anneal/uop"
 )
 
 // parseUpatPairs parses a symbolic.upat file and returns every (op, handler)
@@ -116,6 +119,44 @@ func TestUpatDriftCheck(t *testing.T) {
 		if !upatPairs[pair] {
 			parts := strings.SplitN(pair, ":", 2)
 			t.Errorf("allRules has symbolic entry (%s, %s) but symbolic.upat has no matching rule — stale entry in cmd_explain.go?", parts[0], parts[1])
+		}
+	}
+}
+
+func TestGradientDriftCheck(t *testing.T) {
+	// Ground truth: ops registered in tensor.Gradient's dispatch table.
+	registered := make(map[uop.Op]bool)
+	for _, op := range tensor.Gradient.RegisteredOps() {
+		registered[op] = true
+	}
+
+	// Curated: ops covered in allRules with kind == "gradient".
+	curated := make(map[uop.Op]bool)
+	for _, r := range allRules {
+		if r.kind != "gradient" {
+			continue
+		}
+		for _, opStr := range r.ops {
+			op, ok := uop.OpFromString(opStr)
+			if !ok {
+				t.Errorf("gradient ruleEntry references unknown op %q: %v", opStr, r)
+				continue
+			}
+			curated[op] = true
+		}
+	}
+
+	// Assert bidirectional equality.
+	for op := range registered {
+		if !curated[op] {
+			t.Errorf("op %s is registered in tensor.Gradient but has no curated entry in "+
+				"allRules — add a gradient ruleEntry in cmd_explain.go for it", op)
+		}
+	}
+	for op := range curated {
+		if !registered[op] {
+			t.Errorf("op %s has a curated gradient ruleEntry in allRules but is not registered "+
+				"in tensor.Gradient.rules — either register it or remove the curated entry", op)
 		}
 	}
 }

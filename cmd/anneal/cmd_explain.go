@@ -493,6 +493,38 @@ var allRules = []ruleEntry{
 		source:      "tensor/gradient.go",
 	},
 
+	// ── MulAcc ───────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"mulacc"},
+		kind:        "gradient",
+		pattern:     "∂(a*b+c)/∂a = adj * b",
+		description: "gradient w.r.t. first multiplier is adjoint times the second",
+		source:      "tensor/gradient.go",
+	},
+	{
+		ops:         []string{"mulacc"},
+		kind:        "gradient",
+		pattern:     "∂(a*b+c)/∂b = adj * a",
+		description: "gradient w.r.t. second multiplier is adjoint times the first",
+		source:      "tensor/gradient.go",
+	},
+	{
+		ops:         []string{"mulacc"},
+		kind:        "gradient",
+		pattern:     "∂(a*b+c)/∂c = adj",
+		description: "gradient w.r.t. addend is the incoming adjoint",
+		source:      "tensor/gradient.go",
+	},
+
+	// ── Non-differentiable ───────────────────────────────────────────────────
+	{
+		ops:         []string{"cmplt", "cmpeq", "cmpne", "and", "or", "xor", "shl", "shr", "idiv", "mod", "pow", "trunc"},
+		kind:        "gradient",
+		pattern:     "no gradient",
+		description: "this op is non-differentiable or is a leaf in the graph",
+		source:      "tensor/gradient.go",
+	},
+
 	// ── Cast ─────────────────────────────────────────────────────────────────
 	{
 		ops:         []string{"cast"},
@@ -511,7 +543,7 @@ var allRules = []ruleEntry{
 		handler:     "hIdentityCast",
 	},
 	{
-		ops:         []string{"cast"},
+		ops:         []string{"cast", "bitcast"},
 		kind:        "gradient",
 		pattern:     "adj = Cast(adj, src_dtype)",
 		description: "cast adjoint back to source dtype if source is float",
@@ -659,7 +691,7 @@ func matmulExplain() string {
 	b.WriteString("  Expand:          sum adjoint over broadcast axes\n")
 	b.WriteString("  Reshape:         reshape adjoint to source shape\n")
 	b.WriteString("\n")
-	b.WriteString("see: tensor/reduce.go:Matmul, tensor/gradient.go:applyGradRule\n")
+	b.WriteString("see: tensor/reduce.go:Matmul, tensor/gradient_ruleset.go:Gradient\n")
 	return b.String()
 }
 
