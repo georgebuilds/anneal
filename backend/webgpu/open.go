@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
 )
 
@@ -36,6 +37,11 @@ type Device struct {
 	adapter  *wgpu.Adapter
 	device   *wgpu.Device
 	queue    *wgpu.Queue
+	// HasShaderF16 is true when the adapter exposed the shader-f16 extension and the
+	// device was opened with it. Kernels that use f16 dtypes require this; the
+	// executor fails closed if it is false (no silent f32 fallback).
+	HasShaderF16 bool
+
 	// symCache maps compiled WGSL source → handle for compile-once symbolic kernels.
 	// Only touched on the GPU-owner goroutine, so it needs no synchronization.
 	symCache map[string]*SymKernelHandle
@@ -91,7 +97,14 @@ func Open() (*Device, error) {
 			inst.Release()
 			return fmt.Errorf("webgpu: no GPU adapter found: %w — run `anneal doctor` for hardware diagnostics", err)
 		}
-		dev, err := adapter.RequestDevice(nil)
+		var devDesc *wgpu.DeviceDescriptor
+		if adapter.Features().Contains(gputypes.FeatureShaderF16) {
+			var feats gputypes.Features
+			feats.Insert(gputypes.FeatureShaderF16)
+			devDesc = &wgpu.DeviceDescriptor{RequiredFeatures: feats}
+			d.HasShaderF16 = true
+		}
+		dev, err := adapter.RequestDevice(devDesc)
 		if err != nil {
 			adapter.Release()
 			inst.Release()

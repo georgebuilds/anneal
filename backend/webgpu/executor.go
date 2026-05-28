@@ -37,6 +37,15 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 // runLocked is Run's body; it assumes it is already executing on the GPU-owner
 // goroutine and must not call onGPU.
 func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float32) (map[uint32][]float32, error) {
+	if !d.HasShaderF16 {
+		for _, item := range items {
+			for _, buf := range item.Bufs {
+				if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
+					return nil, fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
+				}
+			}
+		}
+	}
 
 	// ── Render all WGSL shaders before touching the GPU ───────────────────
 	wgsls := make([]string, len(items))
@@ -136,12 +145,28 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 	}
 
 	// ── Upload leaf input data ────────────────────────────────────────────
+	// Build a lookup from UOpIdx → dtype so we can encode f16 inputs correctly.
+	bufDType := make(map[uint32]*uop.DType, len(items)*4)
+	for _, item := range items {
+		for _, buf := range item.Bufs {
+			bufDType[buf.UOpIdx] = buf.DType
+		}
+	}
 	for uopIdx, data := range inputs {
 		gpuBuf, ok := gpuBufs[uopIdx]
 		if !ok {
 			continue // caller provided data for a buffer not in this schedule — skip
 		}
-		raw := float32sToBytes(data)
+		var raw []byte
+		dt := bufDType[uopIdx]
+		switch {
+		case dt != nil && dt.Scalar() == uop.Dtypes.Float16:
+			raw = float32sToF16Bytes(data)
+		case dt != nil && dt.Scalar() == uop.Dtypes.BFloat16:
+			raw = float32sToBF16U32Bytes(data)
+		default:
+			raw = float32sToBytes(data)
+		}
 		if err := d.queue.WriteBuffer(gpuBuf, 0, raw); err != nil {
 			return nil, fmt.Errorf("webgpu: upload buf %d: %w", uopIdx, err)
 		}
@@ -424,19 +449,103 @@ func (d *Device) readBuffer(buf *wgpu.Buffer, nElems int64, dtype *uop.DType) ([
 
 	raw := rng.Bytes()
 	result := make([]float32, nElems)
-	for i := int64(0); i < nElems; i++ {
-		bits := binary.LittleEndian.Uint32(raw[i*4:])
-		result[i] = math.Float32frombits(bits)
+	if dtype != nil && dtype.Scalar() == uop.Dtypes.Float16 {
+		for i := int64(0); i < nElems; i++ {
+			result[i] = float16ToFloat32(binary.LittleEndian.Uint16(raw[i*2:]))
+		}
+	} else {
+		for i := int64(0); i < nElems; i++ {
+			result[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:]))
+		}
 	}
 	rng.Release()
 	return result, nil
 }
 
 // elemBytes returns the GPU buffer element size in bytes for a dtype.
-// In v1 all dtypes use 4 bytes (bool→u32, int8/16→i32, etc.), matching
-// wgsl.go's wgslBufferElemType promotion rules.
+// f16 uses 2 bytes; all other dtypes (bool→u32, int8/16→i32, etc.) use 4 bytes,
+// matching wgsl.go's wgslBufferElemType promotion rules.
 func elemBytes(d *uop.DType) uint64 {
+	if d != nil && d.Scalar() == uop.Dtypes.Float16 {
+		return 2
+	}
 	return 4
+}
+
+// float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.
+func float16ToFloat32(h uint16) float32 {
+	sign := uint32(h>>15) << 31
+	exp := uint32((h >> 10) & 0x1F)
+	frac := uint32(h & 0x3FF)
+	var bits uint32
+	switch exp {
+	case 0:
+		if frac == 0 {
+			bits = sign // ±zero
+		} else {
+			// Subnormal f16: normalise into f32.
+			exp32 := uint32(127 - 14)
+			for frac&0x400 == 0 {
+				frac <<= 1
+				exp32--
+			}
+			frac &= 0x3FF
+			bits = sign | (exp32 << 23) | (frac << 13)
+		}
+	case 31:
+		// Inf or NaN.
+		bits = sign | 0x7F800000 | (frac << 13)
+	default:
+		bits = sign | ((exp + 112) << 23) | (frac << 13)
+	}
+	return math.Float32frombits(bits)
+}
+
+// float32ToFloat16 converts a float32 to its nearest IEEE 754 half-precision value.
+func float32ToFloat16(f float32) uint16 {
+	bits := math.Float32bits(f)
+	sign := uint16(bits >> 31)
+	exp := int32((bits>>23)&0xFF) - 127
+	frac := bits & 0x7FFFFF
+
+	switch {
+	case exp > 15:
+		// Overflow → ±Inf in f16.
+		return (sign << 15) | 0x7C00
+	case exp < -24:
+		// Too small → ±zero.
+		return sign << 15
+	case exp < -14:
+		// Subnormal f16.
+		frac |= 0x800000
+		shift := uint32(-14 - exp)
+		frac >>= shift
+		return (sign << 15) | uint16(frac>>13)
+	default:
+		return (sign << 15) | (uint16(exp+15) << 10) | uint16(frac>>13)
+	}
+}
+
+// float32sToF16Bytes converts float32 values to packed f16 little-endian bytes.
+func float32sToF16Bytes(data []float32) []byte {
+	b := make([]byte, len(data)*2)
+	for i, v := range data {
+		binary.LittleEndian.PutUint16(b[i*2:], float32ToFloat16(v))
+	}
+	return b
+}
+
+// float32sToBF16U32Bytes encodes float32 values as bf16 packed in u32 slots.
+// Each float32 is truncated to bf16 by zeroing the low 16 mantissa bits; the
+// result is stored in a 4-byte u32 (little-endian). The GPU reads it back via
+// bitcast<f32>(u32), which recovers the bf16-approximated f32 value.
+func float32sToBF16U32Bytes(data []float32) []byte {
+	b := make([]byte, len(data)*4)
+	for i, v := range data {
+		bf16u32 := math.Float32bits(v) & 0xFFFF0000
+		binary.LittleEndian.PutUint32(b[i*4:], bf16u32)
+	}
+	return b
 }
 
 // float32sToBytes converts a float32 slice to its little-endian byte representation.
@@ -519,6 +628,16 @@ func (d *Device) RunSymbolic(items []schedule.ExecItem, inputs map[uint32][]floa
 // runSymbolicLocked is RunSymbolic's body; it assumes it is already executing on
 // the GPU-owner goroutine and must not call onGPU.
 func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error) {
+	if !d.HasShaderF16 {
+		for _, item := range items {
+			for _, buf := range item.Bufs {
+				if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
+					return nil, fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
+				}
+			}
+		}
+	}
+
 	// ── Compile all kernels (cached by WGSL source) ───────────────────────
 	// Symbolic kernels → CompileSymKernel (cached handle); concrete → just WGSL.
 	wgsls := make([]string, len(items))
@@ -634,12 +753,27 @@ func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32]
 	}
 
 	// ── Upload leaf inputs ────────────────────────────────────────────────
+	symBufDType := make(map[uint32]*uop.DType, len(items)*4)
+	for _, item := range items {
+		for _, buf := range item.Bufs {
+			symBufDType[buf.UOpIdx] = buf.DType
+		}
+	}
 	for uopIdx, data := range inputs {
 		gpuBuf, ok := gpuBufs[uopIdx]
 		if !ok {
 			continue
 		}
-		raw := float32sToBytes(data)
+		var raw []byte
+		sdt := symBufDType[uopIdx]
+		switch {
+		case sdt != nil && sdt.Scalar() == uop.Dtypes.Float16:
+			raw = float32sToF16Bytes(data)
+		case sdt != nil && sdt.Scalar() == uop.Dtypes.BFloat16:
+			raw = float32sToBF16U32Bytes(data)
+		default:
+			raw = float32sToBytes(data)
+		}
 		if err := d.queue.WriteBuffer(gpuBuf, 0, raw); err != nil {
 			return nil, fmt.Errorf("webgpu: RunSymbolic upload: %w", err)
 		}
