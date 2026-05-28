@@ -2,6 +2,7 @@ package uop
 
 import (
 	"fmt"
+	"math"
 	"sync"
 )
 
@@ -379,6 +380,76 @@ func (d *DType) StructuralHash() uint64 {
 		h = mix(h, 0)
 	}
 	return h
+}
+
+// ── conversion and quantization ───────────────────────────────────────────────
+
+// Float32ToFloat16 converts a float32 to its nearest IEEE 754 half-precision bit pattern.
+func Float32ToFloat16(f float32) uint16 {
+	bits := math.Float32bits(f)
+	sign := uint16(bits >> 31)
+	exp := int32((bits>>23)&0xFF) - 127
+	frac := bits & 0x7FFFFF
+
+	switch {
+	case exp > 15:
+		// Overflow → ±Inf in f16.
+		return (sign << 15) | 0x7C00
+	case exp < -24:
+		// Too small → ±zero.
+		return sign << 15
+	case exp < -14:
+		// Subnormal f16.
+		frac |= 0x800000
+		shift := uint32(-14 - exp)
+		frac >>= shift
+		return (sign << 15) | uint16(frac>>13)
+	default:
+		return (sign << 15) | (uint16(exp+15) << 10) | uint16(frac>>13)
+	}
+}
+
+// Float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.
+func Float16ToFloat32(h uint16) float32 {
+	sign := uint32(h>>15) << 31
+	exp := uint32((h >> 10) & 0x1F)
+	frac := uint32(h & 0x3FF)
+	var bits uint32
+	switch exp {
+	case 0:
+		if frac == 0 {
+			bits = sign // ±zero
+		} else {
+			// Subnormal f16: normalise into f32.
+			exp32 := uint32(127 - 14)
+			for frac&0x400 == 0 {
+				frac <<= 1
+				exp32--
+			}
+			frac &= 0x3FF
+			bits = sign | (exp32 << 23) | (frac << 13)
+		}
+	case 31:
+		// Inf or NaN.
+		bits = sign | 0x7F800000 | (frac << 13)
+	default:
+		bits = sign | ((exp + 112) << 23) | (frac << 13)
+	}
+	return math.Float32frombits(bits)
+}
+
+// Quantize returns v rounded to the nearest value representable in d.
+// Only Float16 and BFloat16 perform quantization; all other dtypes return v unchanged.
+// For BFloat16, quantization is simple truncation of the low 16 mantissa bits.
+func (d *DType) Quantize(v float32) float32 {
+	s := d.Scalar()
+	if s == Dtypes.Float16 {
+		return Float16ToFloat32(Float32ToFloat16(v))
+	}
+	if s == Dtypes.BFloat16 {
+		return math.Float32frombits(math.Float32bits(v) & 0xFFFF0000)
+	}
+	return v
 }
 
 // ── type promotion ────────────────────────────────────────────────────────────
