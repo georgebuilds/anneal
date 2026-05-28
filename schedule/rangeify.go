@@ -335,13 +335,28 @@ func runRangeify(sink uop.UOp) uop.UOp {
 		rc.startKernel()
 		outRanges := rc.freshRanges(outShape, uop.AxisLoop)
 		indexedBody := indexExprNode(a, node, outRanges, shapeMap, rc, 0)
-		allRanges := append([]uop.UOp(nil), rc.kernelRanges...) // snapshot
 
-		// BUFFERIZE(indexed_body, *all_ranges, arg=BufferizeArg{Removable:false})
-		bfzSrcs := make([]uop.UOp, 1+len(allRanges))
+		// outRanges contains all loop ranges (including OpConst(0) for size-1 dims).
+		// rc.kernelRanges contains all OpRange nodes (Loop and Reduce).
+		// We want: outRanges + any AxisReduce ranges from rc.kernelRanges.
+		var redRanges []uop.UOp
+		for _, r := range rc.kernelRanges {
+			if r.Op() == uop.OpRange && r.Arg().(uop.RangeArg).Type == uop.AxisReduce {
+				redRanges = append(redRanges, r)
+			}
+		}
+		allSrcRanges := append([]uop.UOp(nil), outRanges...)
+		allSrcRanges = append(allSrcRanges, redRanges...)
+
+		// BUFFERIZE(indexed_body, *allSrcRanges, arg=BufferizeArg{Removable:true/false})
+		removable := false
+		if node.Op() == uop.OpReduceAxis {
+			removable = true
+		}
+		bfzSrcs := make([]uop.UOp, 1+len(allSrcRanges))
 		bfzSrcs[0] = indexedBody
-		copy(bfzSrcs[1:], allRanges)
-		bfz := a.New(uop.OpBufferize, u.DType(), bfzSrcs, uop.BufferizeArg{Removable: false}, nil)
+		copy(bfzSrcs[1:], allSrcRanges)
+		bfz := a.New(uop.OpBufferize, u.DType(), bfzSrcs, uop.BufferizeArg{Removable: removable}, nil)
 		// Record the BUFFERIZE shape so downstream Reshape operations can compute
 		// correct flat→per-dim index decomposition via unflatIndex. Without this,
 		// shapeMap[bfz.Index()] would be nil and any Reshape(BUFFERIZE, ...) would

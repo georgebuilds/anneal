@@ -121,10 +121,11 @@ func (l *lowerer) lowerSink() []Instr {
 	var loopRanges []uop.UOp
 	for i := 1; i < end.NSrc(); i++ {
 		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if r.Arg().(uop.RangeArg).Type == uop.AxisLoop {
-				loopRanges = append(loopRanges, r)
-			}
+		if r.Op() == uop.OpRange && r.Arg().(uop.RangeArg).Type == uop.AxisLoop {
+			loopRanges = append(loopRanges, r)
+		} else if r.Op() == uop.OpConst {
+			// Size-1 dimension; included to keep rank/shape correspondence.
+			loopRanges = append(loopRanges, r)
 		}
 	}
 
@@ -133,6 +134,9 @@ func (l *lowerer) lowerSink() []Instr {
 	totalOut := int64(1)
 	hasSymRange := false
 	for _, r := range loopRanges {
+		if r.Op() == uop.OpConst {
+			continue // size 1
+		}
 		ra := r.Arg().(uop.RangeArg)
 		if ra.Symbolic {
 			totalOut = 0 // 0 = symbolic sentinel; renderer handles this
@@ -150,6 +154,9 @@ func (l *lowerer) lowerSink() []Instr {
 	concreteTrailing := int64(1)
 	seenSym := false
 	for _, r := range loopRanges {
+		if r.Op() == uop.OpConst {
+			continue
+		}
 		ra := r.Arg().(uop.RangeArg)
 		if ra.Symbolic {
 			seenSym = true
@@ -170,13 +177,22 @@ func (l *lowerer) lowerSink() []Instr {
 	if len(loopRanges) > 0 {
 		strides[len(loopRanges)-1] = 1
 		for i := len(loopRanges) - 2; i >= 0; i-- {
-			ra := loopRanges[i+1].Arg().(uop.RangeArg)
+			rNext := loopRanges[i+1]
+			if rNext.Op() == uop.OpConst {
+				strides[i] = strides[i+1] // * 1
+				continue
+			}
+			ra := rNext.Arg().(uop.RangeArg)
 			if !ra.Symbolic {
 				strides[i] = strides[i+1] * ra.Size
 			}
 		}
 	}
 	for i, r := range loopRanges {
+		if r.Op() == uop.OpConst {
+			l.exprOf[r.Index()] = "0u"
+			continue
+		}
 		ra := r.Arg().(uop.RangeArg)
 		l.emit(Instr{Kind: InstrGIDVar, RangeID: ra.ID, RangeSize: ra.Size, Stride: strides[i], Symbolic: ra.Symbolic})
 		l.exprOf[r.Index()] = fmt.Sprintf("r%d", ra.ID)
