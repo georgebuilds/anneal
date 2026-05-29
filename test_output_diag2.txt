@@ -1,0 +1,102 @@
+ok  	github.com/georgebuilds/anneal/uop	(cached)
+ok  	github.com/georgebuilds/anneal/schedule	(cached)
+ok  	github.com/georgebuilds/anneal/codegen	(cached)
+ok  	github.com/georgebuilds/anneal/tensor/nn	(cached)
+ok  	github.com/georgebuilds/anneal/backend/webgpu	57.799s
+
+============================================================================
+RE-BASELINE REPORT — >L2 matmul working-set sizes on M3 GPU (appended)
+============================================================================
+
+Device:     Apple M3 (Metal via gogpu/wgpu, wgsl)
+L2 cache:   ≈ 12 MB GPU L2
+Test file:  backend/webgpu/rebaseline_test.go (TestRebaseline_LargeMatmul)
+Run:        warmup=2  iters=5  min-of-5 per cell
+Config TS:  16  (OptLocal 16×16, OptTile TS=16, OptUpcast MR=NR=4)
+
+Configs tested:
+  (a) Default 1D       — no opts, lowerer-default dispatch
+  (b) OptLocal         — OptLocal×2 (16×16 workgroup), no tile
+  (c) OptTileOnly      — OptLocal×2 + OptTile TS=16 (shared-mem K-tile, no upcast)
+  (d) OptTile+Upcast   — OptLocal×2 + OptTile TS=16 + OptUpcast MR=4 NR=4 (B3 production)
+
+Per-operand buffer sizes:
+  512³  →    1 MB  (L2-resident, well under 12 MB)
+  1024³ →    4 MB  (L2-resident, fits in L2)
+  2048³ →   16 MB  (exceeds L2)
+  4096³ →   64 MB  (well beyond L2)
+
+Resource limits: NONE HIT. 4096³ (64 MB per operand, 192 MB total) ran cleanly on
+M3 Metal. No MAX_STORAGE_BUFFER_BINDING_SIZE error, no dispatch overflow.
+
+──────────────────── Re-Baseline Table ────────────────────────────────────
+
+Config                   N      Min µs   GFLOP/s   vs(a)
+------------------  ------  ----------  --------  ------
+(a) Default1D          512     3433.88     78.17    —
+(b) OptLocal           512     3399.29     78.97    1.01x
+(c) OptTileOnly        512     3406.54     78.80    1.01x
+(d) OptTile+Upc        512     3439.67     78.04    1.00x
+
+(a) Default1D         1024    25674.33     83.64    —
+(b) OptLocal          1024    25735.08     83.45    1.00x
+(c) OptTileOnly       1024    25750.58     83.40    1.00x
+(d) OptTile+Upc       1024    25767.33     83.34    1.00x
+
+(a) Default1D         2048   202721.50     84.75    —
+(b) OptLocal          2048   203205.12     84.54    1.00x
+(c) OptTileOnly       2048   202807.25     84.71    1.00x
+(d) OptTile+Upc       2048   202888.50     84.68    1.00x
+
+(a) Default1D         4096  1626789.08     84.48    —
+(b) OptLocal          4096  1626219.79     84.51    1.00x
+(c) OptTileOnly       4096  1626458.58     84.50    1.00x
+(d) OptTile+Upc       4096  1625429.00     84.56    1.00x
+
+──────────────────── Per-opt findings ─────────────────────────────────────
+
+(b) OptLocal vs Default: +0–1% at all sizes — TIES (within noise).
+(c) OptTileOnly vs Default: +0–1% at all sizes — TIES (within noise). No smem benefit
+    at either L2-resident (512–1024³) or DRAM-limited (2048–4096³) sizes.
+(d) OptTile+Upcast vs Default: ±0% at all sizes — TIES. B3 production config is
+    indistinguishable from bare default at every measured size.
+
+Key cross-size observation: Throughput is stable from 1024³ to 4096³ at 83–85 GFLOP/s.
+The previous diagnostic established 1024³ was L2-bandwidth-limited (~4 MB fits in 12 MB
+L2). At 2048³ (16 MB > L2) throughput does NOT drop — it stays at ~84 GFLOP/s.
+This flatness refutes a simple "L2→DRAM bandwidth cliff" hypothesis.
+
+──────────────────── Interpretation ────────────────────────────────────────
+
+Outcome: (b) Existing opts still don't move >L2 numbers.
+
+The smem-tiling path (OptTile / OptTile+OptUpcast) adds zero throughput gain at any
+tested size, including 2048³ and 4096³ where the working set exceeds M3's GPU L2.
+This is the core finding.
+
+The REASON is not "the smem path's data reuse isn't worth the overhead" but something
+more fundamental: the bottleneck was never bandwidth (L2 or DRAM). The FMA probe in
+the earlier diagnostic (TestDiag_FMAProbe) measured ~678 GFLOP/s pure ALU throughput.
+The matmul sits at ~84 GFLOP/s — 12% ALU utilization. The flatness of throughput
+across all sizes (512³–4096³) tells us the GPU is spending the same fixed fraction of
+its ALU time on useful FMAs regardless of problem scale. That is a compute-scheduling
+or occupancy problem, not a memory-access problem. Rearranging memory traffic via smem
+tiling does not raise ALU utilization if ALU utilization is already the ceiling.
+
+Implication for B3.5 (subgroup K-reduction):
+B3.5 HAS a justified target. The gap to close is quantified:
+  current:  84 GFLOP/s  (~12% of 678 GFLOP/s peak)
+  headroom: 8× before reaching raw ALU ceiling
+B3.5 subgroup intrinsics can reduce synchronization overhead in the reduction loop by
+replacing workgroup-barrier-gated smem accumulation with warp-register accumulation
+(subgroupAdd / subgroupShuffle). If barrier latency or smem round-trips are the reason
+ALU utilization is stuck at 12%, subgroup ops directly address that bottleneck.
+If not — if the root cause is something else (e.g. divergent memory addressing, too-few
+wave fronts per SM, or a compiler artifact in the generated WGSL) — B3.5 will also
+show flat numbers, which is itself informative: it would redirect attention to B4
+(autotuned search over launch params) or B5 (Metal Performance Shaders integration).
+
+Neither (a) ("opt already wins at >L2 sizes") nor (c) ("mixed/size-dependent") applies
+here. The result is cleanly (b): the smem path does not pay off out of cache, and the
+gap B3.5 would need to close is 8× on a fully quantified baseline.
+============================================================================

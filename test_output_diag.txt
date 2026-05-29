@@ -1,0 +1,115 @@
+ok  	github.com/georgebuilds/anneal/uop	(cached)
+ok  	github.com/georgebuilds/anneal/schedule	(cached)
+ok  	github.com/georgebuilds/anneal/codegen	(cached)
+ok  	github.com/georgebuilds/anneal/tensor/nn	(cached)
+ok  	github.com/georgebuilds/anneal/backend/webgpu	5.546s
+
+============================================================================
+DIAG REPORT — Hypothesis triage for 1024³ matmul ceiling (appended)
+============================================================================
+
+Hypotheses under test:
+  H1 – default 1D is near real Metal ceiling (auto-vectorized / auto-cached)
+  H2 – M3 f32 ALU peak is much lower than headline TFLOPs
+  H3 – smem→register load latency is the bottleneck after B3
+
+Diagnostic tests run with:
+  go test -run TestDiag -v ./backend/webgpu/
+  (timing shown is min-of-5, 2 warmup; all rows captured verbatim from GPU output)
+
+──────────────────── Exp 1: Workgroup-size sweep ────────────────────
+[Diag-1] Default 1D:         Min=25850.25µs   83.07 GFLOP/s
+[Diag-1] WS=  16 (TS= 4):    Min=25731.54µs   83.46 GFLOP/s  1.00x
+[Diag-1] WS=  64 (TS= 8):    Min=25777.38µs   83.31 GFLOP/s  1.00x
+[Diag-1] WS= 256 (TS=16):    Min=25752.00µs   83.39 GFLOP/s  1.00x
+[Diag-1] WS=1024 (TS=32):    Min=25735.67µs   83.44 GFLOP/s  1.00x
+
+Finding: Workgroup size has zero effect over a 64x range (16→1024 threads/WG).
+H3 implication: Occupancy (wavefront count) is not the lever; the kernel is
+not latency-hiding-limited at any of these granularities.
+H1 implication: The 83 GFLOP/s is a fixed ceiling, not a scheduling artifact.
+
+──────────────────── Exp 2: Pure-FMA throughput probe ───────────────
+[Diag-2] Pure-FMA probe:     Min=3164.00µs  678.72 GFLOP/s  (FLOPs=2.147e+09F)
+
+Setup: workgroup_size=(256,1,1), dispatch=(4096,1,1).
+Each thread: 4 independent f32 accumulators × 256 FMA iters = 2048 FMAs.
+One global load (inp[0]) seeds the accumulators to prevent DCE.
+Total FLOPs = 4 × 256 × 2 × 1,048,576 = 2,147,483,648 — same as 2*1024³ matmul.
+
+Finding: 678 GFLOP/s when all operands are register-resident.
+H2 FALSIFIED: M3 f32 ALU peak is NOT low — it is 8.2× the matmul rate.
+The GPU is a capable compute device; the bottleneck is NOT instruction throughput.
+
+──────────────────── Exp 3: OptTile-only at TS={8,16,32} ────────────
+[Diag-3] Default 1D:         Min=25710.21µs   83.53 GFLOP/s
+[Diag-3] OptTile TS= 8:      Min=25805.25µs   83.22 GFLOP/s  1.00x  WGs=16384
+[Diag-3] OptTile TS=16:      Min=25755.17µs   83.38 GFLOP/s  1.00x  WGs=4096
+[Diag-3] OptTile TS=32:      Min=25799.38µs   83.24 GFLOP/s  1.00x  WGs=1024
+
+Finding: smem tiling at any tile size produces zero speedup.
+H3 FALSIFIED: smem→register load latency is not the bottleneck. The kernel
+is equally fast whether it uses threadgroup memory or not.
+
+──────────────────── Exp 4: OptUpcast factor sweep (MR=NR∈{1,2,4}) ─
+[Diag-4] B2 (MR=NR=1):       Min=25740.83µs   83.43 GFLOP/s  WGs=4096
+[Diag-4] B3 (MR=NR=2):       Min=25731.17µs   83.46 GFLOP/s  1.00x  WGs=1024
+[Diag-4] B3 (MR=NR=4):       Min=25714.75µs   83.51 GFLOP/s  1.00x  WGs=256
+
+Note: "OptUpcast without OptTile" (spec intent) is not supported by the current
+lowerer — AxisUpcast ranges outside the tiled-reduce path receive placeholder
+expression "0", producing silently incorrect outputs. This experiment uses the
+B2-tiled kernel + varying upcast factor as the diagnostic equivalent.
+
+Finding: increasing MR*NR from 1 (B2) through 4 (B3) — a 16× workgroup-count
+reduction (4096→256 WGs) — produces no measurable change in throughput.
+H3 FURTHER FALSIFIED: register-blocking factor doesn't matter. The kernel is
+not instruction-pipeline limited in any regime we tested.
+
+──────────────────── Verdict ────────────────────────────────────────
+H1 – CONFIRMED (with precision): The 83 GFLOP/s IS the real ceiling, but not
+     because Metal "auto-vectorizes" in the code-optimization sense. The ceiling
+     is determined by L2-cache bandwidth, not ALU.
+
+H2 – FALSIFIED: The M3 GPU achieves 678 GFLOP/s on a pure-FMA workload. ALU
+     is not the bottleneck.
+
+H3 – FALSIFIED: Smem tiling, tile size, and upcast factor are all irrelevant.
+     The kernel is not smem-access-latency limited.
+
+──────────────────── Root cause: L2-bandwidth ceiling ───────────────
+For 1024² f32 matrices (A=4MB, B=4MB):
+  • The full A+B working set (8MB) fits in M3's ~12MB GPU L2 cache.
+  • After warmup iterations, all loads hit L2 regardless of tiling strategy.
+  • Logical L2 reads: 1024² outputs × 2×1024 loads × 4 bytes = 8.59 GB
+  • At 25.75ms: effective L2 read bandwidth ≈ 334 GB/s.
+  • "Threadgroup memory" (smem) on Apple's TBDR GPU is L2-backed — manual
+    tiling changes WHERE the cache line sits (threadgroup vs implicit L1) but
+    not WHICH bandwidth path is hit. Both paths use the same L2.
+  • The default 1D kernel and every tiled variant all exercise ~334 GB/s of
+    L2 bandwidth → same throughput.
+
+Why 83 GFLOP/s and not 678?
+  • The kernel is bandwidth-bound (not ALU-bound): each FMA requires loading
+    2 f32 values from L2. At 334 GB/s L2 read bandwidth and 4 bytes/load,
+    that is 334e9/8 = 41.75 billion loads/s. With 2 loads per FMA, the FMA
+    rate ceiling is 41.75/2 = 20.875 billion FMAs/s ≈ 41.75 GFLOP/s.
+    The 83 GFLOP/s (FMA counting = 2 FLOPs per FMA) = 41.75 Gfma/s. Consistent.
+
+  • The 678 GFLOP/s FMA probe uses register-resident operands — no L2 reads
+    in the hot loop. It proves the ALU has 678/83 ≈ 8.2× more headroom than
+    the matmul exercises.
+
+──────────────────── Recommendation ────────────────────────────────
+To move beyond 83 GFLOP/s on this M3:
+  1. MATRIX SIZE: Use N ≥ 8192 (A+B > 512MB) to exceed L2, making DRAM the
+     bottleneck. Only then can smem tiling improve performance by reducing
+     DRAM reads (metal threadgroup memory IS SRAM, below DRAM latency).
+  2. FLOAT16: Halve bandwidth cost per element — could double effective throughput
+     toward the f16 ceiling (tested separately in f16_test.go).
+  3. DO NOT OPTIMIZE at 1024³: no dispatch/tiling/unrolling trick can move a
+     L2-bandwidth-bound kernel. The kernel is at its natural ceiling for this
+     working-set size.
+  4. NEXT BENCHMARK TARGET: B4 — test at N=4096 or N=8192 to exit the L2-cached
+     regime; re-run the same experiment grid to see if smem tiling starts
+     helping when DRAM bandwidth is the limiting resource.

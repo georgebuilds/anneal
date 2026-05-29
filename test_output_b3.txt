@@ -1,0 +1,122 @@
+ok  	github.com/georgebuilds/anneal/uop	0.220s
+ok  	github.com/georgebuilds/anneal/schedule	1.511s
+ok  	github.com/georgebuilds/anneal/codegen	0.800s
+ok  	github.com/georgebuilds/anneal/tensor/nn	107.256s
+ok  	github.com/georgebuilds/anneal/backend/webgpu	2.882s
+
+============================================================================
+B3 REPORT — OptUpcast register blocking (appended after captured shell output)
+============================================================================
+
+Pipeline: OptLocal(M)+OptLocal(N)+OptTile(K)+OptUpcast(M_wg)+OptUpcast(N_wg)
+Parameters used: MR = 4, NR = 4, TS = 16  (matches B3 spec; not retuned)
+Workgroup_size = (TS, TS) = (16, 16); each thread owns MR*NR = 16 output cells.
+Per outer-K-tile step each thread does MR + NR = 8 cooperative tile loads
+into smem, then TS = 16 unrolled k-steps, each loading MR + NR = 8 registers
+from smem and issuing MR*NR = 16 FMAs into 16 private accumulators.
+
+──────────────────── Min-of-N timing (5 iters, 2 warmup) ────────────────────
+Source: TestB3_Timing_Matmul_Upcast (rtk proxy go test -v, captured verbatim)
+
+Matmul 512³ (Default 1D):                            Min = 3516.67 µs (76.33 GFLOP/s)
+Matmul 512³ (OptTile+OptUpcast TS=16 MR=4 NR=4):     Min = 3411.12 µs (78.69 GFLOP/s)
+  Speedup: 1.03x
+
+Matmul 1024³ (Default 1D):                           Min = 25681.17 µs (83.62 GFLOP/s)
+Matmul 1024³ (OptTile+OptUpcast TS=16 MR=4 NR=4):    Min = 25734.62 µs (83.45 GFLOP/s)
+  No speedup at 1024³.  (Opt = 83.45 GFLOP/s vs Def = 83.62 GFLOP/s, i.e. 1.00x.)
+
+512³ acceptance gate ("should not regress below ~78 GFLOP/s"): MET (78.69 ≥ 78).
+1024³ acceptance bar (≥ 2x = ≥170 GFLOP/s):                    NOT MET (1.00x).
+
+──────────────────── Honest finding for 1024³ ────────────────────
+The emitted shader is structurally exactly what B3 specifies (see WGSL fragment
+below): MR + NR register pre-loads per inner-K step amortizing across MR*NR =
+16 FMAs, MR*NR private accumulators, MR + NR cooperative global→smem tile
+loads per outer-K step (coalesced + branchless). The arithmetic intensity at
+the smem level rose from 0.5 FMA/load (B2 baseline) to 2.0 FMA/load (B3),
+which should have helped if smem bandwidth were the bottleneck.
+
+Best guess from inspecting the shader: at 1024³ the dispatch grid shrinks
+from 4096 workgroups (B2 baseline OptTile) to 256 workgroups (B3, since each
+WG now covers MR*TS × NR*TS = 64 × 64 outputs instead of 16 × 16). With
+~10 GPU cores on the M3 and a workgroup_size of 256 threads, 256 WGs leave
+only ~25 resident WGs per core — well below what's needed to hide memory
+latency on Apple's architecture. So we traded a 16× reduction in smem
+traffic (a non-bottleneck) for a 16× reduction in concurrency (the actual
+bottleneck for this kernel size).
+
+This is consistent with the B3 context note: "We are NOT bandwidth-bound …
+We are occupancy/work-per-thread bound — each thread does one accumulate
+per K step, no per-thread instruction-level parallelism, barriers dominate
+per-thread useful work." Register blocking attacks per-thread ILP, but on
+M3 the FMA throughput per thread already saturates at the baseline rate
+(83 GFLOP/s ≈ same wall clock for 1× FMA/thread and 16× FMA/thread), so
+the ILP gain doesn't move wall time. The remaining bottleneck is most
+likely barrier/scheduling overhead in workgroup launch and warp issue,
+NOT smem bank conflicts (the load addresses are uniform-broadcast within
+a row for rA and within a column for rB, so banks are conflict-free).
+
+Schedule-cache correctness re-verified by TestB3_ScheduleCache_HitCorrect:
+two consecutive renders of the same b3Opts pipeline produce byte-identical
+WGSL, so the kernel cache key continues to reflect the new AxisUpcast IR.
+
+Value identity (max-abs-diff == 0) verified on:
+  - matmul 64×64×64, 128×128×128 (regular)
+  - matmul 17×32×32, 32×30×32, 17×30×35 (irregular — exercise upcast boundary
+    masking, since M=17 is not a multiple of MR*TS=64 and N=30 is not a
+    multiple of NR*TS=64; each thread's MR*NR stores are individually masked)
+  - MLP forward + backward gx, gw gradients on [16,32]@[32,64]
+  - Conv2d forward (kernel does not match the tiled-matmul pattern, so the
+    Opts no-op; correctness preserved because OptUpcast IR rewrite is a true
+    no-op when no eligible AxisWorkgroup/AxisLocal/AxisLoop range is found)
+
+──────────────────── WGSL fragment — new inner-K block ────────────────────
+The full kernel @ 1024³: workgroup_size=(16,16,1), dispatch=(16,16,1), 488 lines.
+Below: the 16 private accumulators and the unrolled k=0 outer-product block.
+(There are TS=16 such blocks in the inner loop, each pre-loading MR+NR=8
+registers from smem and emitting MR*NR=16 FMAs.)
+
+// LocalSize=[16 16 1] WorkgroupCount=[16 16 1] (1024³)
+// ── private accumulators (MR*NR = 16) ────────────────────
+  var acc0:  f32 = 0.0;
+  var acc1:  f32 = 0.0;
+  var acc2:  f32 = 0.0;
+  var acc3:  f32 = 0.0;
+  var acc4:  f32 = 0.0;
+  var acc5:  f32 = 0.0;
+  var acc6:  f32 = 0.0;
+  var acc7:  f32 = 0.0;
+  var acc8:  f32 = 0.0;
+  var acc9:  f32 = 0.0;
+  var acc10: f32 = 0.0;
+  var acc11: f32 = 0.0;
+  var acc12: f32 = 0.0;
+  var acc13: f32 = 0.0;
+  var acc14: f32 = 0.0;
+  var acc15: f32 = 0.0;
+// ── unrolled inner-K block, k=0  (TS=16 such blocks total in the K loop) ─
+    let rA_0_0: f32 = sm143[0u   + lid.y * 16u + 0u];   // A stripe mr=0
+    let rA_0_1: f32 = sm143[256u + lid.y * 16u + 0u];   // A stripe mr=1
+    let rA_0_2: f32 = sm143[512u + lid.y * 16u + 0u];   // A stripe mr=2
+    let rA_0_3: f32 = sm143[768u + lid.y * 16u + 0u];   // A stripe mr=3
+    let rB_0_0: f32 = sm144[0u   + 0u * 16u + lid.x];   // B stripe nr=0
+    let rB_0_1: f32 = sm144[256u + 0u * 16u + lid.x];   // B stripe nr=1
+    let rB_0_2: f32 = sm144[512u + 0u * 16u + lid.x];   // B stripe nr=2
+    let rB_0_3: f32 = sm144[768u + 0u * 16u + lid.x];   // B stripe nr=3
+    acc0  = acc0  + (rA_0_0 * rB_0_0);
+    acc1  = acc1  + (rA_0_0 * rB_0_1);
+    acc2  = acc2  + (rA_0_0 * rB_0_2);
+    acc3  = acc3  + (rA_0_0 * rB_0_3);
+    acc4  = acc4  + (rA_0_1 * rB_0_0);
+    acc5  = acc5  + (rA_0_1 * rB_0_1);
+    acc6  = acc6  + (rA_0_1 * rB_0_2);
+    acc7  = acc7  + (rA_0_1 * rB_0_3);
+    acc8  = acc8  + (rA_0_2 * rB_0_0);
+    acc9  = acc9  + (rA_0_2 * rB_0_1);
+    acc10 = acc10 + (rA_0_2 * rB_0_2);
+    acc11 = acc11 + (rA_0_2 * rB_0_3);
+    acc12 = acc12 + (rA_0_3 * rB_0_0);
+    acc13 = acc13 + (rA_0_3 * rB_0_1);
+    acc14 = acc14 + (rA_0_3 * rB_0_2);
+    acc15 = acc15 + (rA_0_3 * rB_0_3);

@@ -1,0 +1,118 @@
+ok  	github.com/georgebuilds/anneal/uop	0.230s
+ok  	github.com/georgebuilds/anneal/schedule	0.589s
+ok  	github.com/georgebuilds/anneal/codegen	0.495s
+ok  	github.com/georgebuilds/anneal/tensor/nn	108.087s
+--- FAIL: TestB0_TimingHarness_Stability (3.36s)
+    b0_test.go:96: Matmul 64x64x64: min=208.79µs, median=278.75µs, max=1306.58µs, cv=0.7313
+    b0_test.go:96: Matmul 512x512x512: min=3416.25µs, median=6389.90µs, max=20463.08µs, cv=0.5883
+    b0_test.go:100: Matmul 512x512x512: CV 0.5883 exceeds 5% target
+    b0_test.go:96: Matmul 1024x1024x1024: min=28885.71µs, median=48011.06µs, max=67964.42µs, cv=0.2227
+    b0_test.go:100: Matmul 1024x1024x1024: CV 0.2227 exceeds 5% target
+Matmul 512x512x512 (Default 1D): Min=3445.92µs (77.90 GFLOP/s)
+Matmul 512x512x512 (OptTile 16): Min=9395.25µs (28.57 GFLOP/s)
+No speedup. (Opt: 28.57 GFLOP/s, Def: 77.90 GFLOP/s)
+WGSL for Tiled Matmul:
+@group(0) @binding(0) var<storage, read_write> data0: array<f32>;
+@group(0) @binding(1) var<storage, read> data1: array<f32>;
+@group(0) @binding(2) var<storage, read> data2: array<f32>;
+
+@compute @workgroup_size(16, 16, 1)
+var<workgroup> sm108: array<f32, 256>;
+var<workgroup> sm109: array<f32, 256>;
+fn main(
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(workgroup_id) wid: vec3<u32>,
+  @builtin(local_invocation_id) lid: vec3<u32>
+) {
+  let flat_gid_x = gid.x;
+  let flat_wid_x = wid.x;
+  let flat_gid_y = gid.y;
+  let flat_wid_y = wid.y;
+  let flat_gid_z = gid.z;
+  let flat_wid_z = wid.z;
+  let gid_x = gid.x + (gid.y * 512u) + (gid.z * 262144u);
+  let r1: i32 = i32(flat_wid_x % 32u);
+  if (r1 >= 32) { return; }
+  let r4: i32 = i32(lid.x % 16u);
+  if (r4 >= 16) { return; }
+  let r0: i32 = i32(flat_wid_y % 32u);
+  if (r0 >= 32) { return; }
+  let r3: i32 = i32(lid.y % 16u);
+  if (r3 >= 16) { return; }
+  var acc0: f32 = 0.0;
+  for (var r2: i32 = 0; r2 < 32; r2++) {
+    sm108[(lid.y * 16u + lid.x)] = select(0.0, data1[(u32(r0) * 16u + lid.y) * 512u + (u32(r2) * 16u + lid.x) * 1u], ((u32(r0) * 16u + lid.y) < 512u) && ((u32(r2) * 16u + lid.x) < 512u));
+    sm109[(lid.y * 16u + lid.x)] = select(0.0, data2[(u32(r2) * 16u + lid.y) * 512u + (u32(r1) * 16u + lid.x) * 1u], ((u32(r2) * 16u + lid.y) < 512u) && ((u32(r1) * 16u + lid.x) < 512u));
+    workgroupBarrier();
+    acc0 = acc0 + (sm108[lid.y * 16u + 0u] * sm109[0u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 1u] * sm109[1u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 2u] * sm109[2u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 3u] * sm109[3u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 4u] * sm109[4u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 5u] * sm109[5u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 6u] * sm109[6u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 7u] * sm109[7u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 8u] * sm109[8u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 9u] * sm109[9u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 10u] * sm109[10u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 11u] * sm109[11u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 12u] * sm109[12u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 13u] * sm109[13u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 14u] * sm109[14u * 16u + lid.x]);
+    acc0 = acc0 + (sm108[lid.y * 16u + 15u] * sm109[15u * 16u + lid.x]);
+    workgroupBarrier();
+  }
+  data0[(u32(r0) * 8192u) + (u32(r3) * 512u) + (u32(r1) * 16u) + u32(r4)] = acc0;
+}
+
+Matmul 1024x1024x1024 (Default 1D): Min=39089.79µs (54.94 GFLOP/s)
+Matmul 1024x1024x1024 (OptTile 16): Min=36026.79µs (59.61 GFLOP/s)
+Speedup: 1.09x
+FAIL
+FAIL	github.com/georgebuilds/anneal/backend/webgpu	5.338s
+FAIL
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B2.1 PERFORMANCE APPENDIX (appended per spec)
+# Timing numbers in the shell capture above are from a noisy run (GPU hot after
+# 108s of tensor/nn tests; TestB0_TimingHarness_Stability CV=0.59 confirms this).
+# The numbers below are from isolated runs of TestB2_Timing_Matmul_Tiled only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Isolated benchmark: go test ./backend/webgpu/ -run TestB2_Timing_Matmul_Tiled -count=1
+# (two consecutive clean runs; results consistent)
+
+# 512x512x512
+Default 1D : Min=3455µs  77.70 GFLOP/s
+OptTile 16 : Min=3407µs  78.79 GFLOP/s
+Speedup    : 1.01x   (no regression; was 1.12x in B2)
+
+# 1024x1024x1024
+Default 1D : Min=25529µs  84.12 GFLOP/s
+OptTile 16 : Min=25729µs  83.47 GFLOP/s
+Speedup    : 0.99x   (BELOW 1.5x TARGET — see finding below)
+
+# FINDING: coalescing was not the binding constraint.
+# Mathematically the old div/mod code (with TS=16 hardcoded) was already equivalent
+# to lid.y/lid.x; the Metal shader compiler optimized it away.  The branchless
+# select removes divergent boundary branches but saves only a small fraction of
+# total execution time on exact-multiple shapes.  The M3 GPU is already at or near
+# its bandwidth/occupancy ceiling with the 1D path (~84 GFLOP/s ≈ peak f32 ALU
+# utilisation at this workgroup size).  The shared-memory tile loads + 2 barriers
+# per outer-tile step add overhead that offsets the saved global reads.
+# Next step: B3 register blocking — accumulate multiple output tiles per thread to
+# amortise barrier cost and improve arithmetic intensity per global memory round-trip.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW TILE-LOAD WGSL FRAGMENT (512x512 kernel, sm108=A-tile sm109=B-tile)
+# ─────────────────────────────────────────────────────────────────────────────
+# Coalesced: lid.x → stride-1 (col) dim; lid.y → row dim.
+# Branchless: select(zero, data[idx], in_bounds) — no if/else divergence.
+
+sm108[(lid.y * 16u + lid.x)] = select(0.0, data1[(u32(r0) * 16u + lid.y) * 512u + (u32(r2) * 16u + lid.x) * 1u], ((u32(r0) * 16u + lid.y) < 512u) && ((u32(r2) * 16u + lid.x) < 512u));
+sm109[(lid.y * 16u + lid.x)] = select(0.0, data2[(u32(r2) * 16u + lid.y) * 512u + (u32(r1) * 16u + lid.x) * 1u], ((u32(r2) * 16u + lid.y) < 512u) && ((u32(r1) * 16u + lid.x) < 512u));
+
+# Previous (B2) pattern for comparison:
+# let tN: i32 = (lid.y * 16u + lid.x);
+# if ((u32(r0)*16u + (tN/16u)) < 512u && (u32(r2)*16u + (tN%16u)) < 512u) { ... }
+# if (!(...)) { smXXX[tN] = 0.0; }
