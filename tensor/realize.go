@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/georgebuilds/anneal/backend"
+	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -49,6 +50,14 @@ func Realize(tensors ...*Tensor) error {
 		return nil
 	}
 
+	// Apply beam-cached optimizations. Default mode: O(1) map lookup per kernel,
+	// identity on miss. Search mode (ANNEAL_BEAM=1): runs BeamSearch on misses.
+	var bench backend.Benchmarker
+	if b, ok := DefaultExecutor.(backend.Benchmarker); ok {
+		bench = b
+	}
+	items = codegen.BeamApplyToItems(items, DefaultExecutor, bench)
+
 	// Collect input data for leaf buffers.
 	// Leaf tensors are BUFFER nodes; their node.Index() == ExecItem.Bufs[j].UOpIdx
 	// for the kernels that read them (confirmed by splitKernels: input buffers are
@@ -92,6 +101,11 @@ func RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) error {
 	if len(items) == 0 {
 		return nil
 	}
+	var bench backend.Benchmarker
+	if b, ok := DefaultExecutor.(backend.Benchmarker); ok {
+		bench = b
+	}
+	items = codegen.BeamApplyToItems(items, DefaultExecutor, bench)
 	inputs := leafInputs(tensors)
 	outputs, err := exec.RunSymbolic(items, inputs, binding)
 	if err != nil {
