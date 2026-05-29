@@ -1,8 +1,14 @@
 package codegen
 
 import (
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"log"
 	"math"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"sync"
@@ -73,6 +79,97 @@ var (
 	beamMu       sync.Mutex
 	beamCacheMap = map[uint64]beamEntry{}
 )
+
+// ── Persistent disk cache ─────────────────────────────────────────────────────
+
+// diskEntry is one persistent cache record keyed by kernel SK (hex string).
+// Opts is nil when identity was the winner (no opts applied).
+// WGSLHash is the FNV-64a hash of the opted WGSL at search time; guards SK collisions
+// by providing a second independent fingerprint checked at every cache-hit realize call.
+type diskEntry struct {
+	Opts     []Opt  `json:"opts"`
+	WGSLHash string `json:"wgsl_hash"`
+}
+
+var (
+	diskMu   sync.Mutex
+	diskMap  map[string]diskEntry
+	diskPath string
+)
+
+func init() {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	diskPath = filepath.Join(dir, "anneal", "beam_cache.json")
+	diskMap = make(map[string]diskEntry)
+	if data, err := os.ReadFile(diskPath); err == nil {
+		_ = json.Unmarshal(data, &diskMap)
+	}
+}
+
+func saveDiskMapLocked() {
+	if err := os.MkdirAll(filepath.Dir(diskPath), 0o755); err != nil {
+		return
+	}
+	data, _ := json.MarshalIndent(diskMap, "", "  ")
+	tmp := diskPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		log.Printf("beam: disk cache write failed: %v", err)
+		return
+	}
+	_ = os.Rename(tmp, diskPath)
+}
+
+// wgslVarRe matches arena-index-dependent variable names: t{N} (InstrLet NodeIdx),
+// r{N} (OpRange IDs), sm{N} (InstrDefineLocal NodeIdx). These vary across realizations
+// of the same kernel because OpRange bypasses interning and max-ID scans are arena-wide.
+// Normalizing them makes the WGSL hash stable (same kernel → same hash every call).
+var wgslVarRe = regexp.MustCompile(`\b(t|r|sm)(\d+)\b`)
+
+// normalizeWGSL replaces each unique arena-index-dependent variable name with a
+// stable sequential placeholder (_v0, _v1, …) in order of first appearance.
+func normalizeWGSL(wgsl string) string {
+	seen := make(map[string]string)
+	counter := 0
+	return wgslVarRe.ReplaceAllStringFunc(wgsl, func(s string) string {
+		if n, ok := seen[s]; ok {
+			return n
+		}
+		n := fmt.Sprintf("_v%d", counter)
+		counter++
+		seen[s] = n
+		return n
+	})
+}
+
+func beamWGSLHash(wgsl string) string {
+	h := fnv.New64a()
+	h.Write([]byte(normalizeWGSL(wgsl)))
+	return fmt.Sprintf("%016x", h.Sum64())
+}
+
+// BeamWGSLHash computes the normalized FNV-64a WGSL hash used by the value-identity
+// guard. Exported so tests can compute the expected stored hash when injecting fake
+// disk-cache entries via BeamDiskCacheInject.
+func BeamWGSLHash(wgsl string) string { return beamWGSLHash(wgsl) }
+
+// BeamDiskCacheReset clears the in-memory disk cache without deleting the file.
+// Used by tests to inject synthetic entries and isolate runs.
+func BeamDiskCacheReset() {
+	diskMu.Lock()
+	defer diskMu.Unlock()
+	diskMap = make(map[string]diskEntry)
+}
+
+// BeamDiskCacheInject stores a synthetic entry keyed by SK. Used by tests to
+// exercise the SK-collision guard without needing a real hash collision.
+func BeamDiskCacheInject(sk uint64, opts []Opt, wgslHash string) {
+	diskMu.Lock()
+	defer diskMu.Unlock()
+	diskMap[fmt.Sprintf("%016x", sk)] = diskEntry{Opts: opts, WGSLHash: wgslHash}
+}
 
 // BeamCacheLookup returns the cached opt sequence for kernel SK.
 // Returns (opts, true) on hit; opts may be nil (identity won).
@@ -331,4 +428,96 @@ func beamValueOK(exec backend.Executor, cand schedule.ExecItem, inputs map[uint3
 		}
 	}
 	return true
+}
+
+// BeamApplyToItems applies beam-cached opts to each item in the schedule slice.
+//
+// Default mode (ANNEAL_BEAM unset or "0"): reads the disk cache (loaded once at
+// package init); applies cached opts on hit after the WGSL-hash guard; falls back
+// to identity on miss. No search runs; no GPU work added; the per-call overhead is
+// one O(1) map lookup plus a cheap WGSL render on cache hits.
+//
+// Search mode (ANNEAL_BEAM="1"): runs BeamSearch for every cache-missing kernel,
+// persists the winner (opts + WGSL hash) to ~/.cache/anneal/beam_cache.json, and
+// applies it. Blocks synchronously for the duration of each search.
+//
+// Value-identity guard (cache hits with non-empty opts): the opted kernel's WGSL is
+// rendered and its FNV-64a hash compared with the stored hash. A mismatch means an SK
+// collision (two different kernels share the same 64-bit structural key). The guard
+// logs a warning and falls back to identity. The risk is bounded by two independent
+// 64-bit hashes colliding simultaneously (~2⁻⁶⁴ per kernel pair).
+//
+// The returned slice shares Bufs and SymVars with the input but may carry a different
+// Ast and pre-filled WGSL/LocalSize/WorkgroupCount so the executor skips re-render.
+func BeamApplyToItems(items []schedule.ExecItem, exec backend.Executor, bench backend.Benchmarker) []schedule.ExecItem {
+	searchMode := os.Getenv("ANNEAL_BEAM") == "1"
+	result := make([]schedule.ExecItem, len(items))
+	copy(result, items)
+
+	for i, item := range result {
+		if !item.Ast.Valid() {
+			continue
+		}
+		sk := KernelSK(item)
+		skStr := fmt.Sprintf("%016x", sk)
+
+		diskMu.Lock()
+		entry, hit := diskMap[skStr]
+		diskMu.Unlock()
+
+		var optsToApply []Opt
+
+		switch {
+		case hit && len(entry.Opts) == 0:
+			// Identity won during a prior search — no transformation needed.
+			continue
+
+		case hit:
+			optsToApply = entry.Opts
+
+		case searchMode && exec != nil && bench != nil:
+			cfg := DefaultBeamConfig()
+			br := BeamSearch(exec, bench, item, cfg)
+			if len(br.Opts) == 0 {
+				diskMu.Lock()
+				diskMap[skStr] = diskEntry{}
+				saveDiskMapLocked()
+				diskMu.Unlock()
+				continue
+			}
+			optsToApply = br.Opts
+
+		default:
+			// Default mode + cache miss: identity, zero overhead.
+			continue
+		}
+
+		// Apply opts, render WGSL, run value-identity guard.
+		optedItem := ApplyOpts(item, optsToApply)
+		optedItem.WGSL = ""
+		rendered := RenderWGSL(optedItem)
+		h := beamWGSLHash(rendered.WGSL)
+
+		if hit {
+			if h != entry.WGSLHash {
+				log.Printf("beam: SK collision guard: sk=%s stored=%s computed=%s; identity fallback",
+					skStr, entry.WGSLHash, h)
+				result[i] = items[i]
+				continue
+			}
+		} else {
+			// Persist new search result with WGSL hash.
+			diskMu.Lock()
+			diskMap[skStr] = diskEntry{Opts: optsToApply, WGSLHash: h}
+			saveDiskMapLocked()
+			diskMu.Unlock()
+		}
+
+		// Pre-fill WGSL so the executor skips re-render.
+		optedItem.WGSL = rendered.WGSL
+		optedItem.LocalSize = rendered.LocalSize
+		optedItem.WorkgroupCount = rendered.WorkgroupCount
+		result[i] = optedItem
+	}
+	return result
 }
