@@ -1247,6 +1247,10 @@
                             storage-only enable low-precision workflows.
                             <code>tensor.JIT</code> captures the execution plan;
                             the scheduler is memoized on a structural key.
+                            Kernel autotuning via BEAM search finds the best
+                            opt sequence per kernel and caches results to disk
+                            (ANNEAL_BEAM=1 to search; default is zero-overhead
+                            cache lookup).
                         </p>
                     </div>
                 </div>
@@ -1560,7 +1564,7 @@
                         "card.rt.title":
                             "Dynamic batch, JIT, f16/bf16 support",
                         "card.rt.body":
-                            "The batch dimension can be symbolic: a kernel compiles once and runs at any batch size. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key.",
+                            "The batch dimension can be symbolic: a kernel compiles once and runs at any batch size. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key. Kernel autotuning via BEAM search finds the best opt sequence per kernel and caches results to disk (ANNEAL_BEAM=1 to search; default is zero-overhead cache lookup).",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
@@ -1634,7 +1638,7 @@
                         "card.rt.title":
                             "Batch dinámico, JIT, soporte f16/bf16",
                         "card.rt.body":
-                            "La dimensión de batch puede ser simbólica: un kernel se compila una vez y ejecuta con cualquier tamaño. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado.",
+                            "La dimensión de batch puede ser simbólica: un kernel se compila una vez y ejecuta con cualquier tamaño. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
                         "cli.label": "la cli",
                         "cli.heading": "Verbos que reflejan el pipeline.",
                         "cli.body":

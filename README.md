@@ -82,7 +82,7 @@ uop/         UOp IR: arena, interning, ops enum, dtype
 rewrite/     PatternMatcher, graph-rewrite driver, symbolic rules
 shape/       View, ShapeTracker, movement ops
 schedule/    rangeify, realize-map, bufferize, kernel split
-codegen/     UOp tree → linear instrs → WGSL
+codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel transforms), beam.go (BEAM autotuning)
 backend/     device abstraction; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
   nn/        Linear, Conv2d, activations, SGD, Parameter
@@ -110,9 +110,9 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Dtypes | f16 ✅ (with shader-f16); bf16 ✅ storage-only (f32 compute); fp8 ⛔ Deferred |
 | Multi-device | ⛔ Deferred |
 | Image dtypes | ⛔ Deferred |
-| BEAM autotuning | ⛔ Deferred |
+| BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
 
-The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), JIT capture/replay, and a schedule cache have all shipped. The harder deferrals listed above remain intentional.
+The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional.
 
 ## Contributing
 

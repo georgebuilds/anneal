@@ -61,7 +61,7 @@ Arena indices reflect *the order nodes were built*, not *what they are*. When yo
 
 ## Submitting changes
 
-1. **Stay in scope.** Some features are intentionally deferred: general symbolic movement (splitting/merging/padding a symbolic axis, dynamic seq-len), multi-device, BEAM/autotuning, and image dtypes — see the README status table. PRs that pull deferred features forward will likely be declined unless they've been discussed first.
+1. **Stay in scope.** Some features are intentionally deferred: general symbolic movement (splitting/merging/padding a symbolic axis, dynamic seq-len), multi-device, and image dtypes — see the README status table. PRs that pull deferred features forward will likely be declined unless they've been discussed first. BEAM autotuning and epilogue fusion have shipped; new kernel Opts belong in `codegen/opt.go` as additional `OptKind` variants following the existing pattern.
 2. **Keep the docs honest.** If your change alters the architecture, update SPEC.md (and DESIGN.md if it touches a surface) in the same PR. Stale design docs are worse than none.
 3. **Show your oracle.** Include the finite-difference / loss-trajectory numbers for anything that executes.
 4. **One focused change per PR.** Easier to review, easier to bisect.

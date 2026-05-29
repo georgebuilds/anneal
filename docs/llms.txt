@@ -17,7 +17,7 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 - **IR:** UOp DAG, immutable, arena-allocated, hash-consed
 - **Rewrite engine:** PatternMatcher + graph_rewrite driver
 - **Scheduler:** rangeify — fuses across the forward/backward boundary; memoized on a structural key
-- **Codegen:** WGSL lowerer + renderer
+- **Codegen:** WGSL lowerer + renderer; Opt seam (`codegen/opt.go`) for composable kernel transforms (OptLocal, OptTile, OptUpcast, OptVectorize); BEAM autotuning (`codegen/beam.go`) — beam-of-k search over opt sequences, env-gated (ANNEAL_BEAM=1), persistent disk cache at `~/.cache/anneal/beam_cache.json`
 - **Backend:** WebGPU (primary)
 - **Language:** Go (latest stable)
 - **Dynamic batch:** the batch dimension can be symbolic — a kernel compiles once and runs at any batch size via `NewSymbolicBatchInput` / `RealizeWithBinding`. General symbolic axis movement (split/merge/pad, dynamic seq-length) is not yet supported.
