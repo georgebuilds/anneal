@@ -1,3 +1,22 @@
+// opt.go — Opt seam: the four composable kernel transforms and their apply entry point.
+//
+// An Opt{Kind, Axis, Arg} describes one kernel transformation. ApplyOpt rewrites a
+// kernel SINK-rooted AST before Lower/RenderWGSL. This is the only extension point for
+// kernel-level performance work; the lowerer and renderer are never modified for tuning.
+//
+// Four composable transforms:
+//   - OptLocal(axis, localSize): multi-dim @workgroup_size + 2D/3D dispatch. Also fixes
+//     the WebGPU 65535 1D-dispatch limit by spreading workgroups across dimensions.
+//   - OptTile(axis, TS): shared-memory tiling on a reduce axis — var<workgroup> tile
+//     buffers, workgroupBarrier(), coalesced + branchless tile loads.
+//   - OptUpcast(axis, factor): per-thread register-blocked micro-tile; rejects reduce
+//     and Symbolic axes.
+//   - OptVectorize(axis, W): vec4 inner-K, WGSL source-level vec4 packaging; W=4 only.
+//     On Apple/Metal this lowers to 4 scalar loads, not a hardware SIMD instruction.
+//
+// Opts compose: call ApplyOpts with a sequence. BEAM search (beam.go) finds the best
+// sequence automatically.
+
 package codegen
 
 import (

@@ -1,3 +1,21 @@
+// beam.go — BEAM search: beam-of-k over Opt sequences for kernel autotuning.
+//
+// Realize-path integration (tensor/realize.go → BeamApplyToItems):
+//   - Default mode (ANNEAL_BEAM unset): O(1) disk-cache lookup; identity on miss; zero
+//     GPU overhead added to the realize path.
+//   - Search mode (ANNEAL_BEAM=1): runs BeamSearch on cache miss; persists the winner
+//     (opts + WGSL hash) to ~/.cache/anneal/beam_cache.json.
+//
+// WGSL-identifier-stability contract (load-bearing invariant):
+// The disk cache is keyed on the kernel structural key (SK) and protected by a second
+// fingerprint: FNV-64a of the opted WGSL after normalizing arena-index-dependent
+// identifiers (t{N}, r{N}, sm{N} → _v0, _v1, …). This normalization is required because
+// OpRange bypasses interning and max-ID scans are arena-wide, so the same kernel's
+// variable names vary across process restarts while its structure stays stable.
+//
+// Any future codegen change that introduces new per-run-varying identifiers MUST extend
+// normalizeWGSL, or the cache will silently invalidate on every restart.
+
 package codegen
 
 import (
