@@ -95,7 +95,8 @@ var bypassInternSet = map[Op]bool{
 	// (ID, Size, Type) from different kernels or realize calls must not
 	// alias. Without this, hash-consing would collapse them to the same
 	// arena index, corrupting getFusedRanges sort order.
-	OpRange: true,
+	OpRange:       true,
+	OpDefineLocal: true,
 }
 
 // New constructs or retrieves an interned UOp in a.
@@ -289,6 +290,8 @@ const (
 	AxisReduce    AxisType = 1 // inner reduction axis (accumulate, not store)
 	AxisWorkgroup AxisType = 2 // split-out workgroup dimension
 	AxisLocal     AxisType = 3 // split-out local dimension
+	AxisUpcast    AxisType = 4 // per-thread unrolled stripe; size = micro-tile factor
+	AxisVectorize AxisType = 5 // SIMD-width unrolled stripe; size = vector width (e.g. 4 for vec4<f32>)
 )
 
 // RangeArg is the arg payload for OpRange nodes.
