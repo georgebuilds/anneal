@@ -81,6 +81,15 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 	// WC and WS components are used to compute the stride of each dimension.
 	// For B1, we spread components into Y and Z if X overflows.
 	fmt.Fprintf(&b, "@compute @workgroup_size(%d, %d, %d)\n", ws[0], ws[1], ws[2])
+
+	// Declare workgroup variables at module scope
+	for _, ins := range instrs {
+		if ins.Kind == InstrDefineLocal {
+			fmt.Fprintf(&b, "var<workgroup> %s: array<%s, %d>;\n",
+				ins.LocalName, wgslDType(ins.DType), ins.LocalSize)
+		}
+	}
+
 	b.WriteString("fn main(\n")
 	b.WriteString("  @builtin(global_invocation_id) gid: vec3<u32>,\n")
 	b.WriteString("  @builtin(workgroup_id) wid: vec3<u32>,\n")
@@ -188,7 +197,31 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 		case InstrLet:
 			wt := wgslDType(ins.DType)
-			fmt.Fprintf(&b, "%slet t%d: %s = %s;\n", indent(), ins.NodeIdx, wt, ins.Expr)
+			if ins.WGSLType != "" {
+				wt = ins.WGSLType
+			}
+			if ins.Name != "" {
+				fmt.Fprintf(&b, "%slet %s: %s = %s;\n", indent(), ins.Name, wt, ins.Expr)
+			} else {
+				fmt.Fprintf(&b, "%slet t%d: %s = %s;\n", indent(), ins.NodeIdx, wt, ins.Expr)
+			}
+
+		case InstrDefineLocal:
+			// already rendered at module scope
+
+		case InstrBarrier:
+			fmt.Fprintf(&b, "%sworkgroupBarrier();\n", indent())
+
+		case InstrIf:
+			fmt.Fprintf(&b, "%sif (%s) {\n", indent(), ins.Expr)
+			depth++
+
+		case InstrEndIf:
+			depth--
+			fmt.Fprintf(&b, "%s}\n", indent())
+
+		case InstrAssign:
+			fmt.Fprintf(&b, "%s%s = %s;\n", indent(), ins.IndexExpr, ins.Expr)
 
 		case InstrStore:
 			idxExpr := ins.IndexExpr

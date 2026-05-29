@@ -2,6 +2,8 @@ package codegen
 
 import (
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
@@ -27,6 +29,16 @@ const (
 	InstrLet
 	// InstrStore emits: data0[IndexExpr] = Expr;
 	InstrStore
+	// InstrDefineLocal emits: var<workgroup> LocalName: array<WGSLType, LocalSize>;
+	InstrDefineLocal
+	// InstrBarrier emits: workgroupBarrier();
+	InstrBarrier
+	// InstrIf emits: if (Cond) {
+	InstrIf
+	// InstrEndIf emits: }
+	InstrEndIf
+	// InstrAssign emits: IndexExpr = Expr;
+	InstrAssign
 )
 
 // Instr is one linearized instruction in the kernel. Fields are interpreted
@@ -59,17 +71,26 @@ type Instr struct {
 	Identity string // for InstrAccInit
 	AccOp    uop.Op // for InstrAccUpdate
 
-	// InstrLet
+	// InstrLet, InstrDefineLocal
 	NodeIdx uint32
 	DType   *uop.DType
+
+	// InstrDefineLocal
+	LocalName string
+	LocalSize int
 
 	// InstrBoundsCheck: product of concrete dims trailing the symbolic dim.
 	// Used to emit "params_n[0] * N" bounds checks for multi-dim symbolic outputs.
 	ConcreteTrailing int64
 
-	// InstrLet, InstrAccUpdate, InstrStore
+	// InstrLet, InstrAccUpdate, InstrStore, InstrIf, InstrAssign
 	Expr      string
-	IndexExpr string // for InstrStore
+	IndexExpr string // for InstrStore, InstrAssign (LHS)
+
+	// Name overrides the auto-derived `t{NodeIdx}` naming for InstrLet
+	// (used by the B3 register-blocking codegen to emit named rA_k_mr /
+	// rB_k_nr per-K register loads).
+	Name string
 }
 
 // Lower converts one kernel's SINK AST into a linear instruction sequence.
@@ -83,6 +104,13 @@ func Lower(item schedule.ExecItem) ([]Instr, [3]int, [3]int) {
 	return instrs, l.workgroupSize, l.workgroupCount
 }
 
+type rangeGroup struct {
+	u   uop.UOp
+	ra  uop.RangeArg
+	lvl int // 0:Global, 1:Workgroup, 2:Local
+	idx int // original index in loopRanges
+}
+
 type lowerer struct {
 	item           schedule.ExecItem
 	instrs         []Instr
@@ -91,6 +119,39 @@ type lowerer struct {
 	widenF16       bool              // when true, f16 loads/ops are widened to f32 in reduce body
 	workgroupSize  [3]int            // computed from AxisLocal ranges
 	workgroupCount [3]int
+	loopRanges     []uop.UOp
+	dims           [3][]rangeGroup
+
+	// Per-dim AxisUpcast info (B3 register blocking).
+	// upcastByDim[d] = the AxisUpcast range UOp for dim d (Valid() iff factor > 1).
+	// upcastFactorByDim[d] = the upcast factor (1 if no upcast on dim d).
+	upcastByDim       [3]uop.UOp
+	upcastFactorByDim [3]int64
+
+	// Per-dim AxisVectorize info (B3.7 vec4 widening).
+	// vectorizeByDim[d] = the AxisVectorize range UOp for dim d.
+	// vectorizeFactorByDim[d] = the vector width (1 if no vectorize on dim d).
+	vectorizeByDim       [3]uop.UOp
+	vectorizeFactorByDim [3]int64
+	// During emitTiledReduce expansion, these record the MR/NR accumulator-name
+	// templates so the final InstrStore can be expanded into MR*NR stores.
+	upcastTileActive bool
+	upcastMR         int
+	upcastNR         int
+	upcastTS         int                     // tile size from the matched OptTile
+	upcastAccName    func(mr, nr int) string // returns the WGSL acc name for cell (mr, nr)
+	upcastOutMSize   int64                   // real M extent (from output buffer shape) for store mask
+	upcastOutNSize   int64                   // real N extent for store mask
+	upcastMWgID      int                     // RangeID of M-Workgroup outer (after OptUpcast)
+	upcastMLocID     int                     // RangeID of M-Local
+	upcastNWgID      int                     // RangeID of N-Workgroup outer
+	upcastNLocID     int                     // RangeID of N-Local
+
+	// B3.7 OptVectorize state: set by emitTiledReduce, consumed by lowerSink store section.
+	vecTileActive bool
+	vecW          int   // vector width (4 for vec4<f32>)
+	vecNLocOuterID int  // RangeID of N_loc_outer (lid.x ranges over TS/W)
+	vecNReal       int64
 }
 
 // computeDType returns the effective WGSL dtype for u.
@@ -120,19 +181,40 @@ func (l *lowerer) lowerSink() []Instr {
 	store := end.Src(0)  // OpStore
 	body := store.Src(1) // kernel body expression
 
-	// Collect AxisLoop/Workgroup/Local ranges from END.src[1:].
+	// Collect AxisLoop/Workgroup/Local ranges from END.src[1:]. AxisUpcast and
+	// AxisVectorize ranges are tracked separately: they don't contribute to dispatch
+	// dims but are paired with the immediately-preceding parallel range.
 	var loopRanges []uop.UOp
+	type upcastPair struct {
+		upcast    uop.UOp
+		outerLRIx int // index of outer in loopRanges
+	}
+	type vectorizePair struct {
+		vec       uop.UOp
+		outerLRIx int
+	}
+	var upcastPairs []upcastPair
+	var vectorizePairs []vectorizePair
+	lastNonConstIdx := -1
 	for i := 1; i < end.NSrc(); i++ {
 		r := end.Src(i)
 		if r.Op() == uop.OpRange {
 			ra := r.Arg().(uop.RangeArg)
-			if ra.Type == uop.AxisLoop || ra.Type == uop.AxisWorkgroup || ra.Type == uop.AxisLocal {
+			switch ra.Type {
+			case uop.AxisLoop, uop.AxisWorkgroup, uop.AxisLocal:
 				loopRanges = append(loopRanges, r)
+				lastNonConstIdx = len(loopRanges) - 1
+			case uop.AxisUpcast:
+				upcastPairs = append(upcastPairs, upcastPair{upcast: r, outerLRIx: lastNonConstIdx})
+			case uop.AxisVectorize:
+				vectorizePairs = append(vectorizePairs, vectorizePair{vec: r, outerLRIx: lastNonConstIdx})
 			}
 		} else if r.Op() == uop.OpConst {
 			loopRanges = append(loopRanges, r)
+			lastNonConstIdx = len(loopRanges) - 1
 		}
 	}
+	l.loopRanges = loopRanges
 
 	// Total output elements = product of all loop range sizes.
 	totalOut := int64(1)
@@ -170,12 +252,6 @@ func (l *lowerer) lowerSink() []Instr {
 	// Group ranges into Axes.
 	// We assign ranges to Dimensions starting from the INMOST (last) range to X.
 	// Matmul: [Row, Col] -> Col is X, Row is Y.
-	type rangeGroup struct {
-		u   uop.UOp
-		ra  uop.RangeArg
-		lvl int // 0:Global, 1:Workgroup, 2:Local
-		idx int // original index in loopRanges
-	}
 	dims := [3][]rangeGroup{}
 	dimIdx := 0
 	for i := len(loopRanges) - 1; i >= 0; i-- {
@@ -214,6 +290,62 @@ func (l *lowerer) lowerSink() []Instr {
 		default:
 			dimIdx++
 		}
+	}
+	l.dims = dims
+
+	// Pair each AxisUpcast with its outer's dim. The upcast contributes a
+	// per-thread "stripe factor" in that dim but does NOT participate in
+	// dispatch (workgroup_size or workgroup_count). Register a placeholder
+	// expression — emitTiledReduce overrides this per (mr, nr) iteration.
+	l.upcastFactorByDim = [3]int64{1, 1, 1}
+	for _, p := range upcastPairs {
+		if p.outerLRIx < 0 || p.outerLRIx >= len(loopRanges) {
+			continue
+		}
+		outer := loopRanges[p.outerLRIx]
+		for d := 0; d < 3; d++ {
+			found := false
+			for _, rg := range dims[d] {
+				if rg.u == outer {
+					ra := p.upcast.Arg().(uop.RangeArg)
+					l.upcastByDim[d] = p.upcast
+					l.upcastFactorByDim[d] *= ra.Size
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		l.exprOf[p.upcast.Index()] = "0"
+	}
+
+	// Pair each AxisVectorize with its outer's dim. Like upcast, the vector inner
+	// does not participate in dispatch. Register placeholder "0" — emitTiledReduce
+	// overrides this with component-indexed expressions in the vec4 path.
+	l.vectorizeFactorByDim = [3]int64{1, 1, 1}
+	for _, p := range vectorizePairs {
+		if p.outerLRIx < 0 || p.outerLRIx >= len(loopRanges) {
+			continue
+		}
+		outer := loopRanges[p.outerLRIx]
+		for d := 0; d < 3; d++ {
+			found := false
+			for _, rg := range dims[d] {
+				if rg.u == outer {
+					ra := p.vec.Arg().(uop.RangeArg)
+					l.vectorizeByDim[d] = p.vec
+					l.vectorizeFactorByDim[d] = ra.Size
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		l.exprOf[p.vec.Index()] = "0"
 	}
 
 	// Compute strides and local sizes for each (dimension, level).
@@ -354,7 +486,65 @@ func (l *lowerer) lowerSink() []Instr {
 	if len(l.item.Bufs) > 0 {
 		outBufDType = l.item.Bufs[0].DType
 	}
-	l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr, IndexExpr: indexExpr, DType: outBufDType})
+
+	if l.upcastTileActive {
+		// B3 register-blocking: each thread emits MR*NR masked stores. The
+		// flat output index is built directly from (M, N) coordinates that
+		// include the (mr, nr) stripe offset, so the loopRanges-derived
+		// indexExpr (which only covers the shrunken dispatch grid) isn't
+		// used here.
+		MR := l.upcastMR
+		NR := l.upcastNR
+		TS := l.upcastTS
+		Mreal := l.upcastOutMSize
+		Nreal := l.upcastOutNSize
+		if l.vecTileActive {
+			// B3.7: each (mr, nr) accumulator is vec4<f32> covering W=4 consecutive N values.
+			// lid.x ranges over 0..TS/W-1 (the N_loc_outer); actual N = nWgID*NR*TS + nr*TS + lid.x*W + component.
+			W := int64(l.vecW)
+			for mr := 0; mr < MR; mr++ {
+				for nr := 0; nr < NR; nr++ {
+					Mexpr := fmt.Sprintf("(u32(r%d) * %du + %du + u32(r%d))",
+						l.upcastMWgID, MR*TS, mr*TS, l.upcastMLocID)
+					NexprBase := fmt.Sprintf("(u32(r%d) * %du + %du + u32(r%d) * %du)",
+						l.upcastNWgID, NR*TS, nr*TS, l.vecNLocOuterID, W)
+					components := [4]string{"x", "y", "z", "w"}
+					for v := int64(0); v < W; v++ {
+						var Nexpr string
+						if v == 0 {
+							Nexpr = NexprBase
+						} else {
+							Nexpr = fmt.Sprintf("(%s + %du)", NexprBase, v)
+						}
+						cond := fmt.Sprintf("(%s < %du) && (%s < %du)", Mexpr, Mreal, Nexpr, Nreal)
+						idx := fmt.Sprintf("(%s * %du + %s)", Mexpr, Nreal, Nexpr)
+						l.emit(Instr{Kind: InstrIf, Expr: cond})
+						l.emit(Instr{Kind: InstrStore,
+							Expr:      fmt.Sprintf("%s.%s", l.upcastAccName(mr, nr), components[v]),
+							IndexExpr: idx,
+							DType:     outBufDType})
+						l.emit(Instr{Kind: InstrEndIf})
+					}
+				}
+			}
+		} else {
+			for mr := 0; mr < MR; mr++ {
+				for nr := 0; nr < NR; nr++ {
+					Mexpr := fmt.Sprintf("(u32(r%d) * %du + %du + u32(r%d))",
+						l.upcastMWgID, MR*TS, mr*TS, l.upcastMLocID)
+					Nexpr := fmt.Sprintf("(u32(r%d) * %du + %du + u32(r%d))",
+						l.upcastNWgID, NR*TS, nr*TS, l.upcastNLocID)
+					cond := fmt.Sprintf("(%s < %du) && (%s < %du)", Mexpr, Mreal, Nexpr, Nreal)
+					idx := fmt.Sprintf("(%s * %du + %s)", Mexpr, Nreal, Nexpr)
+					l.emit(Instr{Kind: InstrIf, Expr: cond})
+					l.emit(Instr{Kind: InstrStore, Expr: l.upcastAccName(mr, nr), IndexExpr: idx, DType: outBufDType})
+					l.emit(Instr{Kind: InstrEndIf})
+				}
+			}
+		}
+	} else {
+		l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr, IndexExpr: indexExpr, DType: outBufDType})
+	}
 
 	return l.instrs
 }
@@ -378,6 +568,14 @@ func (l *lowerer) emitExpr(u uop.UOp) string {
 		return l.emitIndex(u)
 	case uop.OpReduce:
 		return l.emitReduce(u)
+	case uop.OpDefineLocal:
+		name := fmt.Sprintf("sm%d", u.Index())
+		l.emit(Instr{Kind: InstrDefineLocal, NodeIdx: u.Index(), LocalName: name, LocalSize: int(u.Arg().(int64)), DType: u.DType()})
+		l.exprOf[u.Index()] = name
+		return name
+	case uop.OpBarrier:
+		l.emit(Instr{Kind: InstrBarrier})
+		return ""
 	default:
 		return l.emitALU(u)
 	}
@@ -385,7 +583,15 @@ func (l *lowerer) emitExpr(u uop.UOp) string {
 
 func (l *lowerer) emitIndex(u uop.UOp) string {
 	paramNode := u.Src(0)
-	paramIdx := int(paramNode.Arg().(int64))
+	isLocal := paramNode.Op() == uop.OpDefineLocal
+	var paramIdx int
+	var localName string
+	if isLocal {
+		localName = l.emitExpr(paramNode)
+	} else {
+		paramIdx = int(paramNode.Arg().(int64))
+	}
+
 	nDims := u.NSrc() - 1
 	var flatExpr string
 	switch {
@@ -394,7 +600,14 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	case nDims == 1:
 		flatExpr = l.emitExpr(u.Src(1))
 	default:
-		shape := l.paramShape(paramIdx)
+		var shape []int64
+		if isLocal {
+			// For now, assume 2D local tiles for matmul
+			sz := int64(math.Sqrt(float64(paramNode.Arg().(int64))))
+			shape = []int64{sz, sz}
+		} else {
+			shape = l.paramShape(paramIdx)
+		}
 		strides := make([]int64, nDims)
 		strides[nDims-1] = 1
 		for i := nDims - 2; i >= 0; i-- {
@@ -415,7 +628,12 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 		}
 		flatExpr = joinPlus(terms)
 	}
-	rhs := fmt.Sprintf("data%d[%s]", paramIdx, flatExpr)
+	var rhs string
+	if isLocal {
+		rhs = fmt.Sprintf("%s[%s]", localName, flatExpr)
+	} else {
+		rhs = fmt.Sprintf("data%d[%s]", paramIdx, flatExpr)
+	}
 	emitDType := u.DType()
 	if emitDType != nil {
 		s := emitDType.Scalar()
@@ -434,6 +652,14 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 }
 
 func (l *lowerer) emitReduce(u uop.UOp) string {
+	if tag := u.Tag(); tag != nil {
+		if s, ok := tag.(string); ok && strings.HasPrefix(s, "tile:") {
+			var ts int
+			fmt.Sscanf(s, "tile:%d", &ts)
+			return l.emitTiledReduce(u, ts)
+		}
+	}
+
 	accOp := u.Arg().(uop.Op)
 	elemNode := u.Src(0)
 	accIdx := l.accCnt
@@ -490,6 +716,351 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 	}
 	l.exprOf[u.Index()] = name
 	return name
+}
+
+func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
+	accOp := u.Arg().(uop.Op)
+	elemNode := u.Src(0)
+	rk_outer := u.Src(1)
+	rk_inner := u.Src(2)
+
+	outDType := u.DType()
+	wt := wgslDType(outDType)
+	id := reduceIdentity(accOp, outDType)
+
+	if elemNode.Op() != uop.OpMul {
+		panic("Tiled reduce currently only supports Mul element node")
+	}
+	idxA := elemNode.Src(0)
+	idxB := elemNode.Src(1)
+	if idxA.Op() != uop.OpIndex || idxB.Op() != uop.OpIndex {
+		panic("Tiled reduce currently only supports Index sources for Mul")
+	}
+
+	// Detect B3 register-blocking upcasts paired with this tile.
+	MR := int(l.upcastFactorByDim[1])
+	NR := int(l.upcastFactorByDim[0])
+	if MR < 1 {
+		MR = 1
+	}
+	if NR < 1 {
+		NR = 1
+	}
+	upcast := MR > 1 || NR > 1
+
+	// 2. Identify dimensions M, N, K.
+	raOuter := rk_outer.Arg().(uop.RangeArg)
+	raInner := rk_inner.Arg().(uop.RangeArg)
+	K_outer_size := raOuter.Size
+
+	// Register rk_outer and rk_inner nodes.
+	l.exprOf[rk_outer.Index()] = fmt.Sprintf("r%d", raOuter.ID)
+	l.exprOf[rk_inner.Index()] = fmt.Sprintf("r%d", raInner.ID)
+
+	// Walk the M and N index expressions of A/B once to populate exprOf
+	// caches (the body's M, N references are otherwise consumed by the
+	// reduce path; we want them computed once for shape inference).
+	if idxA.NSrc() == 2 {
+		oldExpr := l.exprOf[rk_inner.Index()]
+		l.exprOf[rk_inner.Index()] = "0"
+		l.emitExpr(idxA.Src(1))
+		l.exprOf[rk_inner.Index()] = oldExpr
+	}
+	if idxB.NSrc() == 2 {
+		oldExpr := l.exprOf[rk_inner.Index()]
+		l.exprOf[rk_inner.Index()] = "0"
+		l.emitExpr(idxB.Src(idxB.NSrc()-1))
+		l.exprOf[rk_inner.Index()] = oldExpr
+	}
+
+	paramA := int(idxA.Src(0).Arg().(int64))
+	paramB := int(idxB.Src(0).Arg().(int64))
+
+	// Use the real operand extents so upcast stripes that overshoot a padded
+	// grid are masked correctly (regression guard for irregular shapes).
+	M_real := l.paramShape(paramA)[0]
+	K_real := l.paramShape(paramA)[1]
+	N_real := l.paramShape(paramB)[1]
+	K_size := K_outer_size * int64(TS)
+	if K_size < K_real {
+		K_size = K_real
+	}
+
+	// Identify M and N workgroup/local range IDs in the post-upcast dim layout.
+	var mWgID, mLocID, nWgID, nLocID int
+	for _, rg := range l.dims[1] {
+		if rg.lvl == 1 {
+			mWgID = rg.ra.ID
+		}
+		if rg.lvl == 2 {
+			mLocID = rg.ra.ID
+		}
+	}
+	for _, rg := range l.dims[0] {
+		if rg.lvl == 1 {
+			nWgID = rg.ra.ID
+		}
+		if rg.lvl == 2 {
+			nLocID = rg.ra.ID
+		}
+	}
+
+	K_stride_A := int64(1)
+	M_stride_A := l.paramShape(paramA)[1]
+	if l.paramShape(paramA)[0] == 1 {
+		M_stride_A = 0
+	}
+	N_stride_B := int64(1)
+	K_stride_B := l.paramShape(paramB)[1]
+	if l.paramShape(paramB)[0] == 1 {
+		K_stride_B = 0
+	}
+
+	zeroA := reduceIdentity(uop.OpAdd, idxA.DType())
+	zeroB := reduceIdentity(uop.OpAdd, idxB.DType())
+
+	if !upcast {
+		// ── Original B2 tiled-reduce path (single accumulator per thread) ──
+		accIdx := l.accCnt
+		l.accCnt++
+		l.emit(Instr{Kind: InstrAccInit, AccIdx: accIdx, WGSLType: wt, Identity: id})
+
+		smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(TS*TS), nil))
+		smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(TS*TS), nil))
+
+		M_size := int64(l.workgroupCount[1] * l.workgroupSize[1])
+		N_size := int64(l.workgroupCount[0] * l.workgroupSize[0])
+
+		row_A := fmt.Sprintf("(u32(r%d) * %du + lid.y)", mWgID, TS)
+		col_A := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
+		row_B := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+		col_B := fmt.Sprintf("(u32(r%d) * %du + lid.x)", nWgID, TS)
+
+		flat_store := fmt.Sprintf("(lid.y * %du + lid.x)", TS)
+
+		condA := fmt.Sprintf("(%s < %du) && (%s < %du)", row_A, M_size, col_A, K_size)
+		condB := fmt.Sprintf("(%s < %du) && (%s < %du)", row_B, K_size, col_B, N_size)
+
+		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, row_A, M_stride_A, col_A, K_stride_A)
+		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, row_B, K_stride_B, col_B, N_stride_B)
+
+		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smA, flat_store),
+			Expr: fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smB, flat_store),
+			Expr: fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
+		l.emit(Instr{Kind: InstrBarrier})
+		for i := 0; i < TS; i++ {
+			termA := fmt.Sprintf("%s[lid.y * %du + %du]", smA, TS, i)
+			termB := fmt.Sprintf("%s[%du * %du + lid.x]", smB, i, TS)
+			l.emit(Instr{Kind: InstrAccUpdate, AccIdx: accIdx, AccOp: accOp, Expr: fmt.Sprintf("(%s * %s)", termA, termB)})
+		}
+		l.emit(Instr{Kind: InstrBarrier})
+		l.emit(Instr{Kind: InstrLoopEnd})
+
+		l.exprOf[u.Index()] = fmt.Sprintf("acc%d", accIdx)
+		return fmt.Sprintf("acc%d", accIdx)
+	}
+
+	// ── B3.7 OptVectorize path: vec4 widening on the N (X-dim) axis ──
+	// Requires OptTile+OptUpcast to already be active (upcast must be true).
+	// workgroup_size.x = TS/W (e.g. 4 for W=4, TS=16). Each thread (lid.x, lid.y)
+	// covers W=4 consecutive N values and MR scalar M values.
+	// Contiguous vec4 loads: smB[nr*TS*TS + k*TS + lid.x*W + 0..3] are stride-1. ✓
+	// Global B loads: W consecutive N values from the same K row are stride-1 in B. ✓
+	vecW := int(l.vectorizeFactorByDim[0])
+	vecN := upcast && vecW > 1
+
+	if vecN {
+		W := vecW
+		// vec4 accumulators: MR*NR vec4<f32>, one per (mr, nr) output cell.
+		accBase := l.accCnt
+		l.accCnt += MR * NR
+		for mr := 0; mr < MR; mr++ {
+			for nr := 0; nr < NR; nr++ {
+				l.emit(Instr{Kind: InstrAccInit, AccIdx: accBase + mr*NR + nr,
+					WGSLType: "vec4<f32>", Identity: "vec4<f32>(0.0)"})
+			}
+		}
+
+		smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(MR*TS*TS), nil))
+		smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(NR*TS*TS), nil))
+
+		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+
+		// A tile load — MR stripes, each thread loads one element per stripe (scalar, unchanged).
+		for mr := 0; mr < MR; mr++ {
+			rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
+			colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
+			condA := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colA, K_real)
+			loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colA, K_stride_A)
+			smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", mr*TS*TS, TS)
+			l.emit(Instr{Kind: InstrAssign,
+				IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
+				Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+		}
+		// B tile load — NR stripes, each thread loads W consecutive N values.
+		// colB_base = nWgID*NR*TS + nr*TS + lid.x*W  (contiguous in N for fixed row)
+		for nr := 0; nr < NR; nr++ {
+			rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+			colBBase := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x * %du)", nWgID, NR*TS, nr*TS, W)
+			for v := 0; v < W; v++ {
+				var colBv string
+				if v == 0 {
+					colBv = colBBase
+				} else {
+					colBv = fmt.Sprintf("(%s + %du)", colBBase, v)
+				}
+				condBv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colBv, N_real)
+				loadBv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colBv, N_stride_B)
+				smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", nr*TS*TS, TS, W, v)
+				l.emit(Instr{Kind: InstrAssign,
+					IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdxv),
+					Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadBv, condBv)})
+			}
+		}
+		l.emit(Instr{Kind: InstrBarrier})
+
+		// Unrolled inner-K loop. Each k step:
+		//   - Loads MR scalar rA values from smA (unchanged from B3).
+		//   - Loads NR vec4 rBv values from smB: 4 contiguous N elements per stripe.
+		//     smB[nr*TS*TS + k*TS + lid.x*W + 0..3] are stride-1. ✓
+		//   - Issues MR*NR (scalar * vec4) FMAs → updates vec4 accumulators.
+		regDTA := idxA.DType()
+		for k := 0; k < TS; k++ {
+			for mr := 0; mr < MR; mr++ {
+				name := fmt.Sprintf("rA_%d_%d", k, mr)
+				expr := fmt.Sprintf("%s[%du + lid.y * %du + %du]", smA, mr*TS*TS, TS, k)
+				l.emit(Instr{Kind: InstrLet, Name: name, DType: regDTA, Expr: expr})
+			}
+			for nr := 0; nr < NR; nr++ {
+				name := fmt.Sprintf("rBv_%d_%d", k, nr)
+				base := fmt.Sprintf("%du + %du + lid.x * %du", nr*TS*TS, k*TS, W)
+				expr := fmt.Sprintf("vec4<f32>(%s[%s + 0u], %s[%s + 1u], %s[%s + 2u], %s[%s + 3u])",
+					smB, base, smB, base, smB, base, smB, base)
+				l.emit(Instr{Kind: InstrLet, Name: name, WGSLType: "vec4<f32>", Expr: expr})
+			}
+			for mr := 0; mr < MR; mr++ {
+				for nr := 0; nr < NR; nr++ {
+					expr := fmt.Sprintf("(rA_%d_%d * rBv_%d_%d)", k, mr, k, nr)
+					l.emit(Instr{Kind: InstrAccUpdate, AccIdx: accBase + mr*NR + nr, AccOp: accOp, Expr: expr})
+				}
+			}
+		}
+		l.emit(Instr{Kind: InstrBarrier})
+		l.emit(Instr{Kind: InstrLoopEnd})
+
+		// Hand off state to lowerSink store section.
+		l.upcastTileActive = true
+		l.vecTileActive = true
+		l.vecW = W
+		l.vecNLocOuterID = nLocID // N_loc_outer keeps original N_loc ID (applyVectorize outer policy)
+		l.vecNReal = N_real
+		l.upcastMR = MR
+		l.upcastNR = NR
+		l.upcastTS = TS
+		l.upcastOutMSize = M_real
+		l.upcastOutNSize = N_real
+		l.upcastMWgID = mWgID
+		l.upcastMLocID = mLocID
+		l.upcastNWgID = nWgID
+		l.upcastNLocID = nLocID
+		l.upcastAccName = func(mr, nr int) string {
+			return fmt.Sprintf("acc%d", accBase+mr*NR+nr)
+		}
+		l.exprOf[u.Index()] = fmt.Sprintf("acc%d", accBase)
+		return fmt.Sprintf("acc%d", accBase)
+	}
+
+	// ── B3 OptUpcast register-blocking path (scalar, no vectorize) ──
+	// Workgroup output tile: (MR*TS) rows × (NR*TS) cols, with workgroup_size = (TS, TS).
+	// Each thread (lid.y, lid.x) owns MR×NR output cells, separated by TS in each dim.
+	// A tile in smem: MR stripes of TS×TS. B tile in smem: NR stripes of TS×TS.
+	// Per outer-K-tile step: each thread does MR + NR cooperative tile loads,
+	// then TS unrolled k-steps; each k-step loads MR+NR registers from smem and
+	// performs MR×NR FMAs into private accumulators.
+	accBase := l.accCnt
+	l.accCnt += MR * NR
+	for mr := 0; mr < MR; mr++ {
+		for nr := 0; nr < NR; nr++ {
+			l.emit(Instr{Kind: InstrAccInit, AccIdx: accBase + mr*NR + nr, WGSLType: wt, Identity: id})
+		}
+	}
+
+	smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(MR*TS*TS), nil))
+	smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(NR*TS*TS), nil))
+
+	l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+
+	// A tile load — MR stripes, each thread loads one element per stripe.
+	for mr := 0; mr < MR; mr++ {
+		rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
+		colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
+		condA := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colA, K_real)
+		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colA, K_stride_A)
+		smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", mr*TS*TS, TS)
+		l.emit(Instr{Kind: InstrAssign,
+			IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
+			Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+	}
+	// B tile load — NR stripes.
+	for nr := 0; nr < NR; nr++ {
+		rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+		colB := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x)", nWgID, NR*TS, nr*TS)
+		condB := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colB, N_real)
+		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colB, N_stride_B)
+		smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", nr*TS*TS, TS)
+		l.emit(Instr{Kind: InstrAssign,
+			IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdx),
+			Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
+	}
+	l.emit(Instr{Kind: InstrBarrier})
+
+	// Unrolled inner-K loop. Each k step pre-loads MR rA + NR rB registers
+	// from smem (giving Naga one chance to CSE per k), then issues MR*NR FMAs.
+	regDT := idxA.DType()
+	for k := 0; k < TS; k++ {
+		for mr := 0; mr < MR; mr++ {
+			name := fmt.Sprintf("rA_%d_%d", k, mr)
+			expr := fmt.Sprintf("%s[%du + lid.y * %du + %du]", smA, mr*TS*TS, TS, k)
+			l.emit(Instr{Kind: InstrLet, Name: name, DType: regDT, Expr: expr})
+		}
+		for nr := 0; nr < NR; nr++ {
+			name := fmt.Sprintf("rB_%d_%d", k, nr)
+			expr := fmt.Sprintf("%s[%du + %du * %du + lid.x]", smB, nr*TS*TS, k, TS)
+			l.emit(Instr{Kind: InstrLet, Name: name, DType: regDT, Expr: expr})
+		}
+		for mr := 0; mr < MR; mr++ {
+			for nr := 0; nr < NR; nr++ {
+				expr := fmt.Sprintf("(rA_%d_%d * rB_%d_%d)", k, mr, k, nr)
+				l.emit(Instr{Kind: InstrAccUpdate, AccIdx: accBase + mr*NR + nr, AccOp: accOp, Expr: expr})
+			}
+		}
+	}
+
+	l.emit(Instr{Kind: InstrBarrier})
+	l.emit(Instr{Kind: InstrLoopEnd})
+
+	// Hand off state to the final-store expansion in lowerSink.
+	l.upcastTileActive = true
+	l.upcastMR = MR
+	l.upcastNR = NR
+	l.upcastTS = TS
+	l.upcastOutMSize = M_real
+	l.upcastOutNSize = N_real
+	l.upcastMWgID = mWgID
+	l.upcastMLocID = mLocID
+	l.upcastNWgID = nWgID
+	l.upcastNLocID = nLocID
+	l.upcastAccName = func(mr, nr int) string {
+		return fmt.Sprintf("acc%d", accBase+mr*NR+nr)
+	}
+
+	// Return a sentinel — the final store layer ignores this and emits MR*NR
+	// stores by acc name. Any non-store ancestor of u in the body would be a
+	// bug for now (B3 reduces are always the kernel's terminal expression).
+	l.exprOf[u.Index()] = fmt.Sprintf("acc%d", accBase)
+	return fmt.Sprintf("acc%d", accBase)
 }
 
 func (l *lowerer) emitALU(u uop.UOp) string {
