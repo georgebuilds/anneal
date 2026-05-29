@@ -204,27 +204,32 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		}
 	})
 	t.Run("V distinguishes on symbolic dim (hash/equal asymmetry)", func(t *testing.T) {
-		// FINDING: hashArg and equalArg disagree on V when Sym=true.
+		// REGRESSION GUARD for the SPEC §10 ShapeSintArg V-on-symbolic-dim invariant.
+		//
+		// hashArg and equalArg disagree on V when Sym=true:
 		//   hashArg (uop.go:443-450): mixes only VarIdx when Sym=true; V is skipped.
 		//   equalArg (uop.go:546-550): compares the whole ShapeDim struct via !=,
 		//     so V is part of the equality check regardless of Sym.
 		//
-		// Net effect: two ShapeSintArgs with same VarIdx but different V on a Sym
-		// dim hash to the SAME bucket but compare UNEQUAL, producing two arena
-		// nodes in one bucket. This is SAFE for intern correctness (no false alias)
-		// but inefficient on hash collisions.
+		// Net effect at the cache: two ShapeSintArgs with same VarIdx but different V
+		// on a Sym dim hash to the SAME bucket but compare UNEQUAL, producing two arena
+		// nodes in one bucket. SAFE for intern correctness (no false alias) but only
+		// because production code never reaches this case — toShapeSintArg
+		// (tensor/movement.go) and NewSymbolicBatchInput (tensor/tensor.go) both panic
+		// if Sym=true is constructed with V≠0, per the SPEC §10 invariant.
 		//
-		// In production, toShapeSintArg (tensor/movement.go:208) always sets V=0
-		// when Sym=true, so the asymmetry never bites. This test pins the current
-		// asymmetric behaviour — if either side is changed (hashArg starts mixing
-		// V on Sym=true OR equalArg starts ignoring it), this test will flip.
+		// This test directly constructs the V≠0 / Sym=true case (the only path that
+		// reaches it) to pin the asymmetric behaviour. If either side is changed
+		// (hashArg starts mixing V on Sym=true OR equalArg starts ignoring it), this
+		// test will flip — and the SPEC §10 invariant should be revisited at the same
+		// time, since the asymmetry it pins down would be gone.
 		mut := append(uop.ShapeSintArg(nil), base...)
 		mut[0] = uop.ShapeDim{V: 999, Sym: true, VarIdx: 5}
 		same, a := internsEqual(t, base, mut)
 		if same {
 			t.Error("ShapeSintArg with different V on Sym=true dim aliased — "+
 				"equalArg used to distinguish them; if you intended to ignore V on Sym, "+
-				"update both hashArg and equalArg together")
+				"update both hashArg and equalArg together AND revisit SPEC §10 invariant")
 		}
 		if a.Len() != 2 {
 			t.Errorf("arena Len = %d, want 2", a.Len())

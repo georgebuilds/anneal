@@ -201,11 +201,19 @@ func (t *Tensor) ExpandSints(newShape []shape.Sint) *Tensor {
 
 // toShapeSintArg converts a []shape.Sint to a uop.ShapeSintArg for use as a
 // UOp arg. SymInt dims encode their DefineVar node's arena index in VarIdx.
+//
+// Enforces the SPEC §10 ShapeSintArg V-on-symbolic-dim invariant: when Sym=true,
+// V must be 0. hashArg ignores V on symbolic dims while equalArg compares it;
+// the cache key is only consistent because no production path sets V≠0 here.
 func toShapeSintArg(sh []shape.Sint) uop.ShapeSintArg {
 	result := make(uop.ShapeSintArg, len(sh))
 	for i, s := range sh {
 		if sym, ok := s.(shape.SymInt); ok {
-			result[i] = uop.ShapeDim{Sym: true, VarIdx: sym.Node.Index()}
+			d := uop.ShapeDim{Sym: true, VarIdx: sym.Node.Index()}
+			if d.V != 0 {
+				panic(fmt.Sprintf("uop: ShapeSintArg.V must be 0 when Sym=true (SPEC §10); got V=%d VarIdx=%d at dim %d", d.V, d.VarIdx, i))
+			}
+			result[i] = d
 		} else {
 			v, _ := s.ConstValue()
 			result[i] = uop.ShapeDim{V: v}

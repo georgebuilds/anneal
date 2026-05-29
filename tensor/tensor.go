@@ -102,6 +102,10 @@ func NewSymbolicBatchInput(a *uop.Arena, name string, min, max int64, innerShape
 	defVar := a.DefineVar(name, min, max)
 	arg := make(uop.ShapeSintArg, 1+len(innerShape))
 	arg[0] = uop.ShapeDim{Sym: true, VarIdx: defVar.Index()}
+	// SPEC §10 ShapeSintArg V-on-symbolic-dim invariant: Sym=true requires V=0.
+	if arg[0].V != 0 {
+		panic(fmt.Sprintf("uop: ShapeSintArg.V must be 0 when Sym=true (SPEC §10); got V=%d VarIdx=%d at dim 0", arg[0].V, arg[0].VarIdx))
+	}
 	for i, s := range innerShape {
 		arg[i+1] = uop.ShapeDim{V: s}
 	}
