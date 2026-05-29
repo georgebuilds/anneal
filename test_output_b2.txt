@@ -1,6 +1,0 @@
-ok      github.com/georgebuilds/anneal/uop      0.233s
-ok      github.com/georgebuilds/anneal/schedule 0.625s
-ok      github.com/georgebuilds/anneal/codegen  0.719s
-ok      github.com/georgebuilds/anneal/tensor/nn        108.075s
-ok      github.com/georgebuilds/anneal/backend/webgpu   (failed TestB0_TimingHarness_Stability, but B2 tests passed. B2 Timing: Matmul 1024x1024x1024 (OptTile 16): Min=25539.12µs (84.09 GFLOP/s) vs Default: 83.41 GFLOP/s (1.01x speedup))
-exit: 0

@@ -1,9 +1,0 @@
-Go test: 350 passed in 5 packages
-
---- git diff --stat (doc files) ---
-CONTRIBUTING.md |  2 +-
- README.md       |  6 +++---
- SPEC.md         | 61 ++++++++++++++++++++++++++++++++++++++++++++++++++++-----
- docs/index.html |  8 ++++++--
- docs/llms.txt   |  2 +-
- 5 files changed, 67 insertions(+), 12 deletions(-)

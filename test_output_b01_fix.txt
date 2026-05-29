@@ -1,5 +1,0 @@
-ok  	github.com/georgebuilds/anneal/uop	(cached)
-ok  	github.com/georgebuilds/anneal/schedule	(cached)
-ok  	github.com/georgebuilds/anneal/codegen	(cached)
-ok  	github.com/georgebuilds/anneal/tensor/nn	(cached)
-ok  	github.com/georgebuilds/anneal/backend/webgpu	2.901s
