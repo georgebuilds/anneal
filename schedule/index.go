@@ -148,6 +148,14 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		}
 		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 
+	// ── materialization hint ──────────────────────────────────────────────
+
+	case uop.OpContiguous:
+		// Contiguous is a transparent materialization hint: dissolve it at
+		// index-expression time exactly like a movement op, passing the indices
+		// straight through to the source.
+		return indexExprNode(a, expr.Src(0), indices, shapeMap, rc, fillOp)
+
 	// ── reduce ────────────────────────────────────────────────────────────
 
 	case uop.OpReduceAxis:

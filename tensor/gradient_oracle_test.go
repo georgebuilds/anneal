@@ -235,13 +235,14 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 
 		case uop.OpMax:
 			// Max backward: route adjoint to argmax positions; split ties equally.
+			adjMat := adj.Contiguous()
 			nodeExp := nodeT.ReshapeSints(keepSints).ExpandSints(srcSints)
-			adjExp := adj.ReshapeSints(keepSints).ExpandSints(srcSints)
+			adjExp := adjMat.ReshapeSints(keepSints).ExpandSints(srcSints)
 			s0 := src(0)
 			mask := s0.CmpEq(nodeExp)
-			maskFloat := mask.Cast(adj.dtype)
+			maskFloat := mask.Cast(adjMat.dtype)
 			tieCount := maskFloat.Sum(ra.Axes, true).ExpandSints(srcSints)
-			zSrc := FullSints(a, srcSints, 0.0, adj.dtype, device)
+			zSrc := FullSints(a, srcSints, 0.0, adjMat.dtype, device)
 			return []*Tensor{Where(mask, adjExp.Div(tieCount), zSrc)}
 		}
 	}

@@ -44,6 +44,12 @@ func (t *Tensor) Recip() *Tensor { return t.unary(uop.OpReciprocal) }
 // Trunc returns the truncated value (primitive).
 func (t *Tensor) Trunc() *Tensor { return t.unary(uop.OpTrunc) }
 
+// Contiguous forces materialization of t into its own kernel buffer.
+// Semantically an identity op; used to break long adjoint chains that would
+// otherwise inline too many leaf buffers into a single kernel, exceeding the
+// WebGPU 8-buffer-per-kernel limit.
+func (t *Tensor) Contiguous() *Tensor { return t.unary(uop.OpContiguous) }
+
 // ── Derived unary ops ─────────────────────────────────────────────────────────
 
 // Exp returns eˣ expressed as exp2(x / ln2)

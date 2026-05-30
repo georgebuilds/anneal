@@ -305,14 +305,18 @@ func buildGradient() GradRuleset {
 			// Sum backward: broadcast adjoint back to src shape
 			return []*Tensor{adj.ReshapeSints(keepSints).ExpandSints(srcSints)}
 		case uop.OpMax:
-			// Max backward: route adjoint to argmax positions; split ties equally
+			// Max backward: route adjoint to argmax positions; split ties equally.
+			// Materialize adj before use so that deep adjoint chains (e.g. the FC
+			// backward in a convnet) do not inline their leaf buffers into the
+			// pool-backward kernel body, which would exceed WebGPU's 8-buffer limit.
+			adjMat := adj.Contiguous()
 			nodeExp := nodeT.ReshapeSints(keepSints).ExpandSints(srcSints)
-			adjExp := adj.ReshapeSints(keepSints).ExpandSints(srcSints)
+			adjExp := adjMat.ReshapeSints(keepSints).ExpandSints(srcSints)
 			s0 := src(0)
 			mask := s0.CmpEq(nodeExp)
-			maskFloat := mask.Cast(adj.dtype)
+			maskFloat := mask.Cast(adjMat.dtype)
 			tieCount := maskFloat.Sum(ra.Axes, true).ExpandSints(srcSints)
-			zSrc := FullSints(a, srcSints, 0.0, adj.dtype, device)
+			zSrc := FullSints(a, srcSints, 0.0, adjMat.dtype, device)
 			return []*Tensor{Where(mask, adjExp.Div(tieCount), zSrc)}
 		}
 		return nil
