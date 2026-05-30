@@ -155,7 +155,6 @@ func (l *Linear) Forward(x *tensor.Tensor) *tensor.Tensor {
 	// weight: [OutFeatures, InFeatures] → transpose to [InFeatures, OutFeatures]
 	out := x.Matmul(l.Weight.T.Permute([]int{1, 0}))
 	if l.Bias != nil {
-		// bias: [OutFeatures] → broadcast to [..., OutFeatures]
 		b := tensor.BroadcastToSints(l.Bias.T, out.ShapeSints())
 		out = out.Add(b)
 	}
@@ -216,10 +215,6 @@ func NewConv2d(a *uop.Arena, inChannels, outChannels int64, kernelSize [2]int64,
 // prior 9-loop-accumulation approach left conv_out un-materialized, forcing the
 // backward's ReLU-mask kernel to reference all 9 intermediate matmul buffers at once.
 func (c *Conv2d) Forward(x *tensor.Tensor) *tensor.Tensor {
-	if c.Stride[0] != 1 || c.Stride[1] != 1 {
-		panic("tensor/nn: Conv2d with stride != 1 requires the Phase 7 pool primitive")
-	}
-
 	xShape := x.Shape()
 	N, Cin, H, W := xShape[0], xShape[1], xShape[2], xShape[3]
 
@@ -227,12 +222,15 @@ func (c *Conv2d) Forward(x *tensor.Tensor) *tensor.Tensor {
 	Cout, _, kH, kW := wShape[0], wShape[1], wShape[2], wShape[3]
 
 	pH, pW := int64(c.Pad[0]), int64(c.Pad[1])
+	sH, sW := int64(c.Stride[0]), int64(c.Stride[1])
 
 	if H+2*pH < kH || W+2*pW < kW {
 		panic(fmt.Sprintf("tensor/nn: Conv2d: kernel %dx%d larger than padded input %dx%d",
 			kH, kW, H+2*pH, W+2*pW))
 	}
 
+	// Ho1, Wo1 are the stride-1 conv output dimensions.
+	// For stride>1, the actual output after subsampling is (Ho1-1)/sH+1.
 	Ho := H + 2*pH - kH + 1
 	Wo := W + 2*pW - kW + 1
 
@@ -287,12 +285,18 @@ func (c *Conv2d) Forward(x *tensor.Tensor) *tensor.Tensor {
 	matout := im2col.Matmul(wFlat)
 	// matout: [N, HoWo, Cout]
 
-	// Reorder to standard output: [N, Cout, Ho, Wo]
+	// Reorder to standard output: [N, Cout, Ho1, Wo1]
 	out := matout.Permute([]int{0, 2, 1}).Reshape([]int64{N, Cout, Ho, Wo})
 
 	if c.Bias != nil {
 		b := c.Bias.T.Reshape([]int64{1, Cout, 1, 1}).Expand([]int64{N, Cout, Ho, Wo})
 		out = out.Add(b)
+	}
+
+	// For stride>1, subsample via MaxPool2D(k=1,s=stride).
+	// max-pool with kernel 1×1 is pure element selection, so this is subsampling.
+	if sH > 1 || sW > 1 {
+		out = MaxPool2D(out, 1, 1, sH, sW)
 	}
 
 	return out
@@ -304,4 +308,94 @@ func (c *Conv2d) Params() []*Parameter {
 		return []*Parameter{c.Weight, c.Bias}
 	}
 	return []*Parameter{c.Weight}
+}
+
+// ── MaxPool2D ─────────────────────────────────────────────────────────────────
+
+// MaxPool2D computes 2D max-pooling over a [N, C, H, W] input.
+// kH, kW: kernel height/width. sH, sW: stride height/width.
+// Output shape: [N, C, (H-kH)/sH+1, (W-kW)/sW+1].
+//
+// When kH ≤ sH AND kW ≤ sW (non-overlapping or stride ≥ kernel):
+//   Rangeify decomposition — shrink/reshape/permute/flatten the window then
+//   ReduceAxis(OpMax) over the window axis. Backward tie policy: split equally
+//   (each tied max position receives adj/tieCount), matching ReduceAxis(OpMax)
+//   and tinygrad — SPEC §10 canonical policy.
+//
+// When kH > sH OR kW > sW (overlapping):
+//   Binary Maximum chain over kH×kW kernel offsets.
+//   Backward tie policy: winner-take-all (first position wins).
+func MaxPool2D(x *tensor.Tensor, kH, kW, sH, sW int64) *tensor.Tensor {
+	if x.Rank() != 4 {
+		panic(fmt.Sprintf("MaxPool2D: input must be rank 4, got rank %d", x.Rank()))
+	}
+	if kH <= 0 || kW <= 0 {
+		panic("MaxPool2D: kernel size must be positive")
+	}
+	if sH <= 0 || sW <= 0 {
+		panic("MaxPool2D: stride must be positive")
+	}
+
+	sh := x.Shape()
+	N, C, H, W := sh[0], sh[1], sh[2], sh[3]
+
+	if H < kH || W < kW {
+		panic(fmt.Sprintf("MaxPool2D: input spatial dims [%d,%d] smaller than kernel [%d,%d]",
+			H, W, kH, kW))
+	}
+
+	oH := (H-kH)/sH + 1
+	oW := (W-kW)/sW + 1
+
+	if kH <= sH && kW <= sW {
+		// Rangeify decomposition: window-aligned reshape + ReduceAxis(OpMax).
+		// Works for kH ≤ sH and kW ≤ sW (non-overlapping windows).
+		//
+		// 1. Trim input to the exact sliding-window span: [N,C,oH*sH,oW*sW]
+		trimH, trimW := oH*sH, oW*sW
+		xs := x
+		if trimH < H || trimW < W {
+			xs = x.Shrink([][2]int64{{0, N}, {0, C}, {0, trimH}, {0, trimW}})
+		}
+		// 2. Split H→[oH,sH] and W→[oW,sW]: [N,C,oH,sH,oW,sW]
+		xr := xs.Reshape([]int64{N, C, oH, sH, oW, sW})
+		// 3. Trim stride windows to kernel size: [N,C,oH,kH,oW,kW]
+		if kH < sH || kW < sW {
+			xr = xr.Shrink([][2]int64{{0, N}, {0, C}, {0, oH}, {0, kH}, {0, oW}, {0, kW}})
+		}
+		// 4. Permute [N,C,oH,kH,oW,kW] → [N,C,oH,oW,kH,kW]
+		xp := xr.Permute([]int{0, 1, 2, 4, 3, 5})
+		// 5. Flatten window: [N,C,oH,oW,kH*kW]
+		xf := xp.Reshape([]int64{N, C, oH, oW, kH * kW})
+		// 6. ReduceMax over window axis → [N,C,oH,oW]
+		return xf.Max([]int{4}, false)
+	}
+
+	// Overlapping (kH > sH or kW > sW): binary Maximum chain over kernel offsets.
+	var result *tensor.Tensor
+	for di := int64(0); di < kH; di++ {
+		for dj := int64(0); dj < kW; dj++ {
+			patch := maxPool2DPatch(x, N, C, oH, oW, sH, sW, di, dj)
+			if result == nil {
+				result = patch
+			} else {
+				result = result.Maximum(patch)
+			}
+		}
+	}
+	return result
+}
+
+// maxPool2DPatch extracts x[n, c, oh*sH+di, ow*sW+dj] for oh∈[0,oH), ow∈[0,oW)
+// using only Shrink and (for stride>1) Reshape — no Pad.
+func maxPool2DPatch(x *tensor.Tensor, N, C, oH, oW, sH, sW, di, dj int64) *tensor.Tensor {
+	slice := x.Shrink([][2]int64{{0, N}, {0, C}, {di, di + oH*sH}, {dj, dj + oW*sW}})
+	if sH == 1 && sW == 1 {
+		return slice // [N, C, oH, oW] directly
+	}
+	// Unfold stride dimension: [N,C,oH*sH,oW*sW] → [N,C,oH,sH,oW,sW]
+	// → Shrink to select stride-offset 0: [N,C,oH,1,oW,1] → [N,C,oH,oW]
+	xr := slice.Reshape([]int64{N, C, oH, sH, oW, sW})
+	xs := xr.Shrink([][2]int64{{0, N}, {0, C}, {0, oH}, {0, 1}, {0, oW}, {0, 1}})
+	return xs.Reshape([]int64{N, C, oH, oW})
 }
