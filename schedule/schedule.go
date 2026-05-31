@@ -50,9 +50,10 @@ func GetKernelGraph(sink uop.UOp, device string) uop.UOp {
 	// subgraph (dissolving movement ops into range arithmetic), insert BUFFERIZE.
 	sink = runRangeify(sink)
 
-	// Pass 5: remove cheap BUFFERIZE (cost-based fusion). All BUFFERIZE nodes
-	// are Removable=false in v1, so this is a no-op placeholder.
-	// Update: implemented epilogue fusion for single-consumer elementwise kernels.
+	// Pass 5: remove cheap BUFFERIZE (cost-based fusion). Folds a Removable
+	// matmul-reduce producer into its sole elementwise-epilogue consumer,
+	// subject to the WebGPU 8-buffer-per-kernel budget. Gated by
+	// FusionEnabled for differential testing.
 	sink = removeBufferize(sink)
 
 	// Pass 6: rewrite surviving BUFFERIZE → BUFFER(LUNIQUE,DEVICE)+STORE+END+AFTER.
@@ -114,9 +115,10 @@ func kernelTopoSort(root uop.UOp) []uop.UOp {
 	return order
 }
 
-// removeBufferize elides Removable=true BUFFERIZE nodes when the cost function
-// allows fusion. v1 only creates Removable=false nodes, so this is a no-op.
-// Update: implemented epilogue fusion for single-consumer elementwise kernels.
+// removeBufferize elides Removable=true BUFFERIZE nodes by folding each into
+// its sole consumer when that consumer is a non-reduce BUFFERIZE and the
+// combined kernel stays within the 8-buffer WebGPU budget. Gated by
+// FusionEnabled for differential testing.
 var FusionEnabled = true
 
 func removeBufferize(sink uop.UOp) uop.UOp {
