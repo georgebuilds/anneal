@@ -85,41 +85,118 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 
 	case uop.OpShrink:
-		// Slice: offset each index by its lower bound.
-		bounds := expr.Arg().([][2]int64)
-		srcIndices := make([]uop.UOp, len(bounds))
-		for i, b := range bounds {
-			if b[0] == 0 {
-				srcIndices[i] = indices[i]
-			} else {
-				off := a.New(uop.OpConst, uop.Dtypes.Index, nil, b[0], nil)
-				srcIndices[i] = a.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{indices[i], off}, nil, nil)
+		// Slice: offset each index by its lower bound. Concrete arg keeps the
+		// pre-Slice-5 fast path (byte-identical static behaviour). Symbolic arg
+		// (ShrinkSintArg) builds an OpAdd whose offset operand may itself be a
+		// SymInt expression rebuilt from (VarName, Mul) via padOffsetUOp.
+		switch bounds := expr.Arg().(type) {
+		case [][2]int64:
+			srcIndices := make([]uop.UOp, len(bounds))
+			for i, b := range bounds {
+				if b[0] == 0 {
+					srcIndices[i] = indices[i]
+				} else {
+					off := a.New(uop.OpConst, uop.Dtypes.Index, nil, b[0], nil)
+					srcIndices[i] = a.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{indices[i], off}, nil, nil)
+				}
 			}
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		case uop.ShrinkSintArg:
+			srcIndices := make([]uop.UOp, len(bounds))
+			for i, b := range bounds {
+				off := dimToUOp(a, shapeDimToSintI(a, b[0]))
+				if isZeroConst(off) {
+					srcIndices[i] = indices[i]
+				} else {
+					srcIndices[i] = a.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{indices[i], off}, nil, nil)
+				}
+			}
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 		}
-		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		panic("schedule/index: OpShrink: unexpected arg type")
 
 	case uop.OpPad:
-		// Pad: validity guard + source index = r - lo; out-of-bounds → zero.
-		padding := expr.Arg().([][2]int64)
-		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
-		srcIndices := make([]uop.UOp, len(padding))
+		// Pad: validity guard + source index = r - lo; out-of-bounds → fill.
+		// Concrete and symbolic args share the same predicate shape; the
+		// difference is that lo/hi/srcShape[i] become UOp expressions instead
+		// of compile-time constants when symbolic. Concrete args carrying a
+		// symbolic source shape (e.g. concrete Pad on the static axis of an
+		// [n,4] tensor) flow through the Sint path too so srcShape never hits
+		// AsInts.
+		srcSints := shapeMap[expr.Src(0).Index()]
+		var padLo []uop.UOp // per-axis offset (== lo); nil when lo == 0
+		var padHi []uop.UOp // per-axis upper-bound expression (lo + srcShape[i])
+		var nonZeroLo []bool
+		var nonZeroHi []bool
+		// Normalise both arg variants into a slice of (loSint, hiSint) so the
+		// per-axis emission logic below is shared.
+		var loSints []shape.Sint
+		var hiSints []shape.Sint
+		switch padding := expr.Arg().(type) {
+		case [][2]int64:
+			loSints = make([]shape.Sint, len(padding))
+			hiSints = make([]shape.Sint, len(padding))
+			for i, p := range padding {
+				loSints[i] = shape.Const(p[0])
+				hiSints[i] = shape.Const(p[1])
+			}
+		case uop.PadSintArg:
+			loSints = make([]shape.Sint, len(padding))
+			hiSints = make([]shape.Sint, len(padding))
+			for i, p := range padding {
+				loSints[i] = shapeDimToSintI(a, p[0])
+				hiSints[i] = shapeDimToSintI(a, p[1])
+			}
+		default:
+			panic("schedule/index: OpPad: unexpected arg type")
+		}
+		n := len(loSints)
+		padLo = make([]uop.UOp, n)
+		padHi = make([]uop.UOp, n)
+		nonZeroLo = make([]bool, n)
+		nonZeroHi = make([]bool, n)
+		for i := 0; i < n; i++ {
+			loV, loConcrete := loSints[i].ConstValue()
+			hiV, hiConcrete := hiSints[i].ConstValue()
+			loIsZero := loConcrete && loV == 0
+			if !loIsZero {
+				padLo[i] = dimToUOp(a, loSints[i])
+				nonZeroLo[i] = true
+			}
+			// Upper bound r < lo + srcSize. Only emit when hi != 0; symbolic hi
+			// is conservatively non-zero.
+			hiIsZero := hiConcrete && hiV == 0
+			if !hiIsZero {
+				srcSz := dimToUOp(a, srcSints[i])
+				var upper uop.UOp
+				if loIsZero {
+					upper = srcSz
+				} else {
+					upper = a.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{padLo[i], srcSz}, nil, nil)
+				}
+				padHi[i] = upper
+				nonZeroHi[i] = true
+			}
+		}
+
+		srcIndices := make([]uop.UOp, len(padLo))
 		var validConds []uop.UOp
-		for i, p := range padding {
-			lo, hi := p[0], p[1]
+		for i := range padLo {
 			r := indices[i]
-			if lo != 0 {
-				loConst := a.New(uop.OpConst, uop.Dtypes.Index, nil, lo, nil)
-				srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{r, loConst}, nil, nil)
-				// r >= lo: (lo-1) < r
-				loMinus1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, lo-1, nil)
+			if nonZeroLo[i] {
+				srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{r, padLo[i]}, nil, nil)
+				// r >= lo  ⇔  (lo - 1) < r. Express as Sub(lo, Const(1)) so the
+				// constant path is byte-identical (interning collapses
+				// Sub(Const(L), Const(1)) → Const(L-1)) and the symbolic path
+				// builds a real UOp expression that emits correctly via emitALU.
+				one := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(1), nil)
+				loMinus1 := a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{padLo[i], one}, nil, nil)
 				validConds = append(validConds, a.New(uop.OpCmpLt, uop.Dtypes.Bool, []uop.UOp{loMinus1, r}, nil, nil))
 			} else {
 				srcIndices[i] = r
 			}
-			if hi != 0 {
-				// r < lo + srcShape[i]
-				bound := a.New(uop.OpConst, uop.Dtypes.Index, nil, lo+srcShape[i], nil)
-				validConds = append(validConds, a.New(uop.OpCmpLt, uop.Dtypes.Bool, []uop.UOp{r, bound}, nil, nil))
+			if nonZeroHi[i] {
+				validConds = append(validConds, a.New(uop.OpCmpLt, uop.Dtypes.Bool, []uop.UOp{r, padHi[i]}, nil, nil))
 			}
 		}
 		inner := indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
@@ -134,14 +211,23 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		return a.New(uop.OpWhere, expr.DType(), []uop.UOp{valid, inner, fill}, nil, nil)
 
 	case uop.OpFlip:
-		// Mirror: index r → (size-1) - r for flipped axes.
+		// Mirror: index r → (size-1) - r for flipped axes. Concrete shape uses
+		// a baked-in Const(size-1); symbolic shape builds Sub(srcSize, Const(1))
+		// so the operand can be a SymInt expression.
 		axisFlags := expr.Arg().([]int64)
-		srcShape := shape.AsInts(shapeMap[expr.Src(0).Index()])
+		srcSints := shapeMap[expr.Src(0).Index()]
 		srcIndices := make([]uop.UOp, len(axisFlags))
 		for i, f := range axisFlags {
 			if f != 0 {
-				sm1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, srcShape[i]-1, nil)
-				srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+				if v, ok := srcSints[i].ConstValue(); ok {
+					sm1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, v-1, nil)
+					srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+				} else {
+					srcSz := dimToUOp(a, srcSints[i])
+					one := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(1), nil)
+					sm1 := a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{srcSz, one}, nil, nil)
+					srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+				}
 			} else {
 				srcIndices[i] = indices[i]
 			}
@@ -175,8 +261,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 				rr = rc.newRange(v, uop.AxisReduce)
 			} else {
 				sym := s.(shape.SymInt)
-				varName := sym.Node.Arg().(uop.VarArg).Name
-				rr = rc.newSymRange(varName, uop.AxisReduce)
+				rr = rc.newSymRange(sym.Node, uop.AxisReduce)
 			}
 			reduceRanges[i] = rr
 			reducedAt[ax] = rr
@@ -371,6 +456,38 @@ func unflatIndexSints(a *uop.Arena, flat uop.UOp, sh []shape.Sint) []uop.UOp {
 		}
 	}
 	return out
+}
+
+// dimToUOp materialises a shape.Sint as an Index-dtype UOp in arena a.
+// Concrete dims become OpConst(V); symbolic dims return the backing UOp node.
+// Used by OpPad/OpShrink/OpFlip symbolic paths where pad/shrink amounts and
+// source-shape dims may carry SymInts.
+func dimToUOp(a *uop.Arena, s shape.Sint) uop.UOp {
+	if cv, ok := s.ConstValue(); ok {
+		return a.New(uop.OpConst, uop.Dtypes.Index, nil, cv, nil)
+	}
+	sym := s.(shape.SymInt)
+	return sym.Node
+}
+
+// shapeDimToSintI converts a uop.ShapeDim back to a shape.Sint by rebuilding
+// the symbolic bound UOp via (VarName, Mul) lookup. Mirror of the
+// gradient.go helper, scoped to schedule/index.go to keep the index path
+// self-contained.
+func shapeDimToSintI(a *uop.Arena, d uop.ShapeDim) shape.Sint {
+	if !d.Sym {
+		return shape.Const(d.V)
+	}
+	return shape.SymInt{Node: rebuildSymBound(a, d)}
+}
+
+// isZeroConst reports whether u is a literal int64 OpConst with value 0.
+func isZeroConst(u uop.UOp) bool {
+	if !u.Valid() || u.Op() != uop.OpConst {
+		return false
+	}
+	v, ok := u.Arg().(int64)
+	return ok && v == 0
 }
 
 // identityConst returns the identity element for reduceOp over dtype as a

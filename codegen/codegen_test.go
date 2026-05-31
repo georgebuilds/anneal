@@ -7,6 +7,7 @@ import (
 
 	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
+	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -294,4 +295,45 @@ func TestGolden_ScalarReduce8(t *testing.T) {
 		"acc0 = acc0 +",
 		"data0[",
 	)
+}
+
+// ── Test: Int64 → i32 downgrade comment (Slice 6 INV-B) ──────────────────────
+//
+// When IndexDtypeForBound says the symbolic loop bound would need i64
+// (vmax > MaxInt32), WGSL has no i64 so the renderer downgrades to i32 and
+// emits an acknowledging comment (tinygrad PR #8268). Constructs a reshape
+// merge [n, 4] → [n*4] with n.max=600_000_000 so the Mul bound's vmax is
+// 2.4e9 > MaxInt32 (2.1e9), forcing the downgrade.
+func TestRender_SymbolicLoop_Int64Downgrade(t *testing.T) {
+	a := newArena()
+	x := tensor.NewSymbolicBatchInput(a, "n", 1, 600_000_000, []int64{4}, uop.Dtypes.Float32, "webgpu")
+	nVar, ok := a.FindDefineVar("n")
+	if !ok {
+		t.Fatal("FindDefineVar(n) not found after NewSymbolicBatchInput")
+	}
+	four := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(4), nil)
+	nTimes4 := a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{nVar, four}, nil, nil)
+	merged := x.ReshapeSints([]shape.Sint{shape.SymInt{Node: nTimes4}})
+	y := merged.Sum([]int{0}, false)
+
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
+
+	assertContains(t, wgsl,
+		"bound vmax exceeds int32",
+		"tinygrad #8268",
+	)
+	// The symbolic loop renders with i32 regardless (WGSL constraint).
+	assertContains(t, wgsl, "for (var r0: i32 = 0;")
+}
+
+// Sanity: when the bound's vmax fits in int32, the renderer does NOT emit the
+// downgrade comment. Sum over a small-bound symbolic dim.
+func TestRender_SymbolicLoop_NoDowngradeWhenFits(t *testing.T) {
+	a := newArena()
+	x := tensor.NewSymbolicInput(a, "n", 1, 1024, uop.Dtypes.Float32, "webgpu")
+	y := x.Sum([]int{0}, false)
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
+	assertNotContains(t, wgsl, "tinygrad #8268")
 }

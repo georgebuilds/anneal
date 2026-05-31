@@ -1,6 +1,8 @@
 package schedule
 
 import (
+	"fmt"
+
 	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -99,17 +101,41 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 
 	case uop.OpPad:
 		srcSh := cache[u.Src(0).Index()]
-		padding := u.Arg().([][2]int64)
-		sh = make([]shape.Sint, len(srcSh))
-		for i, s := range srcSh {
-			sh[i] = shape.Add(s, shape.Const(padding[i][0]+padding[i][1]))
+		switch padding := u.Arg().(type) {
+		case [][2]int64:
+			sh = make([]shape.Sint, len(srcSh))
+			for i, s := range srcSh {
+				sh[i] = shape.Add(s, shape.Const(padding[i][0]+padding[i][1]))
+			}
+		case uop.PadSintArg:
+			a := u.Arena()
+			sh = make([]shape.Sint, len(srcSh))
+			for i, s := range srcSh {
+				lo := schedShapeDimToSint(a, padding[i][0])
+				hi := schedShapeDimToSint(a, padding[i][1])
+				sh[i] = shape.Add(shape.Add(s, lo), hi)
+			}
+		default:
+			panic(fmt.Sprintf("schedule/rangeify: OpPad: unexpected arg type %T", u.Arg()))
 		}
 
 	case uop.OpShrink:
-		arg := u.Arg().([][2]int64)
-		sh = make([]shape.Sint, len(arg))
-		for i, p := range arg {
-			sh[i] = shape.Const(p[1] - p[0])
+		switch arg := u.Arg().(type) {
+		case [][2]int64:
+			sh = make([]shape.Sint, len(arg))
+			for i, p := range arg {
+				sh[i] = shape.Const(p[1] - p[0])
+			}
+		case uop.ShrinkSintArg:
+			a := u.Arena()
+			sh = make([]shape.Sint, len(arg))
+			for i, p := range arg {
+				lo := schedShapeDimToSint(a, p[0])
+				hi := schedShapeDimToSint(a, p[1])
+				sh[i] = shape.Sub(hi, lo)
+			}
+		default:
+			panic(fmt.Sprintf("schedule/rangeify: OpShrink: unexpected arg type %T", u.Arg()))
 		}
 
 	case uop.OpFlip, uop.OpCast, uop.OpBitcast:
@@ -145,13 +171,15 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 }
 
 // shapeSintArgToSints converts a ShapeSintArg to []shape.Sint.
-// Symbolic dims are reconstructed as SymInt by looking up the DefineVar node
-// by arena index in a.
+// Symbolic dims carry (VarName, Mul) structurally (Option B Slice 4); the
+// bound expression UOp is rebuilt in a via name lookup + intern-stable Mul
+// construction. For Mul>1 the reconstructed bound is OpMul(DefineVar, Const)
+// in (var, const) canonical orientation — matches shape.Mul's natural order.
 func shapeSintArgToSints(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
 	sh := make([]shape.Sint, len(arg))
 	for i, d := range arg {
 		if d.Sym {
-			sh[i] = shape.SymInt{Node: a.At(d.VarIdx)}
+			sh[i] = shape.SymInt{Node: rebuildSymBound(a, d)}
 		} else {
 			sh[i] = shape.Const(d.V)
 		}
@@ -159,10 +187,35 @@ func shapeSintArgToSints(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
 	return sh
 }
 
+// rebuildSymBound reconstructs the UOp bound expression for a symbolic ShapeDim
+// from its (VarName, Mul) encoding. Interning ensures the rebuilt node aliases
+// the original whenever the original was constructed in canonical orientation.
+func rebuildSymBound(a *uop.Arena, d uop.ShapeDim) uop.UOp {
+	defVar, ok := a.FindDefineVar(d.VarName)
+	if !ok {
+		panic(fmt.Sprintf("schedule: shapeSintArgToSints: DefineVar %q not found in arena", d.VarName))
+	}
+	if d.Mul <= 1 {
+		return defVar
+	}
+	mulConst := a.New(uop.OpConst, uop.Dtypes.Index, nil, d.Mul, nil)
+	return a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{defVar, mulConst}, nil, nil)
+}
+
 func cloneShape(s []shape.Sint) []shape.Sint {
 	c := make([]shape.Sint, len(s))
 	copy(c, s)
 	return c
+}
+
+// schedShapeDimToSint converts a uop.ShapeDim into a shape.Sint by rebuilding
+// the symbolic bound UOp from its (VarName, Mul) encoding. Used by the
+// rangeify shape-cache OpPad/OpShrink branches when the pad amount is symbolic.
+func schedShapeDimToSint(a *uop.Arena, d uop.ShapeDim) shape.Sint {
+	if !d.Sym {
+		return shape.Const(d.V)
+	}
+	return shape.SymInt{Node: rebuildSymBound(a, d)}
 }
 
 // ── Consumer map ──────────────────────────────────────────────────────────────
@@ -217,10 +270,9 @@ func buildRealizeMap(sink uop.UOp, topo []uop.UOp) map[uint32]bool {
 // ── Range context ─────────────────────────────────────────────────────────────
 
 type rangeCtx struct {
-	a             *uop.Arena
-	nextID        int
-	kernelRanges  []uop.UOp // all RANGE nodes created for the current kernel
-	symParamCount int        // symbolic params allocated for the current kernel
+	a            *uop.Arena
+	nextID       int
+	kernelRanges []uop.UOp // all RANGE nodes created for the current kernel
 }
 
 func newRangeCtx(a *uop.Arena) *rangeCtx {
@@ -230,7 +282,6 @@ func newRangeCtx(a *uop.Arena) *rangeCtx {
 // startKernel resets the per-kernel range accumulators.
 func (rc *rangeCtx) startKernel() {
 	rc.kernelRanges = rc.kernelRanges[:0]
-	rc.symParamCount = 0
 }
 
 func (rc *rangeCtx) newRange(size int64, t uop.AxisType) uop.UOp {
@@ -240,22 +291,20 @@ func (rc *rangeCtx) newRange(size int64, t uop.AxisType) uop.UOp {
 	if size == 1 {
 		return rc.a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
 	}
-	r := rc.a.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{ID: id, Size: size, Type: t}, nil)
+	boundC := rc.a.New(uop.OpConst, uop.Dtypes.Index, nil, size, nil)
+	r := rc.a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{boundC}, uop.RangeArg{ID: id, Type: t}, nil)
 	rc.kernelRanges = append(rc.kernelRanges, r)
 	return r
 }
 
-// newSymRange creates a symbolic RANGE node whose bound is provided at dispatch
-// via the params_n buffer at slot SymParamIdx. VarName records the DefineVar name
-// so RunSymbolic can look it up in the binding map.
-func (rc *rangeCtx) newSymRange(varName string, t uop.AxisType) uop.UOp {
+// newSymRange creates a symbolic RANGE node whose bound is the given UOp
+// (a DefineVar or an expression over DefineVars). At codegen time the lowerer
+// walks the kernel, collects DefineVars via uop.VariablesOf, and assigns
+// params_n slots sorted by variable name.
+func (rc *rangeCtx) newSymRange(bound uop.UOp, t uop.AxisType) uop.UOp {
 	id := rc.nextID
 	rc.nextID++
-	symIdx := rc.symParamCount
-	rc.symParamCount++
-	r := rc.a.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
-		ID: id, Size: 0, Type: t, Symbolic: true, SymParamIdx: symIdx, VarName: varName,
-	}, nil)
+	r := rc.a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{bound}, uop.RangeArg{ID: id, Type: t}, nil)
 	rc.kernelRanges = append(rc.kernelRanges, r)
 	return r
 }
@@ -267,8 +316,7 @@ func (rc *rangeCtx) freshRanges(sh []shape.Sint, t uop.AxisType) []uop.UOp {
 			ranges[i] = rc.newRange(v, t)
 		} else {
 			sym := s.(shape.SymInt)
-			varName := sym.Node.Arg().(uop.VarArg).Name
-			ranges[i] = rc.newSymRange(varName, t)
+			ranges[i] = rc.newSymRange(sym.Node, t)
 		}
 	}
 	return ranges

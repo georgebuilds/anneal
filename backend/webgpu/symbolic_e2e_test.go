@@ -197,15 +197,15 @@ func TestSymbolicRangeifyBranch(t *testing.T) {
 	found := false
 	for i := 1; i < end.NSrc(); i++ {
 		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			ra := r.Arg().(uop.RangeArg)
-			if ra.Symbolic && ra.VarName == "n" && ra.SymParamIdx == 0 {
+		if r.Op() == uop.OpRange && uop.RangeIsSymbolic(r) {
+			bound := uop.RangeBound(r)
+			if bound.Op() == uop.OpDefineVar && bound.Arg().(uop.VarArg).Name == "n" {
 				found = true
 			}
 		}
 	}
 	if !found {
-		t.Error("FAIL: no OpRange with Symbolic=true, VarName=\"n\", SymParamIdx=0 found in kernel END")
+		t.Error("FAIL: no symbolic OpRange whose bound is DefineVar(\"n\") found in kernel END")
 	}
 
 	t.Logf("rangeify branch proof: SymVars=%v, symbolic range found in kernel END", item.SymVars)
@@ -261,23 +261,10 @@ func TestSymbolicStaticPathUnchanged(t *testing.T) {
 
 // itemHasSymDim is a local copy of the webgpu-internal itemHasSymDim for test use.
 func itemHasSymDim(item schedule.ExecItem) bool {
-	sink := item.Ast
-	if sink.Op() != uop.OpSink || sink.NSrc() == 0 {
+	if !item.Ast.Valid() {
 		return false
 	}
-	end := sink.Src(0)
-	if end.Op() != uop.OpEnd {
-		return false
-	}
-	for i := 1; i < end.NSrc(); i++ {
-		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
-				return true
-			}
-		}
-	}
-	return false
+	return len(uop.VariablesOf(item.Ast)) > 0
 }
 
 // webgpu.Device is now exposed as a SymbolicExecutor for RealizeWithBinding.

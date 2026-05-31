@@ -105,14 +105,14 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	}
 
 	ra := targetRange.Arg().(uop.RangeArg)
-	if ra.Symbolic {
+	if uop.RangeIsSymbolic(targetRange) {
 		// Multi-dim symbolic dispatch is out of scope for B1
 		return sink
 	}
 
 	// Split S into wg_size = ceil(S/L) and local_size = L
 	L := int64(localSize)
-	S := ra.Size
+	S := uop.RangeSize(targetRange)
 	W := (S + L - 1) / L
 
 	// Find max existing Range ID to pick unique ones for the new ranges
@@ -128,15 +128,15 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	}
 
 	// Create new ranges. We reuse the original ID for the workgroup part.
-	rwg := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	wConst := arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
+	rwg := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wConst}, uop.RangeArg{
 		ID:   ra.ID,
-		Size: W,
 		Type: uop.AxisWorkgroup,
 	}, nil)
 
-	rloc := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	lBoundConst := arena.New(uop.OpConst, uop.Dtypes.Index, nil, L, nil)
+	rloc := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{lBoundConst}, uop.RangeArg{
 		ID:   maxID + 1,
-		Size: L,
 		Type: uop.AxisLocal,
 	}, nil)
 
@@ -236,12 +236,12 @@ func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
 
 	targetRange := reduce.Src(axisIdx + 1)
 	ra := targetRange.Arg().(uop.RangeArg)
-	if ra.Symbolic {
+	if uop.RangeIsSymbolic(targetRange) {
 		return sink
 	}
 
 	TS := int64(tileSize)
-	S := ra.Size
+	S := uop.RangeSize(targetRange)
 	W := (S + TS - 1) / TS
 
 	maxID := -1
@@ -257,15 +257,15 @@ func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
 
 	// Split K into k_outer (AxisLoop/Reduce) and k_inner (AxisLoop/Reduce).
 	// We use AxisReduce for both to signal sequential accumulation.
-	rk_outer := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	wBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
+	rk_outer := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wBound}, uop.RangeArg{
 		ID:   ra.ID,
-		Size: W,
 		Type: uop.AxisReduce,
 	}, nil)
 
-	rk_inner := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	tsBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, TS, nil)
+	rk_inner := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{tsBound}, uop.RangeArg{
 		ID:   maxID + 1,
-		Size: TS,
 		Type: uop.AxisReduce,
 	}, nil)
 
@@ -369,17 +369,18 @@ func applyUpcast(sink uop.UOp, axisIdx int, factor int) uop.UOp {
 	}
 
 	ra := targetRange.Arg().(uop.RangeArg)
-	if ra.Symbolic {
+	if uop.RangeIsSymbolic(targetRange) {
 		return sink
 	}
 	F := int64(factor)
-	if ra.Size%F != 0 {
+	S := uop.RangeSize(targetRange)
+	if S%F != 0 {
 		// Padded outer would be ceil(Size/F). Boundary masking on store is
 		// the user's responsibility; for now allow but report once.
 		// Keep semantics safe by ceiling, mirroring OptLocal.
 		// (Stores are per-(mr,nr) and will be masked at emit time.)
 	}
-	W := (ra.Size + F - 1) / F
+	W := (S + F - 1) / F
 
 	// Find max existing Range ID to pick a unique one for the inner range.
 	maxID := -1
@@ -394,14 +395,14 @@ func applyUpcast(sink uop.UOp, axisIdx int, factor int) uop.UOp {
 	}
 
 	// Outer keeps original ID and Type; inner is fresh AxisUpcast.
-	rOuter := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	wBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
+	rOuter := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wBound}, uop.RangeArg{
 		ID:   ra.ID,
-		Size: W,
 		Type: ra.Type,
 	}, nil)
-	rInner := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	fBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, F, nil)
+	rInner := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{fBound}, uop.RangeArg{
 		ID:   maxID + 1,
-		Size: F,
 		Type: uop.AxisUpcast,
 	}, nil)
 
@@ -500,12 +501,13 @@ func applyVectorize(sink uop.UOp, axisIdx int, width int) uop.UOp {
 		return sink
 	}
 	ra := targetRange.Arg().(uop.RangeArg)
-	if ra.Symbolic {
+	if uop.RangeIsSymbolic(targetRange) {
 		return sink
 	}
 
 	W := int64(width)
-	outer := (ra.Size + W - 1) / W
+	S := uop.RangeSize(targetRange)
+	outer := (S + W - 1) / W
 
 	maxID := -1
 	for i := 0; i < arena.Len(); i++ {
@@ -518,14 +520,14 @@ func applyVectorize(sink uop.UOp, axisIdx int, width int) uop.UOp {
 		}
 	}
 
-	rOuter := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	outerBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, outer, nil)
+	rOuter := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{outerBound}, uop.RangeArg{
 		ID:   ra.ID,
-		Size: outer,
 		Type: ra.Type,
 	}, nil)
-	rInner := arena.New(uop.OpRange, uop.Dtypes.Index, nil, uop.RangeArg{
+	wBound := arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
+	rInner := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wBound}, uop.RangeArg{
 		ID:   maxID + 1,
-		Size: W,
 		Type: uop.AxisVectorize,
 	}, nil)
 

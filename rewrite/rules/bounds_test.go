@@ -9,6 +9,21 @@ import (
 
 // ── local helpers ─────────────────────────────────────────────────────────────
 
+// Convention note — dv vs Arena.DefineVar:
+//
+//   - dv (below) stores raw lo/hi src Consts and yields a *half-open* [lo, hi)
+//     interval; BoundsOf returns {lo, hi-1}. Suitable for unit-testing
+//     BoundsOf's interval arithmetic primitive in isolation without going
+//     through the public constructor.
+//   - Arena.DefineVar(name, min, max) stores src[1] as max+1 internally and
+//     presents the user-facing *inclusive* interval [min, max]; BoundsOf
+//     unwraps the +1. Mirrors tinygrad's DefineVar semantics — use this path
+//     when verifying tinygrad-equivalence at the public-API surface.
+//
+// Both feed identical math into BoundsOf's ALU cases; only the leaf intervals
+// they expose differ. See TestBoundsOfFiveOps_Slice6 (dv path) and
+// TestBoundsOfFiveOps_Slice6_DefineVar (public API path) for paired oracles.
+
 // dv builds a two-src DefineVar [lo, hi).  BoundsOf returns {lo, hi-1}.
 func dv(a *uop.Arena, lo, hi int64) uop.UOp {
 	return a.New(uop.OpDefineVar, uop.Dtypes.Int32, []uop.UOp{ci(a, lo), ci(a, hi)}, "x", nil)
@@ -383,4 +398,164 @@ func TestBoundsOfComposed(t *testing.T) {
 	m := mul(a, v, ci(a, 4))   // [4,4096]
 	result := add(a, m, ci(a, 3)) // [7,4099]
 	checkBounds(t, rules.BoundsOf(result), true, 7, 4099)
+}
+
+// ── TestBoundsOfFiveOps_Slice6 ────────────────────────────────────────────────
+//
+// Option B Slice 6 — vmax arithmetic oracle. Confirms BoundsOf's
+// implementations of Add/Sub/Mul/IDiv/Mod match tinygrad master's _min_max
+// semantics on the five spec-named ALU ops. Anneal's results are the values
+// of record; if a tinygrad-compatible workload ever diverges, this is the
+// table to update.
+func TestBoundsOfFiveOps_Slice6(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*uop.Arena) uop.UOp
+		min   int64
+		max   int64
+	}{
+		// Add(a, b): {a.min+b.min, a.max+b.max}.
+		{"Add bounded both", func(a *uop.Arena) uop.UOp {
+			x := dv(a, 0, 6)   // [0,5]
+			y := dv(a, 2, 11)  // [2,10]
+			return add(a, x, y)
+		}, 2, 15},
+		// Sub(a, b): {a.min-b.max, a.max-b.min}.
+		{"Sub bounded both", func(a *uop.Arena) uop.UOp {
+			x := dv(a, 0, 11)  // [0,10]
+			y := dv(a, 2, 6)   // [2,5]
+			return sub(a, x, y)
+		}, -5, 8},
+		// Mul(a, b) non-negative range matrix: 4-corner gives {min*min, max*max}.
+		{"Mul [0,5]*[0,4]", func(a *uop.Arena) uop.UOp {
+			return mul(a, dv(a, 0, 6), dv(a, 0, 5))
+		}, 0, 20},
+		{"Mul [1,3]*[2,4]", func(a *uop.Arena) uop.UOp {
+			return mul(a, dv(a, 1, 4), dv(a, 2, 5))
+		}, 2, 12},
+		// Symbolic × concrete (the common scaling case).
+		{"Mul var*Const(4)", func(a *uop.Arena) uop.UOp {
+			return mul(a, dv(a, 0, 100), ci(a, 4))
+		}, 0, 396},
+		// IDiv(a, Const(c)): floor-div bounds on sign-definite divisor.
+		{"IDiv [10,21]/Const(5)", func(a *uop.Arena) uop.UOp {
+			return idiv(a, dv(a, 10, 22), ci(a, 5))
+		}, 2, 4},
+		// Mod(a, Const(c)): wrapping range → [0, c-1]; same-period → exact.
+		{"Mod [0,17]%Const(8) wrap", func(a *uop.Arena) uop.UOp {
+			return mod(a, dv(a, 0, 18), ci(a, 8))
+		}, 0, 7},
+		{"Mod [2,5]%Const(10) same period", func(a *uop.Arena) uop.UOp {
+			return mod(a, dv(a, 2, 6), ci(a, 10))
+		}, 2, 5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := arena()
+			got := rules.BoundsOf(tc.build(a))
+			checkBounds(t, got, true, tc.min, tc.max)
+		})
+	}
+}
+
+// ── TestBoundsOfFiveOps_Slice6_DefineVar ──────────────────────────────────────
+//
+// Companion oracle to TestBoundsOfFiveOps_Slice6 that exercises the same ALU
+// shapes through the public Arena.DefineVar(name, min, max) API instead of the
+// half-open dv test helper. DefineVar is inclusive (src[1]=max+1 internally;
+// BoundsOf unwraps), so the same numeric inputs yield slightly wider intervals
+// — e.g. Mul(DefineVar(0,100), Const(4)) is {0,400} here vs {0,396} under dv.
+//
+// Expected values match tinygrad master's _min_max under inclusive semantics
+// (reference: raw.githubusercontent.com/tinygrad/tinygrad/9d9151a2/tinygrad/
+// uop/ops.py). Divergence on any case would indicate a real bug in BoundsOf
+// or Arena.DefineVar's encoding.
+func TestBoundsOfFiveOps_Slice6_DefineVar(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*uop.Arena) uop.UOp
+		min   int64
+		max   int64
+	}{
+		// Add(a, b): {a.min+b.min, a.max+b.max} — [0,6]+[2,11] = [2,17].
+		{"Add bounded both", func(a *uop.Arena) uop.UOp {
+			return add(a, a.DefineVar("x", 0, 6), a.DefineVar("y", 2, 11))
+		}, 2, 17},
+		// Sub(a, b): {a.min-b.max, a.max-b.min} — [0,11]-[2,6] = [-6,9].
+		{"Sub bounded both", func(a *uop.Arena) uop.UOp {
+			return sub(a, a.DefineVar("x", 0, 11), a.DefineVar("y", 2, 6))
+		}, -6, 9},
+		// Mul non-negative ranges: 4-corner reduces to {min*min, max*max}.
+		{"Mul [0,6]*[0,5]", func(a *uop.Arena) uop.UOp {
+			return mul(a, a.DefineVar("x", 0, 6), a.DefineVar("y", 0, 5))
+		}, 0, 30},
+		{"Mul [1,4]*[2,5]", func(a *uop.Arena) uop.UOp {
+			return mul(a, a.DefineVar("x", 1, 4), a.DefineVar("y", 2, 5))
+		}, 2, 20},
+		// Symbolic × concrete (the prompt's reference shift case).
+		{"Mul var*Const(4)", func(a *uop.Arena) uop.UOp {
+			return mul(a, a.DefineVar("x", 0, 100), ci(a, 4))
+		}, 0, 400},
+		// IDiv by positive const: floor-div corner bounds — [10,22]/5 = [2,4].
+		{"IDiv [10,22]/Const(5)", func(a *uop.Arena) uop.UOp {
+			return idiv(a, a.DefineVar("x", 10, 22), ci(a, 5))
+		}, 2, 4},
+		// Mod wrapping: floorDiv(0,8)=0 ≠ floorDiv(18,8)=2 → [0, c-1].
+		{"Mod [0,18]%Const(8) wrap", func(a *uop.Arena) uop.UOp {
+			return mod(a, a.DefineVar("x", 0, 18), ci(a, 8))
+		}, 0, 7},
+		// Mod same period: floorDiv(2,10)=floorDiv(6,10)=0 → [2,6].
+		{"Mod [2,6]%Const(10) same period", func(a *uop.Arena) uop.UOp {
+			return mod(a, a.DefineVar("x", 2, 6), ci(a, 10))
+		}, 2, 6},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := arena()
+			got := rules.BoundsOf(tc.build(a))
+			checkBounds(t, got, true, tc.min, tc.max)
+		})
+	}
+}
+
+// ── TestIndexDtypeForBound ────────────────────────────────────────────────────
+//
+// Option B Slice 6 — INV-B (vmax-driven int dtype upcast). IndexDtypeForBound
+// is the single source of truth for "is i32 enough for this index expression?"
+// WebGPU downgrades the Int64 result to i32 at emission time and acknowledges
+// via a WGSL comment; a future backend would honor Int64 unchanged.
+func TestIndexDtypeForBound(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*uop.Arena) uop.UOp
+		want  *uop.DType
+	}{
+		{"small constant fits i32", func(a *uop.Arena) uop.UOp {
+			return ci(a, 1024)
+		}, uop.Dtypes.Int32},
+		{"DefineVar small bounds fits i32", func(a *uop.Arena) uop.UOp {
+			return dv(a, 0, 4096) // BoundsOf = {0, 4095}
+		}, uop.Dtypes.Int32},
+		{"DefineVar near int32 max fits i32", func(a *uop.Arena) uop.UOp {
+			return dv(a, 0, 2_000_000_000)
+		}, uop.Dtypes.Int32},
+		{"Mul overflows int32 — needs i64", func(a *uop.Arena) uop.UOp {
+			// var in [0, 1_000_000]; Mul by 4000 → vmax = 4_000_000_000 > MaxInt32 (~2.1e9).
+			v := dv(a, 0, 1_000_001) // BoundsOf = {0, 1_000_000}
+			return mul(a, v, ci(a, 4000))
+		}, uop.Dtypes.Int64},
+		{"unprovable bound conservatively i64", func(a *uop.Arena) uop.UOp {
+			// OpCast is not modeled by BoundsOf (returns Valid=false) → i64 fallback.
+			return a.New(uop.OpCast, uop.Dtypes.Int32, []uop.UOp{ci(a, 5)}, nil, nil)
+		}, uop.Dtypes.Int64},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := arena()
+			got := rules.IndexDtypeForBound(tc.build(a))
+			if got != tc.want {
+				t.Errorf("IndexDtypeForBound = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

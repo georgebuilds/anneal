@@ -103,3 +103,15 @@ func (st ShapeTracker) ReshapeSints(newShape []Sint) ShapeTracker {
 func (st ShapeTracker) ExpandSints(newShape []Sint) ShapeTracker {
 	return st.withLastView(st.ActiveView().Expand(newShape))
 }
+
+// PadSints adds padding using a Sint mask; pad amounts may be symbolic.
+// Validation (ResolveNonNeg per amount) happens inside View.Pad.
+func (st ShapeTracker) PadSints(arg [][2]Sint) ShapeTracker {
+	return st.withLastView(st.ActiveView().Pad(arg))
+}
+
+// ShrinkSints selects a sub-region using a Sint mask; bounds may be symbolic.
+// Validation (ResolveLE chain per axis) happens inside View.Shrink.
+func (st ShapeTracker) ShrinkSints(arg [][2]Sint) ShapeTracker {
+	return st.withLastView(st.ActiveView().Shrink(arg))
+}

@@ -45,8 +45,9 @@ func symHeadShape(a *uop.Arena, name string, max int64, tailDims ...int64) []sha
 func indices(a *uop.Arena, sz []int64) []uop.UOp {
 	out := make([]uop.UOp, len(sz))
 	for i, s := range sz {
-		out[i] = a.New(uop.OpRange, uop.Dtypes.Index, nil,
-			uop.RangeArg{ID: i, Size: s, Type: uop.AxisLoop}, nil)
+		bound := a.New(uop.OpConst, uop.Dtypes.Index, nil, s, nil)
+		out[i] = a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{bound},
+			uop.RangeArg{ID: i, Type: uop.AxisLoop}, nil)
 	}
 	return out
 }
@@ -359,8 +360,9 @@ func TestFlatUnflatRoundTripConcrete(t *testing.T) {
 			sh := constShape(dims...)
 
 			// Build symbolic round-trip: f(unflat(flat)) — both arithmetic on the same flat var.
-			flat := a.New(uop.OpRange, uop.Dtypes.Index, nil,
-				uop.RangeArg{ID: 99, Size: prod(dims), Type: uop.AxisLoop}, nil)
+			flatBound := a.New(uop.OpConst, uop.Dtypes.Index, nil, prod(dims), nil)
+			flat := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{flatBound},
+				uop.RangeArg{ID: 99, Type: uop.AxisLoop}, nil)
 			perDim := unflatIndexSints(a, flat, sh)
 			roundTrip := flatIndexSints(a, perDim, sh)
 

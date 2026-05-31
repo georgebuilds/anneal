@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/georgebuilds/anneal/rewrite/rules"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -62,8 +63,26 @@ type Instr struct {
 	// symbolic (read from the params_n storage buffer at runtime).
 	Symbolic bool
 
-	// InstrLoopBegin (symbolic only): which params_n slot holds the loop bound.
+	// InstrLoopBegin / InstrBoundsCheck (symbolic only): which params_n slot
+	// holds the loop bound (LoopBegin) or the symbolic dispatch-axis size
+	// used in the bounds-check multiplier (BoundsCheck). Used only when
+	// SymBoundExpr is empty (bare-DefineVar bound, pre-Slice-3 path).
 	SymParamIdx int
+
+	// InstrLoopBegin / InstrBoundsCheck (symbolic only): the symbolic bound
+	// rendered as a WGSL u32 expression (e.g. "(params_n.n0 * 4u)" for
+	// reshape-merge derived bounds). When non-empty, supersedes
+	// SymParamIdx — the renderer uses this expression directly as the
+	// loop bound / dispatch multiplier. Populated by renderSymBoundExpr
+	// in the lowerer for ALU-typed OpRange bounds.
+	SymBoundExpr string
+
+	// InstrLoopBegin (symbolic only): true when rules.IndexDtypeForBound for
+	// this loop's bound would have selected Int64 (vmax doesn't fit in int32).
+	// WGSL has no i64, so the renderer emits an acknowledging comment but
+	// still produces i32 — mirroring tinygrad PR #8268's WebGPU edge case.
+	// On a future non-WebGPU backend the dtype decision would be honored.
+	Int64Downgraded bool
 
 	// InstrAccInit, InstrAccUpdate
 	AccIdx   int
@@ -122,6 +141,12 @@ type lowerer struct {
 	loopRanges     []uop.UOp
 	dims           [3][]rangeGroup
 
+	// symSlot maps DefineVar arena index → params_n slot index (0..N-1).
+	// Slots are assigned at the top of lowerSink in name-sorted order so the
+	// mapping is a pure function of graph structure (SPEC §10). Populated
+	// even when the kernel has no symbolic ranges (then empty).
+	symSlot map[uint32]int
+
 	// Per-dim AxisUpcast info (B3 register blocking).
 	// upcastByDim[d] = the AxisUpcast range UOp for dim d (Valid() iff factor > 1).
 	// upcastFactorByDim[d] = the upcast factor (1 if no upcast on dim d).
@@ -172,6 +197,77 @@ func (l *lowerer) computeDType(u uop.UOp) *uop.DType {
 
 func (l *lowerer) emit(ins Instr) { l.instrs = append(l.instrs, ins) }
 
+// symParamIdxFor returns the params_n slot index for a bare-DefineVar
+// symbolic OpRange node. Returns (-1, false) if the bound is not a bare
+// DefineVar (e.g. an ALU expression like 4*n); callers should fall back to
+// renderSymBoundExpr in that case.
+func (l *lowerer) symParamIdxFor(r uop.UOp) (int, bool) {
+	bound := r.Src(0)
+	if bound.Op() != uop.OpDefineVar {
+		return -1, false
+	}
+	slot, ok := l.symSlot[bound.Index()]
+	if !ok {
+		panic(fmt.Sprintf("codegen: DefineVar %s not in symSlot map", bound.Arg().(uop.VarArg).Name))
+	}
+	return slot, true
+}
+
+// renderSymBoundExpr renders a symbolic bound UOp expression as a WGSL u32
+// expression string. Used for OpRange bounds that aren't bare DefineVars
+// (e.g. 4*n produced by reshape merge [n,4]→[n*4]). The result is a
+// parenthesised expression suitable for use as a loop bound or buffer-size
+// multiplier in WGSL.
+//
+// Supported ops: OpDefineVar (renders as "params_n.n{slot}"), OpConst
+// (renders as "{N}u"), and OpAdd/OpSub/OpMul/OpIDiv/OpMod (recursive binary).
+// Panics on any other op so that an unsupported bound shape surfaces
+// loudly rather than silently rendering garbage WGSL.
+func (l *lowerer) renderSymBoundExpr(b uop.UOp) string {
+	switch b.Op() {
+	case uop.OpDefineVar:
+		slot, ok := l.symSlot[b.Index()]
+		if !ok {
+			panic(fmt.Sprintf("codegen: renderSymBoundExpr: DefineVar %s not in symSlot map", b.Arg().(uop.VarArg).Name))
+		}
+		return fmt.Sprintf("params_n.n%d", slot)
+	case uop.OpConst:
+		v, ok := b.Arg().(int64)
+		if !ok {
+			panic(fmt.Sprintf("codegen: renderSymBoundExpr: OpConst arg type %T (expected int64)", b.Arg()))
+		}
+		if v < 0 {
+			// u32 cannot encode a negative; tinygrad's symbolic bounds are always
+			// non-negative dimension sizes. Surface the unexpected case.
+			panic(fmt.Sprintf("codegen: renderSymBoundExpr: negative constant %d in symbolic bound", v))
+		}
+		return fmt.Sprintf("%du", v)
+	case uop.OpAdd:
+		return fmt.Sprintf("(%s + %s)", l.renderSymBoundExpr(b.Src(0)), l.renderSymBoundExpr(b.Src(1)))
+	case uop.OpSub:
+		return fmt.Sprintf("(%s - %s)", l.renderSymBoundExpr(b.Src(0)), l.renderSymBoundExpr(b.Src(1)))
+	case uop.OpMul:
+		return fmt.Sprintf("(%s * %s)", l.renderSymBoundExpr(b.Src(0)), l.renderSymBoundExpr(b.Src(1)))
+	case uop.OpIDiv:
+		return fmt.Sprintf("(%s / %s)", l.renderSymBoundExpr(b.Src(0)), l.renderSymBoundExpr(b.Src(1)))
+	case uop.OpMod:
+		return fmt.Sprintf("(%s %% %s)", l.renderSymBoundExpr(b.Src(0)), l.renderSymBoundExpr(b.Src(1)))
+	default:
+		panic(fmt.Sprintf("codegen: renderSymBoundExpr: unsupported op %s in symbolic bound", b.Op()))
+	}
+}
+
+// symBoundEmission selects the WGSL bound encoding for a symbolic OpRange.
+// For bare-DefineVar bounds it returns (slot, "") matching pre-Slice-3 form.
+// For ALU bounds (derived by reshape merge / split) it returns (-1, expr)
+// where expr is the rendered WGSL u32 expression.
+func (l *lowerer) symBoundEmission(r uop.UOp) (slot int, expr string) {
+	if s, ok := l.symParamIdxFor(r); ok {
+		return s, ""
+	}
+	return -1, l.renderSymBoundExpr(r.Src(0))
+}
+
 func (l *lowerer) lowerSink() []Instr {
 	sink := l.item.Ast
 	if sink.Op() != uop.OpSink {
@@ -180,6 +276,13 @@ func (l *lowerer) lowerSink() []Instr {
 	end := sink.Src(0)   // OpEnd
 	store := end.Src(0)  // OpStore
 	body := store.Src(1) // kernel body expression
+
+	// Assign params_n slots for every DefineVar reachable from this kernel.
+	// Sorted by VarArg.Name inside VariablesOf for deterministic ordering.
+	l.symSlot = map[uint32]int{}
+	for i, v := range uop.VariablesOf(sink) {
+		l.symSlot[v.Index()] = i
+	}
 
 	// Collect AxisLoop/Workgroup/Local ranges from END.src[1:]. AxisUpcast and
 	// AxisVectorize ranges are tracked separately: they don't contribute to dispatch
@@ -223,12 +326,11 @@ func (l *lowerer) lowerSink() []Instr {
 		if r.Op() == uop.OpConst {
 			continue
 		}
-		ra := r.Arg().(uop.RangeArg)
-		if ra.Symbolic {
+		if uop.RangeIsSymbolic(r) {
 			totalOut = 0
 			hasSymRange = true
 		} else if !hasSymRange {
-			totalOut *= ra.Size
+			totalOut *= uop.RangeSize(r)
 		}
 	}
 
@@ -242,9 +344,8 @@ func (l *lowerer) lowerSink() []Instr {
 				globalStrides[i] = globalStrides[i+1]
 				continue
 			}
-			ra := rNext.Arg().(uop.RangeArg)
-			if !ra.Symbolic {
-				globalStrides[i] = globalStrides[i+1] * ra.Size
+			if !uop.RangeIsSymbolic(rNext) {
+				globalStrides[i] = globalStrides[i+1] * uop.RangeSize(rNext)
 			}
 		}
 	}
@@ -307,9 +408,8 @@ func (l *lowerer) lowerSink() []Instr {
 			found := false
 			for _, rg := range dims[d] {
 				if rg.u == outer {
-					ra := p.upcast.Arg().(uop.RangeArg)
 					l.upcastByDim[d] = p.upcast
-					l.upcastFactorByDim[d] *= ra.Size
+					l.upcastFactorByDim[d] *= uop.RangeSize(p.upcast)
 					found = true
 					break
 				}
@@ -334,9 +434,8 @@ func (l *lowerer) lowerSink() []Instr {
 			found := false
 			for _, rg := range dims[d] {
 				if rg.u == outer {
-					ra := p.vec.Arg().(uop.RangeArg)
 					l.vectorizeByDim[d] = p.vec
-					l.vectorizeFactorByDim[d] = ra.Size
+					l.vectorizeFactorByDim[d] = uop.RangeSize(p.vec)
 					found = true
 					break
 				}
@@ -355,9 +454,18 @@ func (l *lowerer) lowerSink() []Instr {
 
 	for d := 0; d < 3; d++ {
 		for _, rg := range dims[d] {
-			if rg.u.Op() != uop.OpConst {
-				dimSizes[d] *= rg.ra.Size
+			if rg.u.Op() == uop.OpConst {
+				continue
 			}
+			if uop.RangeIsSymbolic(rg.u) {
+				// Symbolic dim contributes 0 to the static dispatch count;
+				// the actual size is resolved per-launch from params_n.
+				// The trailing `workgroupCount[d] == 0 → 1` guard preserves
+				// a valid static plan that runSymKernelWithHandle overrides.
+				dimSizes[d] *= 0
+				continue
+			}
+			dimSizes[d] *= uop.RangeSize(rg.u)
 		}
 
 		for lvl := 0; lvl < 3; lvl++ {
@@ -382,11 +490,8 @@ func (l *lowerer) lowerSink() []Instr {
 				rPrev := levelRanges[i-1].u
 				if rPrev.Op() == uop.OpConst {
 					strides[i] = strides[i-1]
-				} else {
-					ra := rPrev.Arg().(uop.RangeArg)
-					if !ra.Symbolic {
-						strides[i] = strides[i-1] * ra.Size
-					}
+				} else if !uop.RangeIsSymbolic(rPrev) {
+					strides[i] = strides[i-1] * uop.RangeSize(rPrev)
 				}
 			}
 
@@ -395,12 +500,17 @@ func (l *lowerer) lowerSink() []Instr {
 					l.exprOf[rg.u.Index()] = "0u"
 					continue
 				}
+				sym := uop.RangeIsSymbolic(rg.u)
+				var rangeSize int64
+				if !sym {
+					rangeSize = uop.RangeSize(rg.u)
+				}
 				l.emit(Instr{
 					Kind:      InstrGIDVar,
 					RangeID:   rg.ra.ID,
-					RangeSize: rg.ra.Size,
+					RangeSize: rangeSize,
 					Stride:    strides[i],
-					Symbolic:  rg.ra.Symbolic,
+					Symbolic:  sym,
 					Component: d,
 					Level:     lvl,
 				})
@@ -411,7 +521,7 @@ func (l *lowerer) lowerSink() []Instr {
 				totalLocal := int64(1)
 				for _, rg := range levelRanges {
 					if rg.u.Op() != uop.OpConst {
-						totalLocal *= rg.ra.Size
+						totalLocal *= uop.RangeSize(rg.u)
 					}
 				}
 				l.workgroupSize[d] = int(totalLocal)
@@ -467,19 +577,27 @@ func (l *lowerer) lowerSink() []Instr {
 
 	concreteTrailing := int64(1)
 	seenSym := false
+	var symDispatchRange uop.UOp
 	for _, r := range loopRanges {
 		if r.Op() == uop.OpConst {
 			continue
 		}
-		ra := r.Arg().(uop.RangeArg)
-		if ra.Symbolic {
+		if uop.RangeIsSymbolic(r) {
+			if !seenSym {
+				symDispatchRange = r
+			}
 			seenSym = true
 		} else if seenSym {
-			concreteTrailing *= ra.Size
+			concreteTrailing *= uop.RangeSize(r)
 		}
 	}
 
-	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, ConcreteTrailing: concreteTrailing})
+	boundsSlot := 0
+	var boundsExpr string
+	if hasSymRange && symDispatchRange.Valid() {
+		boundsSlot, boundsExpr = l.symBoundEmission(symDispatchRange)
+	}
+	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, ConcreteTrailing: concreteTrailing, SymParamIdx: boundsSlot, SymBoundExpr: boundsExpr})
 	bodyExpr := l.emitExpr(body)
 
 	var outBufDType *uop.DType
@@ -560,6 +678,24 @@ func (l *lowerer) emitExpr(u uop.UOp) string {
 		return e
 	case uop.OpRange:
 		panic(fmt.Sprintf("codegen: Range(id=%v) not registered before use", u.Arg()))
+	case uop.OpDefineVar:
+		// Symbolic dim referenced from a kernel body (Option B Slice 5: pad/
+		// shrink amounts may be symbolic, so the predicate `r < N + n` and
+		// the offset `r - lo` carry DefineVar nodes inline). params_n.n{slot}
+		// is u32 in WGSL but DefineVar is Index-dtype (i32); cast at the seam
+		// so the surrounding integer arithmetic stays in i32 — matches how
+		// loop indices are cast at register-init time (wgsl.go:178+).
+		slot, ok := l.symSlot[u.Index()]
+		if !ok {
+			name := "?"
+			if va, ok2 := u.Arg().(uop.VarArg); ok2 {
+				name = va.Name
+			}
+			panic(fmt.Sprintf("codegen: emitExpr: DefineVar %q not in symSlot map", name))
+		}
+		e := fmt.Sprintf("i32(params_n.n%d)", slot)
+		l.exprOf[u.Index()] = e
+		return e
 	case uop.OpParam:
 		e := fmt.Sprintf("data%d", int(u.Arg().(int64)))
 		l.exprOf[u.Index()] = e
@@ -686,10 +822,12 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 			l.exprOf[r.Index()] = constLiteral(r)
 		} else {
 			ra := r.Arg().(uop.RangeArg)
-			if ra.Symbolic {
-				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, Symbolic: true, SymParamIdx: ra.SymParamIdx})
+			if uop.RangeIsSymbolic(r) {
+				slot, expr := l.symBoundEmission(r)
+				downgrade := rules.IndexDtypeForBound(r.Src(0)) == uop.Dtypes.Int64
+				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, Symbolic: true, SymParamIdx: slot, SymBoundExpr: expr, Int64Downgraded: downgrade})
 			} else {
-				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, RangeSize: ra.Size})
+				l.emit(Instr{Kind: InstrLoopBegin, RangeID: ra.ID, RangeSize: uop.RangeSize(r)})
 			}
 			l.exprOf[r.Index()] = fmt.Sprintf("r%d", ra.ID)
 			hasLoop[i] = true
@@ -751,7 +889,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	// 2. Identify dimensions M, N, K.
 	raOuter := rk_outer.Arg().(uop.RangeArg)
 	raInner := rk_inner.Arg().(uop.RangeArg)
-	K_outer_size := raOuter.Size
+	K_outer_size := uop.RangeSize(rk_outer)
 
 	// Register rk_outer and rk_inner nodes.
 	l.exprOf[rk_outer.Index()] = fmt.Sprintf("r%d", raOuter.ID)
@@ -844,7 +982,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, row_A, M_stride_A, col_A, K_stride_A)
 		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, row_B, K_stride_B, col_B, N_stride_B)
 
-		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smA, flat_store),
 			Expr: fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
 		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smB, flat_store),
@@ -886,7 +1024,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 		smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(MR*TS*TS), nil))
 		smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(NR*TS*TS), nil))
 
-		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 
 		// A tile load — MR stripes, each thread loads one element per stripe (scalar, unchanged).
 		for mr := 0; mr < MR; mr++ {
@@ -990,7 +1128,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(MR*TS*TS), nil))
 	smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(NR*TS*TS), nil))
 
-	l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: raOuter.Size})
+	l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 
 	// A tile load — MR stripes, each thread loads one element per stripe.
 	for mr := 0; mr < MR; mr++ {

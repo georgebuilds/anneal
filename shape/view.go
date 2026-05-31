@@ -18,7 +18,14 @@ type View struct {
 // produce C-contiguous strides for a fresh tensor.
 func NewView(shape, strides []Sint, offset Sint, mask [][2]Sint) View {
 	mask = normalizeMask(mask, shape)
-	contig := EqI(offset, 0) && mask == nil && slintsEqual(strides, stridesForShape(shape))
+	// Symbolic offset (e.g. after symbolic-pad / symbolic-shrink offset math)
+	// cannot use the EqI panic-fence comparator. A non-zero or unprovably-zero
+	// offset disqualifies contig; that's the conservative correct call.
+	offIsZero := false
+	if v, ok := offset.ConstValue(); ok {
+		offIsZero = v == 0
+	}
+	contig := offIsZero && mask == nil && slintsEqual(strides, stridesForShape(shape))
 	return View{
 		Shape:      cloneSints(shape),
 		Strides:    cloneSints(strides),
@@ -67,12 +74,20 @@ func StridesForShape(shape []Sint) []Sint { return stridesForShape(shape) }
 // ── mask helpers ──────────────────────────────────────────────────────────────
 
 // normalizeMask returns nil if mask is nil or every dim covers its full range.
+// Symbolic mask operands take the SintEqual path (UOp identity); a "covers full
+// range" decision under a symbolic lower bound requires the lower to be
+// concretely 0 (Sint identity with Const(0)) AND the upper to be SintEqual to
+// shape[i]. If either is unprovable the mask is kept (non-normalized).
 func normalizeMask(mask [][2]Sint, shape []Sint) [][2]Sint {
 	if mask == nil {
 		return nil
 	}
 	for i, m := range mask {
-		if cv(m[0]) != 0 || !Eq(m[1], shape[i]) {
+		lo0, ok0 := m[0].ConstValue()
+		if !ok0 || lo0 != 0 {
+			return mask
+		}
+		if !SintEqual(m[1], shape[i]) {
 			return mask
 		}
 	}
@@ -155,13 +170,29 @@ func (v View) Permute(order []int) View {
 }
 
 // Pad adds zero padding.  arg[i] = {lo, hi} adds lo elements before and hi after dim i.
+//
+// Each (lo, hi) pair must be provably >= 0 via ResolveNonNeg (mirrors tinygrad's
+// resolve(b>=0) at ops.py Ops.PAD). Symbolic amounts are accepted; non-provable
+// or provably-negative amounts panic with "invalid pad {arg}".
 func (v View) Pad(arg [][2]Sint) View {
 	if len(arg) != len(v.Shape) {
 		panic("shape: pad: arg length mismatch")
 	}
+	// Validate: every pad amount provably >= 0.
+	for _, ab := range arg {
+		if !ResolveNonNeg(ab[0]) || !ResolveNonNeg(ab[1]) {
+			panic(fmt.Sprintf("shape: invalid pad %v", arg))
+		}
+	}
 	anyNonzero := false
 	for _, ab := range arg {
-		if cv(ab[0]) != 0 || cv(ab[1]) != 0 {
+		// Concrete-zero short-circuit: skip the symbolic-arithmetic path entirely
+		// when all amounts are statically zero. Symbolic amounts always count as
+		// non-zero for purposes of the early-return (they may be 0 at bind time
+		// but we can't prove it without forcing concretisation).
+		v0, ok0 := ab[0].ConstValue()
+		v1, ok1 := ab[1].ConstValue()
+		if !ok0 || !ok1 || v0 != 0 || v1 != 0 {
 			anyNonzero = true
 			break
 		}
@@ -183,9 +214,20 @@ func (v View) Pad(arg [][2]Sint) View {
 }
 
 // Shrink reduces dimensions.  arg[i] = {lo, hi} selects the half-open range [lo, hi) of dim i.
+//
+// Validates 0 <= lo <= hi <= shape[i] via ResolveLE (mirrors tinygrad's
+// resolve() chain at ops.py Ops.SHRINK). Symbolic operands are accepted via
+// the bounds predicate; unprovable or violated relations panic with
+// "invalid shrink {arg} for {shape}".
 func (v View) Shrink(arg [][2]Sint) View {
 	if len(arg) != len(v.Shape) {
 		panic("shape: shrink: arg length mismatch")
+	}
+	for i, ab := range arg {
+		b, e := ab[0], ab[1]
+		if !ResolveLE(Const(0), b) || !ResolveLE(b, e) || !ResolveLE(e, v.Shape[i]) {
+			panic(fmt.Sprintf("shape: invalid shrink %v for %v", arg, v.Shape))
+		}
 	}
 	return v.unsafeResize(arg, nil)
 }
@@ -219,15 +261,28 @@ func (v View) Flip(axes []bool) View {
 // Returns (newView, true) on success.
 // Returns (View{}, false) if strides or mask cannot be expressed in newShape;
 // callers (ShapeTracker) must then push a fresh contiguous view.
-// Symbolic shapes (either source or dest) bypass size validation; contiguous
-// symbolic views always succeed via the fast path.
+//
+// Symbolic shapes: sub-product equality is checked via SymbolicProduct +
+// structural Sint identity (matching tinygrad's prod(ps) != prod(self.marg)
+// semantics). Mismatched symbolic products panic with "size mismatch".
+// Non-contiguous symbolic reshape returns (View{}, false) and the caller
+// pushes a fresh contiguous view.
 func (v View) Reshape(newShape []Sint) (View, bool) {
 	if SintShapesEqual(v.Shape, newShape) {
 		return v, true
 	}
 
-	// Validate size for fully concrete shapes only.
-	if !hasSym(v.Shape) && !hasSym(newShape) {
+	// Validate size. Concrete shapes use the int64 sizeMatch; mixed/symbolic
+	// shapes use SymbolicProduct + structural UOp equality. This closes the
+	// silent-corruption gap where reshape from [n,4] to [m,8] would build a
+	// wrong-shape contiguous view and only fail at runtime with wrong values.
+	if hasSym(v.Shape) || hasSym(newShape) {
+		pOld := SymbolicProduct(v.Shape)
+		pNew := SymbolicProduct(newShape)
+		if !SintEqual(pOld, pNew) {
+			panic(fmt.Sprintf("shape: reshape: symbolic size mismatch (prod %v != prod %v)", v.Shape, newShape))
+		}
+	} else {
 		if !sizeMatch(v.Shape, newShape) {
 			panic(fmt.Sprintf("shape: reshape: size mismatch %v -> %v", AsInts(v.Shape), AsInts(newShape)))
 		}
@@ -312,17 +367,57 @@ func (v View) unsafeResize(arg [][2]Sint, newMask [][2]Sint) View {
 	var mask [][2]Sint
 	if v.Mask != nil {
 		mask = make([][2]Sint, n)
+		// All-concrete fast path: produce the same byte-identical Const result
+		// as before Slice 5. Symbolic operands take the Sint-arithmetic path
+		// via SintMax/SintMin/Sub, which builds UOp expressions evaluated at
+		// runtime — mirrors tinygrad's mask transformation under symbolic shrink.
+		allConcreteOld := true
 		for i, m := range v.Mask {
-			ax, ay := cv(arg[i][0]), cv(arg[i][1])
-			lo := imax(0, imin(cv(m[0])-ax, ay-ax))
-			hi := imax(0, imin(cv(m[1])-ax, ay-ax))
-			mask[i] = [2]Sint{Const(lo), Const(hi)}
+			if !isConcreteMaskOp(arg[i][0]) || !isConcreteMaskOp(arg[i][1]) ||
+				!isConcreteMaskOp(m[0]) || !isConcreteMaskOp(m[1]) {
+				allConcreteOld = false
+				break
+			}
+		}
+		if allConcreteOld {
+			for i, m := range v.Mask {
+				ax, ay := cv(arg[i][0]), cv(arg[i][1])
+				lo := imax(0, imin(cv(m[0])-ax, ay-ax))
+				hi := imax(0, imin(cv(m[1])-ax, ay-ax))
+				mask[i] = [2]Sint{Const(lo), Const(hi)}
+			}
+		} else {
+			zero := Const(int64(0))
+			for i, m := range v.Mask {
+				ax, ay := arg[i][0], arg[i][1]
+				width := Sub(ay, ax) // width of the resized region
+				lo := SintMax(zero, SintMin(Sub(m[0], ax), width))
+				hi := SintMax(zero, SintMin(Sub(m[1], ax), width))
+				mask[i] = [2]Sint{lo, hi}
+			}
 		}
 		if newMask != nil {
+			allConcreteNew := true
 			for i, nm := range newMask {
-				mask[i] = [2]Sint{
-					Const(imax(cv(mask[i][0]), cv(nm[0]))),
-					Const(imin(cv(mask[i][1]), cv(nm[1]))),
+				if !isConcreteMaskOp(mask[i][0]) || !isConcreteMaskOp(mask[i][1]) ||
+					!isConcreteMaskOp(nm[0]) || !isConcreteMaskOp(nm[1]) {
+					allConcreteNew = false
+					break
+				}
+			}
+			if allConcreteNew {
+				for i, nm := range newMask {
+					mask[i] = [2]Sint{
+						Const(imax(cv(mask[i][0]), cv(nm[0]))),
+						Const(imin(cv(mask[i][1]), cv(nm[1]))),
+					}
+				}
+			} else {
+				for i, nm := range newMask {
+					mask[i] = [2]Sint{
+						SintMax(mask[i][0], nm[0]),
+						SintMin(mask[i][1], nm[1]),
+					}
 				}
 			}
 		}
@@ -582,6 +677,14 @@ func hasSym(s []Sint) bool {
 		}
 	}
 	return false
+}
+
+// isConcreteMaskOp reports whether s has a known concrete int64 value.
+// Used by unsafeResize to choose between the byte-identical concrete-only
+// imax/imin path and the symbolic SintMax/SintMin path.
+func isConcreteMaskOp(s Sint) bool {
+	_, ok := s.ConstValue()
+	return ok
 }
 
 func sizeMatch(a, b []Sint) bool {

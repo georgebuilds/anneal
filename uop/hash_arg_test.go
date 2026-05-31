@@ -76,20 +76,17 @@ func TestEqualArgBufferizeSameInterns(t *testing.T) {
 // differ in only that field must produce distinct interned nodes. RangeArg backs
 // loop-variable identity in the codegen; if any field were dropped from the key,
 // the WGSL hash on the BEAM disk cache could collide kernels with different loop
-// semantics.
+// semantics. The bound is carried by src[0], not the arg, so distinctness of
+// bound is exercised in TestRangeBoundDistinctness below.
 func TestEqualArgRangeAllFields(t *testing.T) {
-	base := uop.RangeArg{ID: 1, Size: 8, Type: uop.AxisLoop, Symbolic: false, SymParamIdx: 0, VarName: "n"}
+	base := uop.RangeArg{ID: 1, Type: uop.AxisLoop}
 
 	cases := []struct {
 		name    string
 		mutated uop.RangeArg
 	}{
 		{"ID", func() uop.RangeArg { r := base; r.ID = 2; return r }()},
-		{"Size", func() uop.RangeArg { r := base; r.Size = 9; return r }()},
 		{"Type", func() uop.RangeArg { r := base; r.Type = uop.AxisReduce; return r }()},
-		{"Symbolic", func() uop.RangeArg { r := base; r.Symbolic = true; return r }()},
-		{"SymParamIdx", func() uop.RangeArg { r := base; r.SymParamIdx = 1; return r }()},
-		{"VarName", func() uop.RangeArg { r := base; r.VarName = "m"; return r }()},
 	}
 
 	for _, tc := range cases {
@@ -107,7 +104,7 @@ func TestEqualArgRangeAllFields(t *testing.T) {
 }
 
 func TestEqualArgRangeIdenticalInterns(t *testing.T) {
-	r := uop.RangeArg{ID: 7, Size: 16, Type: uop.AxisUpcast, Symbolic: true, SymParamIdx: 3, VarName: "batch"}
+	r := uop.RangeArg{ID: 7, Type: uop.AxisUpcast}
 	same, _ := internsEqual(t, r, r)
 	if !same {
 		t.Error("identical RangeArg failed to intern")
@@ -161,7 +158,7 @@ func TestEqualArgReduceAllFields(t *testing.T) {
 
 func TestEqualArgShapeSintAllFields(t *testing.T) {
 	base := uop.ShapeSintArg{
-		{V: 0, Sym: true, VarIdx: 5},
+		{V: 0, Sym: true, VarName: "n", Mul: 1},
 		{V: 32, Sym: false},
 	}
 
@@ -180,19 +177,31 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 	})
 	t.Run("Sym flag flipped", func(t *testing.T) {
 		mut := append(uop.ShapeSintArg(nil), base...)
-		mut[0] = uop.ShapeDim{V: 0, Sym: false, VarIdx: 5} // same VarIdx, but concrete
+		mut[0] = uop.ShapeDim{V: 0, Sym: false, VarName: "n", Mul: 1} // same VarName, but concrete
 		same, _ := internsEqual(t, base, mut)
 		if same {
 			t.Error("ShapeSintArg with Sym flag flipped (Sym vs concrete) interned together")
 		}
 	})
-	t.Run("VarIdx differs (symbolic dim)", func(t *testing.T) {
+	t.Run("VarName differs (symbolic dim)", func(t *testing.T) {
 		mut := append(uop.ShapeSintArg(nil), base...)
-		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarIdx: 6}
+		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "m", Mul: 1}
 		same, _ := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different VarIdx on symbolic dim interned together — "+
+			t.Error("ShapeSintArg with different VarName on symbolic dim interned together — "+
 				"two different DefineVars would alias in the reshape arg")
+		}
+	})
+	t.Run("Mul differs (symbolic dim)", func(t *testing.T) {
+		// Slice 4 hygiene: Mul is part of the structural key. Two ShapeSintArgs with
+		// the same VarName but different multipliers must not alias — they represent
+		// different bound expressions (n vs 4n).
+		mut := append(uop.ShapeSintArg(nil), base...)
+		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "n", Mul: 4}
+		same, _ := internsEqual(t, base, mut)
+		if same {
+			t.Error("ShapeSintArg with different Mul on symbolic dim interned together — "+
+				"multiplier dropped from the intern key")
 		}
 	})
 	t.Run("V differs (concrete dim)", func(t *testing.T) {
@@ -207,16 +216,17 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		// REGRESSION GUARD for the SPEC §10 ShapeSintArg V-on-symbolic-dim invariant.
 		//
 		// hashArg and equalArg disagree on V when Sym=true:
-		//   hashArg (uop.go:443-450): mixes only VarIdx when Sym=true; V is skipped.
-		//   equalArg (uop.go:546-550): compares the whole ShapeDim struct via !=,
-		//     so V is part of the equality check regardless of Sym.
+		//   hashArg: mixes only (VarName, Mul) when Sym=true; V is skipped.
+		//   equalArg: compares the whole ShapeDim struct via !=, so V is part of the
+		//     equality check regardless of Sym.
 		//
-		// Net effect at the cache: two ShapeSintArgs with same VarIdx but different V
-		// on a Sym dim hash to the SAME bucket but compare UNEQUAL, producing two arena
-		// nodes in one bucket. SAFE for intern correctness (no false alias) but only
-		// because production code never reaches this case — toShapeSintArg
-		// (tensor/movement.go) and NewSymbolicBatchInput (tensor/tensor.go) both panic
-		// if Sym=true is constructed with V≠0, per the SPEC §10 invariant.
+		// Net effect at the cache: two ShapeSintArgs with same (VarName, Mul) but
+		// different V on a Sym dim hash to the SAME bucket but compare UNEQUAL,
+		// producing two arena nodes in one bucket. SAFE for intern correctness (no
+		// false alias) but only because production code never reaches this case —
+		// toShapeSintArg (tensor/movement.go) and NewSymbolicBatchInput
+		// (tensor/tensor.go) both panic if Sym=true is constructed with V≠0, per
+		// the SPEC §10 invariant.
 		//
 		// This test directly constructs the V≠0 / Sym=true case (the only path that
 		// reaches it) to pin the asymmetric behaviour. If either side is changed
@@ -224,7 +234,7 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		// test will flip — and the SPEC §10 invariant should be revisited at the same
 		// time, since the asymmetry it pins down would be gone.
 		mut := append(uop.ShapeSintArg(nil), base...)
-		mut[0] = uop.ShapeDim{V: 999, Sym: true, VarIdx: 5}
+		mut[0] = uop.ShapeDim{V: 999, Sym: true, VarName: "n", Mul: 1}
 		same, a := internsEqual(t, base, mut)
 		if same {
 			t.Error("ShapeSintArg with different V on Sym=true dim aliased — "+

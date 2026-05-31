@@ -144,8 +144,8 @@ func (ke *kernelEval) enumRanges(ranges []uop.UOp, i int, fn func()) {
 		return
 	}
 	r := ranges[i]
-	ra := r.Arg().(uop.RangeArg)
-	for v := int64(0); v < ra.Size; v++ {
+	size := uop.RangeSize(r)
+	for v := int64(0); v < size; v++ {
 		ke.rangeVal[r.Index()] = v
 		ke.enumRanges(ranges, i+1, fn)
 	}
@@ -170,7 +170,7 @@ func evalKernel(after uop.UOp, bufData map[uint32][]float32, bufShape map[uint32
 	}
 	outShape := make([]int64, len(outRanges))
 	for i, r := range outRanges {
-		outShape[i] = r.Arg().(uop.RangeArg).Size
+		outShape[i] = uop.RangeSize(r)
 	}
 	outN := 1
 	for _, s := range outShape {
@@ -187,10 +187,10 @@ func evalKernel(after uop.UOp, bufData map[uint32][]float32, bufShape map[uint32
 			return
 		}
 		r := outRanges[dim]
-		ra := r.Arg().(uop.RangeArg)
-		for v := int64(0); v < ra.Size; v++ {
+		size := uop.RangeSize(r)
+		for v := int64(0); v < size; v++ {
 			ke.rangeVal[r.Index()] = v
-			enumOut(dim+1, flatOut*int(ra.Size)+int(v))
+			enumOut(dim+1, flatOut*int(size)+int(v))
 		}
 	}
 	enumOut(0, 0)
@@ -329,8 +329,8 @@ func verifyKernel(t *testing.T, after uop.UOp) {
 				return
 			}
 			if !boundRanges[u.Index()] {
-				t.Errorf("Range(id=%d,size=%d,type=%d) used in body but not in END loop list",
-					ra.ID, ra.Size, int(ra.Type))
+				t.Errorf("Range(id=%d,type=%d) used in body but not in END loop list",
+					ra.ID, int(ra.Type))
 			}
 			return // leaf — no srcs
 
@@ -976,7 +976,7 @@ func verifyKernelSinkAST(t *testing.T, kernelSink uop.UOp) {
 				return
 			}
 			if !boundRanges[u.Index()] {
-				t.Errorf("Range(id=%d,size=%d) used in body but not in END loop list", ra.ID, ra.Size)
+				t.Errorf("Range(id=%d) used in body but not in END loop list", ra.ID)
 			}
 			return
 		case uop.OpReduce:

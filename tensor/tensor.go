@@ -101,10 +101,10 @@ func NewSymbolicInput(a *uop.Arena, name string, min, max int64, dtype *uop.DTyp
 func NewSymbolicBatchInput(a *uop.Arena, name string, min, max int64, innerShape []int64, dtype *uop.DType, device string) *Tensor {
 	defVar := a.DefineVar(name, min, max)
 	arg := make(uop.ShapeSintArg, 1+len(innerShape))
-	arg[0] = uop.ShapeDim{Sym: true, VarIdx: defVar.Index()}
+	arg[0] = uop.ShapeDim{Sym: true, VarName: name, Mul: 1}
 	// SPEC §10 ShapeSintArg V-on-symbolic-dim invariant: Sym=true requires V=0.
 	if arg[0].V != 0 {
-		panic(fmt.Sprintf("uop: ShapeSintArg.V must be 0 when Sym=true (SPEC §10); got V=%d VarIdx=%d at dim 0", arg[0].V, arg[0].VarIdx))
+		panic(fmt.Sprintf("uop: ShapeSintArg.V must be 0 when Sym=true (SPEC §10); got V=%d VarName=%q at dim 0", arg[0].V, arg[0].VarName))
 	}
 	for i, s := range innerShape {
 		arg[i+1] = uop.ShapeDim{V: s}

@@ -1,6 +1,10 @@
 package rules
 
-import "github.com/georgebuilds/anneal/uop"
+import (
+	"math"
+
+	"github.com/georgebuilds/anneal/uop"
+)
 
 // Bounds is an inclusive integer interval [Min, Max].
 // Valid=false means bounds are unknown or not applicable (e.g. float dtype,
@@ -49,8 +53,15 @@ func BoundsOf(u uop.UOp) Bounds {
 		return Bounds{}
 
 	case uop.OpRange:
-		// Range(lower, upper) — GPU iteration range [lower, upper).
-		if u.NSrc() == 2 {
+		// Range(upper) — GPU iteration range [0, upper). Lower is implicit zero.
+		// Two-src form Range(lower, upper) is preserved for unit-test fixtures.
+		switch u.NSrc() {
+		case 1:
+			hi := BoundsOf(u.Src(0))
+			if hi.Valid && hi.Max > 0 {
+				return Bounds{0, hi.Max - 1, true}
+			}
+		case 2:
 			lo := BoundsOf(u.Src(0))
 			hi := BoundsOf(u.Src(1))
 			if lo.Valid && hi.Valid && hi.Max > lo.Min {
@@ -175,6 +186,34 @@ func BoundsOf(u uop.UOp) Bounds {
 	}
 
 	return Bounds{}
+}
+
+// ── Index dtype selection (Option B Slice 6 — vmax-driven upcast) ───────────
+
+// IndexDtypeForBound returns the integer DType wide enough to hold any value
+// representable by bound's interval. Returns Int32 when bound's vmax/vmin fit
+// in int32, else Int64. When BoundsOf cannot prove a bound (Valid=false), the
+// helper returns Int64 conservatively — favoring correctness over the i32
+// fast path.
+//
+// This is the single source of truth for "is i32 enough for this index
+// expression?" Backends consult it when selecting integer types for emitted
+// loop variables, accumulators, and index arithmetic. SPEC §10 invariant:
+// the decision lives here; backends are free to honor or downgrade it.
+//
+// WebGPU-specific edge case: WGSL has no int64; the WebGPU emitter calls this
+// helper, emits an acknowledging comment when the result is Int64, and then
+// renders i32 anyway. This mirrors tinygrad PR #8268's "the upcast becomes a
+// no-op" observation for WebGPU.
+func IndexDtypeForBound(bound uop.UOp) *uop.DType {
+	b := BoundsOf(bound)
+	if !b.Valid {
+		return uop.Dtypes.Int64
+	}
+	if b.Min >= math.MinInt32 && b.Max <= math.MaxInt32 {
+		return uop.Dtypes.Int32
+	}
+	return uop.Dtypes.Int64
 }
 
 // ── Canonicalization key ──────────────────────────────────────────────────────

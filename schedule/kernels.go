@@ -258,6 +258,9 @@ func bufSize(bufNode uop.UOp) int64 {
 	case uop.ShapeSintArg:
 		// Multi-dim symbolic buffer; actual size determined at dispatch time.
 		return 0
+	case uop.BoundExprArg:
+		// Same as ShapeSintArg: bound resolved at dispatch.
+		return 0
 	case string:
 		// Special buffers (e.g. "randn") — return 1 as a safe fallback.
 		return 1
@@ -267,40 +270,23 @@ func bufSize(bufNode uop.UOp) int64 {
 }
 
 // symVarsFromKernel extracts symbolic variable names from a kernel SINK AST.
-// Returns SymVars[symParamIdx]=varName for each symbolic OpRange in the kernel,
-// ordered by SymParamIdx. Returns nil if the kernel has no symbolic ranges.
+// Returns the names of every DefineVar reachable from the kernel, sorted
+// lexicographically by name. The slot ordering matches what codegen assigns
+// at lower time (uop.VariablesOf is used by both sites). Returns nil if the
+// kernel has no symbolic ranges.
 func symVarsFromKernel(ast uop.UOp) []string {
-	if ast.Op() != uop.OpSink || ast.NSrc() == 0 {
+	if !ast.Valid() {
 		return nil
 	}
-	end := ast.Src(0)
-	if end.Op() != uop.OpEnd {
+	vars := uop.VariablesOf(ast)
+	if len(vars) == 0 {
 		return nil
 	}
-	maxIdx := -1
-	for i := 1; i < end.NSrc(); i++ {
-		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
-				if ra.SymParamIdx > maxIdx {
-					maxIdx = ra.SymParamIdx
-				}
-			}
-		}
+	out := make([]string, len(vars))
+	for i, v := range vars {
+		out[i] = v.Arg().(uop.VarArg).Name
 	}
-	if maxIdx < 0 {
-		return nil
-	}
-	vars := make([]string, maxIdx+1)
-	for i := 1; i < end.NSrc(); i++ {
-		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
-				vars[ra.SymParamIdx] = ra.VarName
-			}
-		}
-	}
-	return vars
+	return out
 }
 
 // linearToSchedule converts an ordered list of CALL nodes into ExecItems.
@@ -314,12 +300,17 @@ func linearToSchedule(ordered []uop.UOp) []ExecItem {
 		bufs := make([]Buffer, ki.NumParams)
 		for n := 0; n < ki.NumParams; n++ {
 			bufNode := call.Src(1 + n)
+			muls, vars := bufSymDimMul(bufNode)
+			affine := bufSymDimAffine(bufNode)
 			bufs[n] = Buffer{
-				UOpIdx: bufNode.Index(),
-				Size:   bufSize(bufNode),
-				Shape:  bufShape(bufNode),
-				DType:  bufNode.DType(),
-				Slot:   -1,
+				UOpIdx:       bufNode.Index(),
+				Size:         bufSize(bufNode),
+				Shape:        bufShape(bufNode),
+				DType:        bufNode.DType(),
+				Slot:         -1,
+				SymDimMul:    muls,
+				SymDimVar:    vars,
+				SymDimAffine: affine,
 			}
 		}
 		ast := call.Src(0)
@@ -355,11 +346,86 @@ func bufShape(bufNode uop.UOp) []int64 {
 			}
 		}
 		return sh
+	case uop.BoundExprArg:
+		// Same encoding: 0 in shape marks a dim resolved at dispatch.
+		sh := make([]int64, len(v))
+		for i, d := range v {
+			if d.Sym {
+				sh[i] = 0
+			} else {
+				sh[i] = d.V
+			}
+		}
+		return sh
 	case string:
 		return []int64{1}
 	default:
 		return []int64{1}
 	}
+}
+
+// bufSymDimMul extracts per-symbolic-dim (multiplier, var-name) pairs from a
+// BUFFER node's arg. Returns (nil, nil) for buffers with no derived-bound
+// dims (all multipliers implicitly 1 and dim-order matches name-sorted
+// symVar order; matches Slice 1/2 behaviour). When non-nil, both slices
+// are parallel to the symbolic positions of bufShape — length equals count
+// of symbolic dims.
+//
+// Supported bound shapes:
+//   - bare DefineVar         → multiplier 1, var = DefineVar.Name
+//   - Mul(DefineVar, Const)  → multiplier = Const value, var = DefineVar.Name
+//   - Mul(Const, DefineVar)  → multiplier = Const value, var = DefineVar.Name
+//
+// Any other bound shape panics. Slice 3 only introduces Mul(var, const) and
+// Mul(const, var) via the reshape-merge path; richer expressions require
+// extending this helper and Buffer.SymDimMul/SymDimVar together (Slice 4+).
+func bufSymDimMul(bufNode uop.UOp) (muls []int64, vars []string) {
+	arg, ok := bufNode.Arg().(uop.ShapeSintArg)
+	if !ok {
+		return nil, nil
+	}
+	hasSym := false
+	for _, d := range arg {
+		if !d.Sym {
+			continue
+		}
+		// ShapeDim already carries (VarName, Mul) structurally — no need to
+		// walk a UOp bound expression (Option B Slice 4 hygiene).
+		muls = append(muls, d.Mul)
+		vars = append(vars, d.VarName)
+		hasSym = true
+	}
+	if !hasSym {
+		return nil, nil
+	}
+	// Always emit (muls, vars) when any symbolic dim is present so the runtime
+	// resolves dim-to-variable by name rather than by name-sorted position.
+	// The name-sorted positional fallback only holds when a kernel has exactly
+	// one symbolic variable; multi-variable kernels (Option B Slice 5 pad with
+	// a symbolic amount) silently corrupted buffer sizes pre-fix when the
+	// per-buffer leaf dim mapped to a sibling var (e.g. "k" < "n" sorted).
+	return muls, vars
+}
+
+// bufSymDimAffine extracts per-symbolic-dim affine bound entries from a
+// BUFFER node carrying a BoundExprArg. Returns nil if the buffer uses the
+// older ShapeSintArg / nil arg encodings (the (SymDimMul, SymDimVar) pair
+// remains the source of truth there).
+func bufSymDimAffine(bufNode uop.UOp) []SymDimAffineEntry {
+	arg, ok := bufNode.Arg().(uop.BoundExprArg)
+	if !ok {
+		return nil
+	}
+	var out []SymDimAffineEntry
+	for _, d := range arg {
+		if !d.Sym {
+			continue
+		}
+		terms := make([]uop.AffineTerm, len(d.Terms))
+		copy(terms, d.Terms)
+		out = append(out, SymDimAffineEntry{Terms: terms, Offset: d.Offset})
+	}
+	return out
 }
 
 // memoryPlan assigns Slot values for intermediate (scheduler-allocated) buffers

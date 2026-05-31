@@ -536,12 +536,18 @@ var _ = unsafe.Pointer(nil)
 // For concrete buffers (Size>0) it returns Size directly. For symbolic buffers
 // (Size==0), it multiplies the concrete dims in Shape by the binding values for
 // the symbolic dims (marked as 0 in Shape). nil Shape falls back to binding[symVars[0]].
+//
+// When buf.SymDimMul is non-nil, each symbolic dim's contribution is multiplied
+// by the corresponding entry (parallel to symbolic positions in Shape) to
+// support reshape-merge derived bounds like [n*4] (multiplier 4 with var n).
 func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []string) int64 {
 	if buf.Size > 0 {
 		return buf.Size
 	}
 	if len(buf.Shape) == 0 {
 		// 1D symbolic (arg=nil): size equals the single symbolic variable.
+		// (Leaf inputs constructed via the 1D NewSymbolicInput path have nil
+		// Shape and an implicit multiplier of 1.)
 		if len(symVars) > 0 {
 			if n, ok := binding[symVars[0]]; ok {
 				return n
@@ -549,16 +555,47 @@ func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []strin
 		}
 		return 0
 	}
-	// Multi-dim symbolic: product over dims, using binding for symbolic (0) dims.
+	// Multi-dim symbolic: product over dims, using binding × per-dim multiplier
+	// for symbolic (Shape[i]==0) dims. When buf.SymDimAffine is set (Option B
+	// Slice 5 pad/shrink output bounds: Add over distinct vars), it overrides
+	// the simpler (Mul, Var) form. Otherwise, when buf.SymDimVar is set
+	// (Slice 3 derived-bound buffers), it overrides the positional
+	// symVars[symIdx] lookup so dim-order may differ from name-sorted var
+	// order.
 	n := int64(1)
 	symIdx := 0
 	for _, s := range buf.Shape {
 		if s == 0 {
-			if symIdx < len(symVars) {
-				if bv, ok := binding[symVars[symIdx]]; ok {
-					n *= bv
+			var dimSize int64
+			useAffine := symIdx < len(buf.SymDimAffine)
+			if useAffine {
+				entry := buf.SymDimAffine[symIdx]
+				dimSize = entry.Offset
+				for _, t := range entry.Terms {
+					bv, ok := binding[t.VarName]
+					if !ok {
+						bv = 0
+					}
+					dimSize += t.Mul * bv
+				}
+			} else {
+				mul := int64(1)
+				if symIdx < len(buf.SymDimMul) {
+					mul = buf.SymDimMul[symIdx]
+				}
+				var name string
+				if symIdx < len(buf.SymDimVar) {
+					name = buf.SymDimVar[symIdx]
+				} else if symIdx < len(symVars) {
+					name = symVars[symIdx]
+				}
+				if name != "" {
+					if bv, ok := binding[name]; ok {
+						dimSize = mul * bv
+					}
 				}
 			}
+			n *= dimSize
 			symIdx++
 		} else {
 			n *= s
@@ -813,7 +850,10 @@ func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32]
 // buffers from gpuBufs. It creates a fresh params_n buffer per dispatch (4 bytes,
 // holds the concrete batch size n) and submits a compute pass.
 func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKernelHandle, binding map[string]int64, gpuBufs map[uint32]*wgpu.Buffer) error {
-	// Resolve n (symbolic batch size) from the first symbolic var in this kernel.
+	// Resolve the symbolic dispatch-axis size for the workgroup count.
+	// item.SymVars is name-sorted, matching codegen's params_n slot order;
+	// the dispatch-axis variable is the one consumed by the first symbolic
+	// loop range, which by Option-A construction is the first SymVar.
 	n := int64(1)
 	if len(item.SymVars) > 0 {
 		if bv, ok := binding[item.SymVars[0]]; ok {
@@ -821,15 +861,29 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 		}
 	}
 
-	// Params uniform buffer: ParamsN struct { data: array<u32, 4> } = 16 bytes.
+	// Params uniform buffer: one u32 per symbolic var, in name-sorted slot order
+	// (same order as item.SymVars and codegen's symSlot). Pad up to a multiple
+	// of 16 bytes — WGSL forces uniform-struct size and alignment to a multiple
+	// of 16, and codegen rounds the field count up to a multiple of 4 to match.
 	// Using a uniform buffer (not storage) avoids consuming a storage slot and
 	// keeps the total storage buffer count within Metal's 8-per-stage limit.
-	paramsBytes := make([]byte, 16)
-	binary.LittleEndian.PutUint32(paramsBytes, uint32(n))
+	nVars := len(item.SymVars)
+	paramsBytesLen := (nVars*4 + 15) &^ 15
+	if paramsBytesLen < 16 {
+		paramsBytesLen = 16
+	}
+	paramsBytes := make([]byte, paramsBytesLen)
+	for i, name := range item.SymVars {
+		bv, ok := binding[name]
+		if !ok {
+			return fmt.Errorf("symbolic kernel missing binding for DefineVar %q (expected in binding map)", name)
+		}
+		binary.LittleEndian.PutUint32(paramsBytes[i*4:], uint32(bv))
+	}
 	paramsBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: "sym_params",
 		Usage: gputypes.BufferUsageUniform | gputypes.BufferUsageCopyDst,
-		Size:  16,
+		Size:  uint64(paramsBytesLen),
 	})
 	if err != nil {
 		return fmt.Errorf("alloc params: %w", err)
@@ -859,7 +913,7 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 	entries[len(item.Bufs)] = wgpu.BindGroupEntry{
 		Binding: uint32(len(item.Bufs)),
 		Buffer:  paramsBuf,
-		Size:    16,
+		Size:    uint64(paramsBytesLen),
 	}
 
 	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
@@ -921,31 +975,6 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 	return nil
 }
 
-// symVarName returns the DefineVar name of the first symbolic AxisLoop range
-// in item's kernel AST, or "" if the kernel has no symbolic ranges.
-func symVarName(item schedule.ExecItem) string {
-	if !item.Ast.Valid() {
-		return "" // Ast zeroed in cached item; SymVars is the ground truth
-	}
-	sink := item.Ast
-	if sink.Op() != uop.OpSink || sink.NSrc() == 0 {
-		return ""
-	}
-	end := sink.Src(0)
-	if end.Op() != uop.OpEnd {
-		return ""
-	}
-	for i := 1; i < end.NSrc(); i++ {
-		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
-				return ra.VarName
-			}
-		}
-	}
-	return ""
-}
-
 // SymCompiledCount returns the number of distinct WGSL programs compiled and
 // cached by RunSymbolic. A value of 1 after multiple dispatches of the same
 // kernel structure proves compile-once behaviour.
@@ -998,28 +1027,13 @@ func (k *SymKernelHandle) Release() {
 }
 
 // itemHasSymDim reports whether the kernel represented by item contains at least
-// one symbolic AxisLoop range (i.e. a range whose bound is not known at compile time).
+// one symbolic range (i.e. a range whose bound depends on a DefineVar). When the
+// Ast has been released by the cache, fall back to the captured SymVars slice.
 func itemHasSymDim(item schedule.ExecItem) bool {
 	if !item.Ast.Valid() {
-		return len(item.SymVars) > 0 // Ast zeroed in cached item; SymVars is ground truth
+		return len(item.SymVars) > 0
 	}
-	sink := item.Ast
-	if sink.Op() != uop.OpSink || sink.NSrc() == 0 {
-		return false
-	}
-	end := sink.Src(0)
-	if end.Op() != uop.OpEnd {
-		return false
-	}
-	for i := 1; i < end.NSrc(); i++ {
-		r := end.Src(i)
-		if r.Op() == uop.OpRange {
-			if ra, ok := r.Arg().(uop.RangeArg); ok && ra.Symbolic {
-				return true
-			}
-		}
-	}
-	return false
+	return len(uop.VariablesOf(item.Ast)) > 0
 }
 
 // CompileSymKernel compiles the WGSL shader for item exactly once and returns a
@@ -1124,6 +1138,174 @@ func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandl
 		LocalSize:      ws,
 		WorkgroupCount: wc,
 	}, nil
+}
+
+// DispatchSymKernelWithBinding runs k with multiple symbolic variables.
+//
+// varNames lists the kernel's symbolic vars in name-sorted slot order (the
+// same ordering as schedule.ExecItem.SymVars / codegen's symSlot). binding
+// maps each var name to its concrete int64 value for this dispatch. outElems
+// is the number of output elements (used to size the output buffer and the
+// dispatch grid). inputs[i] is the float32 data for PARAM(i+1).
+//
+// Returns the output, the dispatch workgroup count, and any error. Panics
+// if binding is missing an entry for a var named in varNames.
+func (d *Device) DispatchSymKernelWithBinding(k *SymKernelHandle, varNames []string, binding map[string]int64, outElems int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
+	var out []float32
+	var wgs uint32
+	rerr := d.onGPU(func() error {
+		var derr error
+		out, wgs, derr = d.dispatchSymKernelBindingLocked(k, varNames, binding, outElems, inputs)
+		return derr
+	})
+	return out, wgs, rerr
+}
+
+// dispatchSymKernelBindingLocked is DispatchSymKernelWithBinding's body; it
+// assumes it is already executing on the GPU-owner goroutine.
+func (d *Device) dispatchSymKernelBindingLocked(k *SymKernelHandle, varNames []string, binding map[string]int64, outElems int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
+	nInputs := len(inputs)
+
+	outBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "sym_out",
+		Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
+		Size:  uint64(outElems) * 4,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc output: %w", err)
+	}
+	defer outBuf.Release()
+
+	inBufs := make([]*wgpu.Buffer, nInputs)
+	for i, data := range inputs {
+		buf, berr := d.device.CreateBuffer(&wgpu.BufferDescriptor{
+			Label: fmt.Sprintf("sym_in%d", i),
+			Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst,
+			Size:  uint64(len(data)) * 4,
+		})
+		if berr != nil {
+			for j := 0; j < i; j++ {
+				inBufs[j].Release()
+			}
+			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc input %d: %w", i, berr)
+		}
+		inBufs[i] = buf
+	}
+	defer func() {
+		for _, b := range inBufs {
+			if b != nil {
+				b.Release()
+			}
+		}
+	}()
+
+	for i, data := range inputs {
+		raw := float32sToBytes(data)
+		if werr := d.queue.WriteBuffer(inBufs[i], 0, raw); werr != nil {
+			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding upload input %d: %w", i, werr)
+		}
+	}
+
+	// Params uniform: one u32 per var in slot order, padded to multiple of 16
+	// bytes to satisfy WGSL's uniform-struct alignment rule (codegen rounds
+	// the ParamsN field count up to a multiple of 4 to match).
+	nVars := len(varNames)
+	paramsBytesLen := (nVars*4 + 15) &^ 15
+	if paramsBytesLen < 16 {
+		paramsBytesLen = 16
+	}
+	paramsBytes := make([]byte, paramsBytesLen)
+	for i, name := range varNames {
+		bv, ok := binding[name]
+		if !ok {
+			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding missing binding for var %q", name)
+		}
+		binary.LittleEndian.PutUint32(paramsBytes[i*4:], uint32(bv))
+	}
+	paramsBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
+		Label: "sym_params",
+		Usage: gputypes.BufferUsageUniform | gputypes.BufferUsageCopyDst,
+		Size:  uint64(paramsBytesLen),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc params: %w", err)
+	}
+	defer paramsBuf.Release()
+	if werr := d.queue.WriteBuffer(paramsBuf, 0, paramsBytes); werr != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding upload params: %w", werr)
+	}
+
+	entries := make([]wgpu.BindGroupEntry, 1+nInputs+1)
+	entries[0] = wgpu.BindGroupEntry{
+		Binding: 0,
+		Buffer:  outBuf,
+		Size:    uint64(outElems) * 4,
+	}
+	for i, buf := range inBufs {
+		entries[1+i] = wgpu.BindGroupEntry{
+			Binding: uint32(1 + i),
+			Buffer:  buf,
+			Size:    uint64(len(inputs[i])) * 4,
+		}
+	}
+	entries[1+nInputs] = wgpu.BindGroupEntry{
+		Binding: uint32(1 + nInputs),
+		Buffer:  paramsBuf,
+		Size:    uint64(paramsBytesLen),
+	}
+	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
+		Layout:  k.bgLayout,
+		Entries: entries,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CreateBindGroup: %w", err)
+	}
+	defer bg.Release()
+
+	wgs := uint32((outElems + int64(k.LocalSize[0]) - 1) / int64(k.LocalSize[0]))
+	if wgs == 0 {
+		wgs = 1
+	}
+	wc := k.WorkgroupCount
+	wc[0] = int(wgs)
+	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
+		totalWGs := int64(wc[0])
+		wc[0] = 65535
+		wc[1] = int((totalWGs + 65534) / 65535)
+		if wc[1] > 65535 {
+			totalWGs2 := int64(wc[1])
+			wc[1] = 65535
+			wc[2] = int((totalWGs2 + 65534) / 65535)
+		}
+	}
+
+	enc, err := d.device.CreateCommandEncoder(nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CreateCommandEncoder: %w", err)
+	}
+	pass, err := enc.BeginComputePass(nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding BeginComputePass: %w", err)
+	}
+	pass.SetPipeline(k.pipeline)
+	pass.SetBindGroup(0, bg, nil)
+	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
+	if perr := pass.End(); perr != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding ComputePass.End: %w", perr)
+	}
+	cmd, err := enc.Finish()
+	if err != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CommandEncoder.Finish: %w", err)
+	}
+	if _, serr := d.queue.Submit(cmd); serr != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding Queue.Submit: %w", serr)
+	}
+
+	out, rerr := d.readBuffer(outBuf, outElems, uop.Dtypes.Float32)
+	if rerr != nil {
+		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding readback: %w", rerr)
+	}
+	return out, wgs, nil
 }
 
 // DispatchSymKernel runs k with the given symbolic dimension n.

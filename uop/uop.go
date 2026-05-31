@@ -296,19 +296,92 @@ const (
 
 // RangeArg is the arg payload for OpRange nodes.
 // ID is a scheduler-assigned counter that uniquely identifies this loop variable
-// within a kernel; Size is the exclusive upper bound ([0, Size)).
+// within a kernel; Type classifies the axis kind.
 //
-// Symbolic shapes spike (SLICE 1): when Symbolic=true the bound is not known at
-// compile time. Size is ignored; the runtime value is read from the kernel's
-// params_n storage buffer at slot SymParamIdx. The static path (Symbolic=false)
-// is entirely unaffected — the bool zero-value keeps all existing kernels intact.
+// The exclusive upper bound lives in src[0] as a UOp expression — a Const for
+// concrete sizes, a DefineVar (or expression over DefineVars) for symbolic.
+// This matches tinygrad's master rangeify representation. Variable-slot
+// assignment for the WGSL params_n uniform is computed per-kernel at codegen
+// time via VariablesOf; it is not stored on the range itself.
 type RangeArg struct {
-	ID          int
-	Size        int64
-	Type        AxisType
-	Symbolic    bool   // true → read bound from params_n[SymParamIdx] at dispatch
-	SymParamIdx int    // index into the per-kernel params_n buffer (only when Symbolic)
-	VarName     string // DefineVar name for symbolic ranges; "" for static
+	ID   int
+	Type AxisType
+}
+
+// RangeBound returns the exclusive upper bound UOp of an OpRange node.
+// The lower bound is implicit zero.
+func RangeBound(r UOp) UOp { return r.Src(0) }
+
+// RangeIsSymbolic reports whether r's bound is not a compile-time constant.
+func RangeIsSymbolic(r UOp) bool { return r.Src(0).Op() != OpConst }
+
+// RangeSize returns the concrete exclusive upper bound. Panics if the bound
+// is symbolic; callers must gate with RangeIsSymbolic first.
+func RangeSize(r UOp) int64 {
+	b := r.Src(0)
+	if b.Op() != OpConst {
+		panic(fmt.Sprintf("uop: RangeSize called on symbolic range (bound op = %s)", b.Op()))
+	}
+	return b.Arg().(int64)
+}
+
+// VariablesOf returns the DefineVar UOps reachable from root, sorted by
+// VarArg.Name. Each DefineVar appears at most once. The traversal is the
+// portable analogue of tinygrad's UOp.variables() and is the supported way
+// for codegen to discover the symbolic variables of a kernel.
+func VariablesOf(root UOp) []UOp {
+	if !root.Valid() {
+		return nil
+	}
+	a := root.Arena()
+	seen := make(map[uint32]bool)
+	var out []UOp
+	type frame struct {
+		u       UOp
+		nextSrc int
+	}
+	stack := []frame{{root, 0}}
+	for len(stack) > 0 {
+		f := &stack[len(stack)-1]
+		u := f.u
+		if seen[u.Index()] {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		pushed := false
+		for f.nextSrc < u.NSrc() {
+			ch := u.Src(f.nextSrc)
+			f.nextSrc++
+			if !seen[ch.Index()] {
+				stack = append(stack, frame{ch, 0})
+				pushed = true
+				break
+			}
+		}
+		if !pushed {
+			seen[u.Index()] = true
+			if u.Op() == OpDefineVar {
+				out = append(out, u)
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	// Sort by VarArg.Name for deterministic codegen-time slot assignment.
+	sortVarsByName(a, out)
+	return out
+}
+
+// sortVarsByName sorts DefineVar UOps in-place by their VarArg.Name field.
+// Insertion sort: variable count per kernel is small (≤4 today; cap is a
+// codegen concern, not a uop one).
+func sortVarsByName(_ *Arena, vs []UOp) {
+	for i := 1; i < len(vs); i++ {
+		j := i
+		for j > 0 && vs[j-1].Arg().(VarArg).Name > vs[j].Arg().(VarArg).Name {
+			vs[j-1], vs[j] = vs[j], vs[j-1]
+			j--
+		}
+	}
 }
 
 // BufferizeArg is the arg payload for OpBufferize nodes.
@@ -325,24 +398,259 @@ type BufferizeArg struct {
 type VarArg struct{ Name string }
 
 // ShapeDim is one element of a ShapeSintArg.
-// Sym=false: V is a concrete dimension size.
-// Sym=true: VarIdx is the arena index of the corresponding DefineVar UOp.
+// Sym=false: V is a concrete dimension size (VarName, Mul are zero).
+// Sym=true: V must be 0 (SPEC §10); VarName is the DefineVar's name and Mul is
+// the per-dim multiplier — actual dim size = Mul * binding[VarName].
+// Mul=1 encodes a bare DefineVar bound; Mul>1 encodes a derived bound such as
+// Mul(DefineVar, Const). Identity is structural (name + multiplier), not arena
+// position, so the encoding is portable across arenas (SPEC §10 — fix in
+// Option B Slice 4 of the recurring identity-as-allocation-position bug class).
 type ShapeDim struct {
-	V      int64
-	Sym    bool
-	VarIdx uint32
+	V       int64
+	Sym     bool
+	VarName string
+	Mul     int64
 }
 
 // ShapeSintArg is the arg payload for OpReshape and OpExpand nodes whose shape
 // contains at least one symbolic dimension. Concrete dims carry their size in V;
-// symbolic dims set Sym=true and VarIdx to the DefineVar UOp's arena index.
-// This type supplements the plain []int64 arg used for fully-concrete shapes.
+// symbolic dims set Sym=true and (VarName, Mul) describe the size as a multiple
+// of a named DefineVar's value. This type supplements the plain []int64 arg
+// used for fully-concrete shapes.
 type ShapeSintArg []ShapeDim
+
+// PadSintArg is the arg payload for OpPad nodes whose pad amounts contain at
+// least one symbolic value. Each element is the (lo, hi) pair for one axis,
+// encoded as ShapeDim so concrete and symbolic amounts share the structural-key
+// machinery (mirrors ShapeSintArg from Slice 1 / 4). Supplements the plain
+// [][2]int64 arg used for fully-concrete Pad.
+//
+// SPEC §10 V-on-symbolic-dim invariant applies per element: when Sym=true,
+// V must be 0 and (VarName, Mul) describe the amount as Mul * binding[VarName].
+type PadSintArg [][2]ShapeDim
+
+// ShrinkSintArg is the arg payload for OpShrink nodes whose [lo, hi) bounds
+// contain at least one symbolic value. Element semantics match PadSintArg.
+type ShrinkSintArg [][2]ShapeDim
+
+// AffineTerm is one term of an affine-sum bound expression: contributes
+// Mul * binding[VarName] to the result.
+type AffineTerm struct {
+	Mul     int64
+	VarName string
+}
+
+// BoundDim is one element of a BoundExprArg. Concrete dims set V (Affine=nil).
+// Symbolic dims set Affine to the per-term decomposition; total bound is
+// sum(Terms[i].Mul * binding[Terms[i].VarName]) + Offset. This supersedes
+// the ShapeDim (VarName, Mul) encoding for the buffer-output case where the
+// bound is an Add of distinct DefineVars (the Slice 4 carried debt).
+type BoundDim struct {
+	V      int64 // concrete dim size (when Terms empty and Sym=false)
+	Sym    bool
+	Terms  []AffineTerm
+	Offset int64
+}
+
+// BoundExprArg is the arg payload for OpBuffer nodes whose symbolic-dim
+// bounds exceed the ShapeSintArg single-term encoding. Each element resolves
+// to a concrete dim size at dispatch time by evaluating its affine sum
+// against the runtime binding map.
+//
+// Cross-arena structural identity is preserved by mixing (Terms, Offset)
+// into hashArg/equalArg — same approach as ShapeSintArg uses for ShapeDim.
+type BoundExprArg []BoundDim
+
+// BoundToAffine decomposes a symbolic-dim bound expression UOp into an
+// affine sum: bound_value == Sum(Mul[i] * binding[VarName[i]]) + Offset at
+// runtime. Supports the shapes accepted by SymBoundFactor plus OpAdd of
+// affine subexpressions (Option B Slice 5). Returns ok=false on unsupported
+// shapes so the caller can route via SymBoundFactor for narrow encodings or
+// surface STOP for richer ones.
+//
+// Supported recursive structure:
+//   - OpConst                       → (no terms, Offset=Const)
+//   - OpDefineVar                   → ({Mul:1, VarName:name}, Offset=0)
+//   - OpMul(DefineVar, Const) etc.  → ({Mul:Const, VarName:name}, Offset=0)
+//   - OpMul(Const, Const)           → (no terms, Offset=product)
+//   - OpAdd(a, b)                   → merge(a.Terms, b.Terms), Offset+=
+//   - OpSub(a, b)                   → merge(a.Terms, neg(b.Terms)), Offset-=
+//
+// Like-named terms accumulate (e.g. n+n → 2n); zero-coefficient terms drop.
+func BoundToAffine(u UOp) (terms []AffineTerm, offset int64, ok bool) {
+	switch u.Op() {
+	case OpConst:
+		v, ok2 := u.Arg().(int64)
+		if !ok2 {
+			return nil, 0, false
+		}
+		return nil, v, true
+	case OpDefineVar:
+		return []AffineTerm{{Mul: 1, VarName: u.Arg().(VarArg).Name}}, 0, true
+	case OpMul:
+		if u.NSrc() != 2 {
+			return nil, 0, false
+		}
+		a0, a1 := u.Src(0), u.Src(1)
+		// Const * X (or X * Const) where X is affine.
+		var c int64
+		var other UOp
+		switch {
+		case a0.Op() == OpConst:
+			cv, isInt := a0.Arg().(int64)
+			if !isInt {
+				return nil, 0, false
+			}
+			c = cv
+			other = a1
+		case a1.Op() == OpConst:
+			cv, isInt := a1.Arg().(int64)
+			if !isInt {
+				return nil, 0, false
+			}
+			c = cv
+			other = a0
+		default:
+			return nil, 0, false
+		}
+		otherTerms, otherOffset, ok2 := BoundToAffine(other)
+		if !ok2 {
+			return nil, 0, false
+		}
+		// scale all by c
+		scaled := make([]AffineTerm, 0, len(otherTerms))
+		for _, t := range otherTerms {
+			if t.Mul*c != 0 {
+				scaled = append(scaled, AffineTerm{Mul: t.Mul * c, VarName: t.VarName})
+			}
+		}
+		return scaled, otherOffset * c, true
+	case OpAdd:
+		if u.NSrc() != 2 {
+			return nil, 0, false
+		}
+		t1, o1, ok1 := BoundToAffine(u.Src(0))
+		t2, o2, ok2 := BoundToAffine(u.Src(1))
+		if !ok1 || !ok2 {
+			return nil, 0, false
+		}
+		return mergeAffineTerms(t1, t2), o1 + o2, true
+	case OpSub:
+		if u.NSrc() != 2 {
+			return nil, 0, false
+		}
+		t1, o1, ok1 := BoundToAffine(u.Src(0))
+		t2, o2, ok2 := BoundToAffine(u.Src(1))
+		if !ok1 || !ok2 {
+			return nil, 0, false
+		}
+		negT2 := make([]AffineTerm, 0, len(t2))
+		for _, t := range t2 {
+			if t.Mul != 0 {
+				negT2 = append(negT2, AffineTerm{Mul: -t.Mul, VarName: t.VarName})
+			}
+		}
+		return mergeAffineTerms(t1, negT2), o1 - o2, true
+	}
+	return nil, 0, false
+}
+
+// mergeAffineTerms combines two affine term slices, accumulating coefficients
+// on identical VarNames and dropping zero-coefficient results. Output order
+// follows append-order from a then b (insertion); like terms in b collapse
+// onto matching entries in a. Deterministic for structural-key stability.
+func mergeAffineTerms(a, b []AffineTerm) []AffineTerm {
+	if len(a) == 0 {
+		out := make([]AffineTerm, 0, len(b))
+		for _, t := range b {
+			if t.Mul != 0 {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	out := make([]AffineTerm, len(a))
+	copy(out, a)
+	for _, t := range b {
+		if t.Mul == 0 {
+			continue
+		}
+		found := false
+		for i := range out {
+			if out[i].VarName == t.VarName {
+				out[i].Mul += t.Mul
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, t)
+		}
+	}
+	// Drop zero-coefficient terms (may arise from accumulation).
+	pruned := out[:0]
+	for _, t := range out {
+		if t.Mul != 0 {
+			pruned = append(pruned, t)
+		}
+	}
+	return pruned
+}
+
+// SymBoundFactor decomposes a symbolic-dim bound expression UOp into
+// (VarName, Mul) such that bound_value == Mul * binding[VarName] at runtime.
+// Supported shapes (Slice 3 surface):
+//   - bare OpDefineVar             → (Name, 1)
+//   - OpMul(OpDefineVar, OpConst)  → (Name, const)
+//   - OpMul(OpConst, OpDefineVar)  → (Name, const)
+//
+// Panics on any other shape — richer bound expressions require widening
+// the ShapeDim encoding (VarName + Mul) and this helper together.
+func SymBoundFactor(u UOp) (varName string, mul int64) {
+	switch u.Op() {
+	case OpDefineVar:
+		return u.Arg().(VarArg).Name, 1
+	case OpMul:
+		if u.NSrc() == 2 {
+			a0, a1 := u.Src(0), u.Src(1)
+			switch {
+			case a0.Op() == OpDefineVar && a1.Op() == OpConst:
+				return a0.Arg().(VarArg).Name, a1.Arg().(int64)
+			case a0.Op() == OpConst && a1.Op() == OpDefineVar:
+				return a1.Arg().(VarArg).Name, a0.Arg().(int64)
+			}
+		}
+	}
+	panic(fmt.Sprintf("uop: SymBoundFactor: unsupported bound shape (op=%s nsrc=%d)", u.Op(), u.NSrc()))
+}
+
+// FindDefineVar returns the arena's OpDefineVar UOp whose VarArg.Name equals
+// name, or (UOp{}, false) if no such variable exists. Used by consumers that
+// receive a ShapeDim with VarName set and need to recover the originating
+// DefineVar node (e.g. shapeSintArgToSints rebuilds bound expression UOps
+// from arena-portable VarName + Mul encoding). Linear scan over arena nodes;
+// O(arena.Len()). Two arenas with the same logical graph will return UOps
+// with the same VarArg.Name but distinct arena indices — that's the point.
+func (a *Arena) FindDefineVar(name string) (UOp, bool) {
+	for i := range a.nodes {
+		n := &a.nodes[i]
+		if n.op != OpDefineVar {
+			continue
+		}
+		if va, ok := n.arg.(VarArg); ok && va.Name == name {
+			return UOp{a: a, idx: uint32(i)}, true
+		}
+	}
+	return UOp{}, false
+}
 
 // DefineVar creates (or retrieves interned) a symbolic variable with name
 // and inclusive integer bounds [min, max]. The resulting UOp has dtype Index
-// and two Const srcs encoding the exclusive interval: src[0]=min, src[1]=max+1.
-// This encoding matches what BoundsOf expects: it returns [src[0], src[1].Max-1].
+// and two Const srcs encoding the exclusive-upper interval: src[0]=min,
+// src[1]=max+1. SPEC §10 inclusive-bounds invariant: user-supplied (min, max)
+// are inclusive; the internal +1 lets the renderer emit loops as the
+// canonical exclusive-upper `r < bound`. BoundsOf and shape.boundsOfUOp
+// unwrap the +1 so every user-facing consumer reads inclusive [Min, Max].
 func (a *Arena) DefineVar(name string, min, max int64) UOp {
 	minC := a.New(OpConst, Dtypes.Index, nil, min, nil)
 	maxC := a.New(OpConst, Dtypes.Index, nil, max+1, nil)
@@ -405,17 +713,7 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 	case RangeArg:
 		h = mix(h, 8)
 		h = mix(h, uint64(v.ID))
-		h = mix(h, uint64(v.Size))
 		h = mix(h, uint64(v.Type))
-		if v.Symbolic {
-			h = mix(h, 1)
-		} else {
-			h = mix(h, 0)
-		}
-		h = mix(h, uint64(v.SymParamIdx))
-		for i := 0; i < len(v.VarName); i++ {
-			h = mix(h, uint64(v.VarName[i]))
-		}
 		return h
 	case BufferizeArg:
 		h = mix(h, 9)
@@ -440,9 +738,40 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 		h = mix(h, 13)
 		h = mix(h, uint64(len(v)))
 		for _, d := range v {
+			h = mixShapeDim(h, d, mix)
+		}
+		return h
+	case PadSintArg:
+		h = mix(h, 14)
+		h = mix(h, uint64(len(v)))
+		for _, p := range v {
+			h = mixShapeDim(h, p[0], mix)
+			h = mixShapeDim(h, p[1], mix)
+		}
+		return h
+	case ShrinkSintArg:
+		h = mix(h, 15)
+		h = mix(h, uint64(len(v)))
+		for _, p := range v {
+			h = mixShapeDim(h, p[0], mix)
+			h = mixShapeDim(h, p[1], mix)
+		}
+		return h
+	case BoundExprArg:
+		h = mix(h, 16)
+		h = mix(h, uint64(len(v)))
+		for _, d := range v {
 			if d.Sym {
 				h = mix(h, 1)
-				h = mix(h, uint64(d.VarIdx))
+				h = mix(h, uint64(len(d.Terms)))
+				for _, t := range d.Terms {
+					h = mix(h, uint64(t.Mul))
+					for i := 0; i < len(t.VarName); i++ {
+						h = mix(h, uint64(t.VarName[i]))
+					}
+					h = mix(h, uint64(len(t.VarName)))
+				}
+				h = mix(h, uint64(d.Offset))
 			} else {
 				h = mix(h, 0)
 				h = mix(h, uint64(d.V))
@@ -452,6 +781,25 @@ func hashArg(h uint64, a any, prime uint64) uint64 {
 	default:
 		panic(fmt.Sprintf("uop: unsupported arg type %T; add it to hashArg and equalArg", a))
 	}
+}
+
+// mixShapeDim mixes a single ShapeDim into the hash, mirroring the
+// per-element logic from the ShapeSintArg case. Centralised so PadSintArg /
+// ShrinkSintArg stay byte-identical with the established encoding (and so
+// any future encoding tweak only changes one place).
+func mixShapeDim(h uint64, d ShapeDim, mix func(uint64, uint64) uint64) uint64 {
+	if d.Sym {
+		h = mix(h, 1)
+		for i := 0; i < len(d.VarName); i++ {
+			h = mix(h, uint64(d.VarName[i]))
+		}
+		h = mix(h, uint64(len(d.VarName)))
+		h = mix(h, uint64(d.Mul))
+	} else {
+		h = mix(h, 0)
+		h = mix(h, uint64(d.V))
+	}
+	return h
 }
 
 // equalNodes reports whether two uopNodes are structurally equal.
@@ -546,6 +894,45 @@ func equalArg(a, b any) bool {
 		for i := range av {
 			if av[i] != bv[i] {
 				return false
+			}
+		}
+		return true
+	case PadSintArg:
+		bv, ok := b.(PadSintArg)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+		return true
+	case ShrinkSintArg:
+		bv, ok := b.(ShrinkSintArg)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+		return true
+	case BoundExprArg:
+		bv, ok := b.(BoundExprArg)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i].V != bv[i].V || av[i].Sym != bv[i].Sym ||
+				av[i].Offset != bv[i].Offset || len(av[i].Terms) != len(bv[i].Terms) {
+				return false
+			}
+			for j := range av[i].Terms {
+				if av[i].Terms[j] != bv[i].Terms[j] {
+					return false
+				}
 			}
 		}
 		return true

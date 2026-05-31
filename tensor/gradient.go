@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"fmt"
+
 	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -208,21 +210,55 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 
 	case uop.OpPad:
 		srcSh := cache[u.Src(0).Index()]
-		padding := u.Arg().([][2]int64)
 		sh = make([]shape.Sint, len(srcSh))
-		for i, s := range srcSh {
-			if v, ok := s.ConstValue(); ok {
-				sh[i] = shape.Const(v + padding[i][0] + padding[i][1])
-			} else {
-				sh[i] = s // symbolic — pad amount must be 0 (scope guard)
+		switch padding := u.Arg().(type) {
+		case [][2]int64:
+			// Concrete pad: shape[i] grows by lo+hi. If srcSh[i] is symbolic
+			// (Option-A bare batch dim with concrete pad amounts on it), wrap
+			// the symbolic dim in shape.Add to carry the pad-amount delta —
+			// pre-Slice-5 this branch returned srcSh[i] unchanged with a
+			// "pad amount must be 0 (scope guard)" comment, which silently
+			// dropped the delta. Slice 5 surface now allows pad on a symbolic
+			// axis, so propagate properly.
+			for i, s := range srcSh {
+				delta := padding[i][0] + padding[i][1]
+				if v, ok := s.ConstValue(); ok {
+					sh[i] = shape.Const(v + delta)
+				} else if delta == 0 {
+					sh[i] = s
+				} else {
+					sh[i] = shape.Add(s, shape.Const(delta))
+				}
 			}
+		case uop.PadSintArg:
+			// Symbolic pad: shape[i] = srcSh[i] + lo + hi via Sint arithmetic.
+			a := u.Arena()
+			for i, s := range srcSh {
+				lo := shapeDimToSint(a, padding[i][0])
+				hi := shapeDimToSint(a, padding[i][1])
+				sh[i] = shape.Add(shape.Add(s, lo), hi)
+			}
+		default:
+			panic(fmt.Sprintf("tensor/gradient: OpPad: unexpected arg type %T", u.Arg()))
 		}
 
 	case uop.OpShrink:
-		arg := u.Arg().([][2]int64)
-		sh = make([]shape.Sint, len(arg))
-		for i, p := range arg {
-			sh[i] = shape.Const(p[1] - p[0])
+		switch arg := u.Arg().(type) {
+		case [][2]int64:
+			sh = make([]shape.Sint, len(arg))
+			for i, p := range arg {
+				sh[i] = shape.Const(p[1] - p[0])
+			}
+		case uop.ShrinkSintArg:
+			a := u.Arena()
+			sh = make([]shape.Sint, len(arg))
+			for i, p := range arg {
+				lo := shapeDimToSint(a, p[0])
+				hi := shapeDimToSint(a, p[1])
+				sh[i] = shape.Sub(hi, lo)
+			}
+		default:
+			panic(fmt.Sprintf("tensor/gradient: OpShrink: unexpected arg type %T", u.Arg()))
 		}
 
 	case uop.OpFlip, uop.OpCast, uop.OpBitcast:
@@ -278,16 +314,35 @@ func intsToSints(ints []int64) []shape.Sint {
 	return sh
 }
 
-// shapeSintArgToSintsGrad converts a ShapeSintArg to []shape.Sint by looking
-// up DefineVar nodes by arena index. Mirror of schedule.shapeSintArgToSints.
+// shapeSintArgToSintsGrad converts a ShapeSintArg to []shape.Sint by rebuilding
+// the bound expression UOp from the (VarName, Mul) encoding. Mirror of
+// schedule.shapeSintArgToSints. The DefineVar is looked up by name in a;
+// Mul>1 reconstructs OpMul(DefineVar, Const) which interning aliases to the
+// original node whenever it was built in canonical orientation.
 func shapeSintArgToSintsGrad(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
 	sh := make([]shape.Sint, len(arg))
 	for i, d := range arg {
-		if d.Sym {
-			sh[i] = shape.SymInt{Node: a.At(d.VarIdx)}
-		} else {
-			sh[i] = shape.Const(d.V)
-		}
+		sh[i] = shapeDimToSint(a, d)
 	}
 	return sh
+}
+
+// shapeDimToSint converts a single uop.ShapeDim back to a shape.Sint by
+// reconstructing the bound UOp expression from (VarName, Mul). Used by
+// gradient.go shape-cache OpPad/OpShrink branches (Slice 5) and shared by
+// shapeSintArgToSintsGrad for the Slice 4 reshape/expand path.
+func shapeDimToSint(a *uop.Arena, d uop.ShapeDim) shape.Sint {
+	if !d.Sym {
+		return shape.Const(d.V)
+	}
+	defVar, ok := a.FindDefineVar(d.VarName)
+	if !ok {
+		panic(fmt.Sprintf("tensor/gradient: shapeDimToSint: DefineVar %q not found in arena", d.VarName))
+	}
+	bound := defVar
+	if d.Mul > 1 {
+		mulConst := a.New(uop.OpConst, uop.Dtypes.Index, nil, d.Mul, nil)
+		bound = a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{defVar, mulConst}, nil, nil)
+	}
+	return shape.SymInt{Node: bound}
 }

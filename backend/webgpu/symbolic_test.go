@@ -34,9 +34,11 @@ func TestSymbolicShapeProof(t *testing.T) {
 	// index expression itself is the range variable (stride 1).
 	a := uop.NewArena(64)
 
-	// r0: symbolic AxisLoop range — bound read from params_n[0] at dispatch time.
-	r0 := a.New(uop.OpRange, uop.Dtypes.Index, nil,
-		uop.RangeArg{ID: 0, Size: 0, Type: uop.AxisLoop, Symbolic: true, SymParamIdx: 0}, nil)
+	// r0: symbolic AxisLoop range — bound is a DefineVar so the lowerer
+	// allocates a params_n slot at codegen time (sorted by var name).
+	nVar := a.DefineVar("n", 1, 1024)
+	r0 := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{nVar},
+		uop.RangeArg{ID: 0, Type: uop.AxisLoop}, nil)
 
 	paramOut := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(0), nil) // PARAM(0) = output
 	paramA := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(1), nil)   // PARAM(1) = a
@@ -155,8 +157,9 @@ func TestSymbolicShape_StaticCodegenUnaffected(t *testing.T) {
 	// Build a static 4-element elementwise kernel (same shape as exp2 test).
 	a := uop.NewArena(32)
 
-	r0 := a.New(uop.OpRange, uop.Dtypes.Index, nil,
-		uop.RangeArg{ID: 0, Size: 4, Type: uop.AxisLoop}, nil) // static, Symbolic=false
+	four := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(4), nil)
+	r0 := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{four},
+		uop.RangeArg{ID: 0, Type: uop.AxisLoop}, nil) // static bound
 
 	paramOut := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(0), nil)
 	paramIn := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(1), nil)

@@ -324,7 +324,17 @@ func argStr(u uop.UOp) string {
 		if v.Type == uop.AxisReduce {
 			t = "red"
 		}
-		return fmt.Sprintf("[0,%d)%s", v.Size, t)
+		if u.NSrc() > 0 {
+			bound := u.Src(0)
+			if uop.RangeIsSymbolic(u) {
+				if bound.Op() == uop.OpDefineVar {
+					return fmt.Sprintf("[0,%s)%s", bound.Arg().(uop.VarArg).Name, t)
+				}
+				return fmt.Sprintf("[0,?sym)%s", t)
+			}
+			return fmt.Sprintf("[0,%d)%s", uop.RangeSize(u), t)
+		}
+		return fmt.Sprintf("[0,?)%s", t)
 	}
 	return ""
 }

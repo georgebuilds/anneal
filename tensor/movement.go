@@ -200,24 +200,100 @@ func (t *Tensor) ExpandSints(newShape []shape.Sint) *Tensor {
 }
 
 // toShapeSintArg converts a []shape.Sint to a uop.ShapeSintArg for use as a
-// UOp arg. SymInt dims encode their DefineVar node's arena index in VarIdx.
+// UOp arg. SymInt dims encode their DefineVar by name in VarName (Mul=1 — the
+// tensor-side construction path produces only bare-DefineVar bounds; derived
+// bounds are introduced later by the scheduler).
 //
 // Enforces the SPEC §10 ShapeSintArg V-on-symbolic-dim invariant: when Sym=true,
-// V must be 0. hashArg ignores V on symbolic dims while equalArg compares it;
-// the cache key is only consistent because no production path sets V≠0 here.
+// V must be 0. The VarName encoding makes the arg structurally portable across
+// arenas (Option B Slice 4).
 func toShapeSintArg(sh []shape.Sint) uop.ShapeSintArg {
 	result := make(uop.ShapeSintArg, len(sh))
 	for i, s := range sh {
-		if sym, ok := s.(shape.SymInt); ok {
-			d := uop.ShapeDim{Sym: true, VarIdx: sym.Node.Index()}
-			if d.V != 0 {
-				panic(fmt.Sprintf("uop: ShapeSintArg.V must be 0 when Sym=true (SPEC §10); got V=%d VarIdx=%d at dim %d", d.V, d.VarIdx, i))
-			}
-			result[i] = d
-		} else {
-			v, _ := s.ConstValue()
-			result[i] = uop.ShapeDim{V: v}
-		}
+		result[i] = toShapeDim(s, i)
 	}
 	return result
+}
+
+// toShapeDim converts a single shape.Sint to a uop.ShapeDim, enforcing the
+// SPEC §10 V-on-symbolic-dim invariant. Shared by toShapeSintArg and the
+// Pad/Shrink Sint constructors so encoding stays consistent across all three.
+func toShapeDim(s shape.Sint, dimIdx int) uop.ShapeDim {
+	if sym, ok := s.(shape.SymInt); ok {
+		name, mul := uop.SymBoundFactor(sym.Node)
+		d := uop.ShapeDim{Sym: true, VarName: name, Mul: mul}
+		if d.V != 0 {
+			panic(fmt.Sprintf("uop: ShapeDim.V must be 0 when Sym=true (SPEC §10); got V=%d VarName=%q at dim %d", d.V, d.VarName, dimIdx))
+		}
+		return d
+	}
+	v, _ := s.ConstValue()
+	return uop.ShapeDim{V: v}
+}
+
+// PadSints adds padding using a [][2]shape.Sint mask; pad amounts may be
+// symbolic. For all-concrete arg, falls back to the regular [][2]int64
+// Pad path (byte-identical static behaviour).
+func (t *Tensor) PadSints(arg [][2]shape.Sint) *Tensor {
+	if !maskHasSymbolic(arg) {
+		conc := make([][2]int64, len(arg))
+		for i, p := range arg {
+			v0, _ := p[0].ConstValue()
+			v1, _ := p[1].ConstValue()
+			conc[i] = [2]int64{v0, v1}
+		}
+		return t.Pad(conc)
+	}
+	allZero := true
+	for _, p := range arg {
+		v0, ok0 := p[0].ConstValue()
+		v1, ok1 := p[1].ConstValue()
+		if !ok0 || !ok1 || v0 != 0 || v1 != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		return t
+	}
+	newST := t.st.PadSints(arg)
+	uopArg := make(uop.PadSintArg, len(arg))
+	for i, p := range arg {
+		uopArg[i] = [2]uop.ShapeDim{toShapeDim(p[0], i), toShapeDim(p[1], i)}
+	}
+	node := t.arena().New(uop.OpPad, t.dtype, []uop.UOp{t.node}, uopArg, nil)
+	return fromNode(node, newST, t.dtype, t.device)
+}
+
+// ShrinkSints selects a sub-region using a [][2]shape.Sint mask; lo/hi may be
+// symbolic. For all-concrete arg, falls back to the regular [][2]int64 path.
+func (t *Tensor) ShrinkSints(arg [][2]shape.Sint) *Tensor {
+	if !maskHasSymbolic(arg) {
+		conc := make([][2]int64, len(arg))
+		for i, p := range arg {
+			v0, _ := p[0].ConstValue()
+			v1, _ := p[1].ConstValue()
+			conc[i] = [2]int64{v0, v1}
+		}
+		return t.Shrink(conc)
+	}
+	newST := t.st.ShrinkSints(arg)
+	uopArg := make(uop.ShrinkSintArg, len(arg))
+	for i, p := range arg {
+		uopArg[i] = [2]uop.ShapeDim{toShapeDim(p[0], i), toShapeDim(p[1], i)}
+	}
+	node := t.arena().New(uop.OpShrink, t.dtype, []uop.UOp{t.node}, uopArg, nil)
+	return fromNode(node, newST, t.dtype, t.device)
+}
+
+func maskHasSymbolic(arg [][2]shape.Sint) bool {
+	for _, p := range arg {
+		if _, ok := p[0].ConstValue(); !ok {
+			return true
+		}
+		if _, ok := p[1].ConstValue(); !ok {
+			return true
+		}
+	}
+	return false
 }

@@ -70,7 +70,19 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 			i, access, i, elemType)
 	}
 	if hasSymDim {
-		fmt.Fprintf(&b, "struct ParamsN { n0: u32, n1: u32, n2: u32, n3: u32 };\n")
+		// Field count is rounded up to a multiple of 4 so that the struct natural
+		// size stays a multiple of 16 bytes (WGSL's uniform-buffer alignment rule
+		// for var<uniform>). N=1 emits 4 fields → byte-identical to Slice 1.
+		nVars := len(uop.VariablesOf(item.Ast))
+		nFields := ((nVars + 3) / 4) * 4
+		if nFields < 4 {
+			nFields = 4
+		}
+		fieldStrs := make([]string, nFields)
+		for i := 0; i < nFields; i++ {
+			fieldStrs[i] = fmt.Sprintf("n%d: u32", i)
+		}
+		fmt.Fprintf(&b, "struct ParamsN { %s };\n", strings.Join(fieldStrs, ", "))
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<uniform> params_n: ParamsN;\n",
 			ki.NumParams)
 	}
@@ -139,10 +151,16 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 		switch ins.Kind {
 		case InstrBoundsCheck:
 			if ins.Symbolic {
-				if ins.ConcreteTrailing > 1 {
-					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0 * %du) { return; }\n", indent(), ins.ConcreteTrailing)
+				var symBound string
+				if ins.SymBoundExpr != "" {
+					symBound = ins.SymBoundExpr
 				} else {
-					fmt.Fprintf(&b, "%sif (gid_x >= params_n.n0) { return; }\n", indent())
+					symBound = fmt.Sprintf("params_n.n%d", ins.SymParamIdx)
+				}
+				if ins.ConcreteTrailing > 1 {
+					fmt.Fprintf(&b, "%sif (gid_x >= %s * %du) { return; }\n", indent(), symBound, ins.ConcreteTrailing)
+				} else {
+					fmt.Fprintf(&b, "%sif (gid_x >= %s) { return; }\n", indent(), symBound)
 				}
 			}
 
@@ -174,9 +192,20 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 		case InstrLoopBegin:
 			if ins.Symbolic {
-				symField := [...]string{"n0", "n1", "n2", "n3"}[ins.SymParamIdx]
-				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < i32(params_n.%s); r%d++) {\n",
-					indent(), ins.RangeID, ins.RangeID, symField, ins.RangeID)
+				var symBound string
+				if ins.SymBoundExpr != "" {
+					symBound = ins.SymBoundExpr
+				} else {
+					symBound = fmt.Sprintf("params_n.n%d", ins.SymParamIdx)
+				}
+				if ins.Int64Downgraded {
+					// SPEC §10 vmax-driven dtype: IndexDtypeForBound selected
+					// Int64 for this bound; WGSL has no i64, so render i32 and
+					// document the downgrade (tinygrad PR #8268 edge case).
+					fmt.Fprintf(&b, "%s// note: bound vmax exceeds int32; WGSL has no i64 — rendering as i32 (tinygrad #8268)\n", indent())
+				}
+				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < i32(%s); r%d++) {\n",
+					indent(), ins.RangeID, ins.RangeID, symBound, ins.RangeID)
 			} else {
 				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < %d; r%d++) {\n",
 					indent(), ins.RangeID, ins.RangeID, ins.RangeSize, ins.RangeID)
@@ -418,6 +447,10 @@ func wgslDType(d *uop.DType) string {
 	case uop.Dtypes.UInt8, uop.Dtypes.UInt16:
 		return "u32"
 	case uop.Dtypes.Int64:
+		// WGSL has no i64; silently downgrade. The principled vmax-driven
+		// decision (rules.IndexDtypeForBound) is honored at the per-loop
+		// symbolic-bound emission site (InstrLoopBegin emits a comment when
+		// the bound's vmax would have required i64). tinygrad PR #8268.
 		return "i32"
 	case uop.Dtypes.UInt64:
 		return "u32"

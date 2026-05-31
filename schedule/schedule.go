@@ -558,28 +558,108 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 		}
 
 		// Output buffer shape = per-dim sizes of the AxisLoop ranges.
+		// Symbolic ranges contribute 0 — the actual size is resolved at dispatch
+		// time from the binding (see backend/webgpu/executor.go:symElemCount).
 		outShape := make([]int64, len(outRanges))
 		for ri, r := range outRanges {
-			if r.Op() == uop.OpRange {
-				outShape[ri] = r.Arg().(uop.RangeArg).Size
-			} else {
+			switch {
+			case r.Op() != uop.OpRange:
 				outShape[ri] = 1
+			case uop.RangeIsSymbolic(r):
+				outShape[ri] = 0
+			default:
+				outShape[ri] = uop.RangeSize(r)
+			}
+		}
+		// Slice 3 derived bounds: if any symbolic range carries an ALU bound
+		// (e.g. Mul(n,4) from a reshape-merge), promote outShape to a
+		// ShapeSintArg so the buffer carries the bound expression. bufSymDimMul
+		// downstream resolves it to (multiplier, var-name) for runtime sizing.
+		// Bare-DefineVar bounds stay on the []int64 path so Slice 1/2 buffers
+		// remain byte-identical.
+		hasDerivedBound := false
+		for _, r := range outRanges {
+			if r.Op() == uop.OpRange && uop.RangeIsSymbolic(r) {
+				if r.Src(0).Op() != uop.OpDefineVar {
+					hasDerivedBound = true
+					break
+				}
+			}
+		}
+		var bufArg any = outShape
+		if hasDerivedBound {
+			// Decide between ShapeSintArg (single-term encoding from Slice 4)
+			// and the richer BoundExprArg (Option B Slice 5 — affine sums for
+			// the pad/shrink output case where bounds are Add(var, const) or
+			// Add(var, var)). Try the narrow encoding first; if any symbolic
+			// range carries a bound shape SymBoundFactor can't decompose
+			// (i.e. needs the affine sum), fall through to BoundExprArg.
+			canNarrow := true
+			for _, r := range outRanges {
+				if r.Op() != uop.OpRange || !uop.RangeIsSymbolic(r) {
+					continue
+				}
+				b := r.Src(0)
+				if b.Op() == uop.OpDefineVar {
+					continue
+				}
+				if b.Op() == uop.OpMul && b.NSrc() == 2 {
+					a0, a1 := b.Src(0), b.Src(1)
+					if (a0.Op() == uop.OpDefineVar && a1.Op() == uop.OpConst) ||
+						(a0.Op() == uop.OpConst && a1.Op() == uop.OpDefineVar) {
+						continue
+					}
+				}
+				canNarrow = false
+				break
+			}
+			if canNarrow {
+				arg := make(uop.ShapeSintArg, len(outRanges))
+				for ri, r := range outRanges {
+					switch {
+					case r.Op() != uop.OpRange:
+						arg[ri] = uop.ShapeDim{V: 1}
+					case uop.RangeIsSymbolic(r):
+						name, mul := uop.SymBoundFactor(r.Src(0))
+						arg[ri] = uop.ShapeDim{Sym: true, VarName: name, Mul: mul}
+					default:
+						arg[ri] = uop.ShapeDim{V: uop.RangeSize(r)}
+					}
+				}
+				bufArg = arg
+			} else {
+				arg := make(uop.BoundExprArg, len(outRanges))
+				for ri, r := range outRanges {
+					switch {
+					case r.Op() != uop.OpRange:
+						arg[ri] = uop.BoundDim{V: 1}
+					case uop.RangeIsSymbolic(r):
+						terms, off, ok := uop.BoundToAffine(r.Src(0))
+						if !ok {
+							panic(fmt.Sprintf("schedule: BoundExprArg: bound expression too complex to decompose into an affine sum (op=%s)", r.Src(0).Op()))
+						}
+						arg[ri] = uop.BoundDim{Sym: true, Terms: terms, Offset: off}
+					default:
+						arg[ri] = uop.BoundDim{V: uop.RangeSize(r)}
+					}
+				}
+				bufArg = arg
 			}
 		}
 
 		// Debug: log kernels with 2 outRanges and a symbolic redRange.
 		if DebugBufRangesEnabled && len(outRanges) == 2 && len(redRanges) == 1 {
-			if redRanges[0].Op() == uop.OpRange && redRanges[0].Arg().(uop.RangeArg).Symbolic {
+			if redRanges[0].Op() == uop.OpRange && uop.RangeIsSymbolic(redRanges[0]) {
 				var ra0desc, ra1desc string
 				if outRanges[0].Op() == uop.OpRange {
 					ra0 := outRanges[0].Arg().(uop.RangeArg)
-					ra0desc = fmt.Sprintf("id=%d,sz=%d,arenaIdx=%d", ra0.ID, ra0.Size, outRanges[0].Index())
+					ra0desc = fmt.Sprintf("id=%d,sym=%v,arenaIdx=%d", ra0.ID, uop.RangeIsSymbolic(outRanges[0]), outRanges[0].Index())
 				} else {
 					ra0desc = fmt.Sprintf("OpConst,arenaIdx=%d", outRanges[0].Index())
 				}
 				if outRanges[1].Op() == uop.OpRange {
 					ra1 := outRanges[1].Arg().(uop.RangeArg)
-					ra1desc = fmt.Sprintf("id=%d,sz=%d,arenaIdx=%d", ra1.ID, ra1.Size, outRanges[1].Index())
+					ra1desc = fmt.Sprintf("id=%d,sym=%v,arenaIdx=%d", ra1.ID, uop.RangeIsSymbolic(outRanges[1]), outRanges[1].Index())
 				} else {
 					ra1desc = fmt.Sprintf("OpConst,arenaIdx=%d", outRanges[1].Index())
 				}
@@ -589,10 +669,10 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 			}
 		}
 
-		// BUFFER(LUNIQUE, DEVICE, arg=outShape)
+		// BUFFER(LUNIQUE, DEVICE, arg=outShape or ShapeSintArg if derived bounds)
 		lunique := a.New(uop.OpLUnique, uop.Dtypes.Void, nil, counterMap[u.Index()], nil)
 		deviceNode := a.New(uop.OpDevice, uop.Dtypes.Void, nil, device, nil)
-		buf := a.New(uop.OpBuffer, u.DType(), []uop.UOp{lunique, deviceNode}, outShape, nil)
+		buf := a.New(uop.OpBuffer, u.DType(), []uop.UOp{lunique, deviceNode}, bufArg, nil)
 		bufForBufz[u.Index()] = buf.Index()
 
 		// Store destination: INDEX(buf, r_out0, r_out1, …)
