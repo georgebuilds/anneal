@@ -24,3 +24,6 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Coverage
+        run: make coverage

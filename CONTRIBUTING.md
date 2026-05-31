@@ -62,6 +62,7 @@ Arena indices reflect *the order nodes were built*, not *what they are*. The sam
 - **Table-driven tests** are the default. Follow the existing style.
 - **For anything that executes, a passing test count is not a sufficient report.** We require a *value oracle* — actual numbers. For autodiff: finite-difference agreement. For training: a loss trajectory that goes down. "All tests pass" has hidden real correctness gaps more than once; numeric oracles caught them. If your change touches gradients, the scheduler, or codegen, show the numbers.
 - **Slice risky work so the novel, correctness-critical part is proven before mechanical work layers on top of it.** Don't build the easy 80% on an unverified core.
+- **Coverage.** Run `make coverage` to see per-package and total coverage; CI runs the same target on every PR. Coverage is a hygiene signal, not the oracle: it complements (does not replace) the finite-difference / loss-trajectory numbers above.
 
 ## Code style
 
