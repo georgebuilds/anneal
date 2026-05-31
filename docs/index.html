@@ -1238,7 +1238,7 @@
                             runtime
                         </div>
                         <div class="card-title" data-i18n="card.rt.title">
-                            Dynamic batch, JIT, f16/bf16 support
+                            Symbolic shapes, JIT, f16/bf16 support
                         </div>
                         <p class="card-body" data-i18n="card.rt.body">
                             Symbolic shapes: a kernel compiles once and runs at
@@ -1563,7 +1563,7 @@
                             "The rangeify scheduler sees forward and backward together. It can fuse across that boundary — collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
                         "card.rt.tag": "runtime",
                         "card.rt.title":
-                            "Dynamic batch, JIT, f16/bf16 support",
+                            "Symbolic shapes, JIT, f16/bf16 support",
                         "card.rt.body":
                             "Symbolic shapes: a kernel compiles once and runs at any batch size, and the seam extends to split/merge a symbolic axis, symbolic pad/shrink amounts, and multi-dim symbolic dispatch. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key. Kernel autotuning via BEAM search finds the best opt sequence per kernel and caches results to disk (ANNEAL_BEAM=1 to search; default is zero-overhead cache lookup).",
                         "cli.label": "the cli",
@@ -1637,7 +1637,7 @@
                             "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite — colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
                         "card.rt.tag": "tiempo de ejecución",
                         "card.rt.title":
-                            "Batch dinámico, JIT, soporte f16/bf16",
+                            "Formas simbólicas, JIT, soporte f16/bf16",
                         "card.rt.body":
                             "Formas simbólicas: un kernel se compila una vez y se ejecuta con cualquier tamaño de batch, y la unión se extiende a dividir/fusionar un eje simbólico, cantidades de pad/shrink simbólicas, y dispatch simbólico multidimensional. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
                         "cli.label": "la cli",

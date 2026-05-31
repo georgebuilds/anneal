@@ -40,11 +40,11 @@ These are non-negotiable. A PR that violates one will be sent back regardless of
 
 ### The recurring bug class
 
-We've been bitten by the same mistake four times, so it gets its own heading:
+We've been bitten by the same mistake many times, so it gets its own heading:
 
 > **Using a construction-order or allocation artifact as if it were a stable structural identity.**
 
-Arena indices reflect *the order nodes were built*, not *what they are*. When you key anything off an arena index — schedule ordering, an ID counter, a cache key, provenance tracking — ask yourself: *does this result need to be a function of graph structure, or just of this particular build?* If it must be structural, derive it from a content hash (op, arg, dtype, sorted child hashes), not from an index. This is the single most common source of silent correctness bugs in the codebase.
+Arena indices reflect *the order nodes were built*, not *what they are*. The same applies to positional slot indices, allocation order in `Buffer.Shape`, and any per-build counter used as a name. When you key anything off such a quantity — schedule ordering, an ID counter, a cache key, provenance tracking, a sym-dim slot number — ask yourself: *does this result need to be a function of graph structure, or just of this particular build?* If it must be structural, derive it from a content hash (op, arg, dtype, sorted child hashes) or from a name, not from an index. This is the single most common source of silent correctness bugs in the codebase, and each new instance has surfaced when a test combined structural elements previous tests kept separate — bare pass-counts hide it; value oracles catch it.
 
 ## Testing
 
@@ -61,7 +61,7 @@ Arena indices reflect *the order nodes were built*, not *what they are*. When yo
 
 ## Submitting changes
 
-1. **Stay in scope.** Some features are intentionally deferred: general symbolic movement (splitting/merging/padding a symbolic axis, dynamic seq-len), multi-device, and image dtypes — see the README status table. PRs that pull deferred features forward will likely be declined unless they've been discussed first. BEAM autotuning and epilogue fusion have shipped; new kernel Opts belong in `codegen/opt.go` as additional `OptKind` variants following the existing pattern.
+1. **Stay in scope.** General symbolic axis movement (split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch) has shipped; remaining intentional deferrals are a dynamic seq-length tensor-input constructor, multi-device, and image dtypes — see the README status table. PRs that pull deferred features forward will likely be declined unless they've been discussed first. BEAM autotuning and epilogue fusion have shipped; new kernel Opts belong in `codegen/opt.go` as additional `OptKind` variants following the existing pattern. Note that the four shipped opts (`LOCAL` / `TILE` / `UPCAST` / `VECTORIZE`) currently blanket-bail on symbolic axes pending a separate slice that drops the lowerer's 1D-flattened sym dispatch model — relaxing those bails without that prerequisite produces wrong indices, not OOB.
 2. **Keep the docs honest.** If your change alters the architecture, update SPEC.md (and DESIGN.md if it touches a surface) in the same PR. Stale design docs are worse than none.
 3. **Show your oracle.** Include the finite-difference / loss-trajectory numbers for anything that executes.
 4. **One focused change per PR.** Easier to review, easier to bisect.
