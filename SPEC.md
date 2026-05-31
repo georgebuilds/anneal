@@ -83,7 +83,7 @@ UOps are **not** Go pointers in a graph. They are `uint32` indices into a contig
 
 Nothing holds UOp arena indices across step boundaries — the step N leaf may be at index 7, step N+1 at index 3 in a fresh arena. The only legitimate cross-step state is `nn.Parameter.Value` (§7.5b), and JIT's captured plan, which uses structural keys to survive arena churn (§7.5c).
 
-**Forward/backward provenance** is recorded as an out-of-band per-node phase tag on the arena (a parallel slice, scoped via `SetPhase`/`defer` and reset on `Arena.Reset`). It does NOT participate in interning — provenance is a property of *when* a node was first built, not *what* it is. First-construction-wins: a node interned during the forward pass stays tagged forward even if the backward pass later asks for the same structure.
+**Forward/backward provenance** is recorded as an out-of-band per-node phase tag on the arena (a parallel slice, reset on `Arena.Reset`). The autodiff driver scopes the backward phase with `SetPhase`/`defer`; other sites (notably the uop tests) use explicit `prev := a.SetPhase(...); ...; a.SetPhase(prev)` restore. Either pattern is correct — `SetPhase` returns the prior phase, and the caller is responsible for restoring it. It does NOT participate in interning — provenance is a property of *when* a node was first built, not *what* it is. First-construction-wins: a node interned during the forward pass stays tagged forward even if the backward pass later asks for the same structure.
 
 ### 3.3 Interning / hash-consing
 
@@ -258,9 +258,9 @@ The step N leaf may have arena index 7; the step N+1 leaf in a fresh arena may h
 
 JIT dispatch funnels through the same `onGPU` owner-goroutine path as `Run`/`RunSymbolic` (§7.8) — bypassing it would reintroduce the Metal autorelease-pool race.
 
-### 7.6 Minimum viable scheduler — 10 ordered passes
+### 7.6 Minimum viable scheduler — ordered passes
 
-Each pass is either a PatternMatcher of ~5–15 rules or a direct Go function.
+Each pass is either a PatternMatcher of ~5–15 rules or a direct Go function. The numbering reflects what ships in `schedule/` today; earlier drafts of this section listed two additional codegen-ready cleanup passes (`fixIndexDtype`, `finalRewrites`) that were dropped before v1 — index dtype narrowing folds into codegen instead, and no separate final-cleanup pass was needed.
 
 1. **`earlyRewrites`**: clean movement-op chains, fold ASSIGN chains, fix self-assign hazards. *v1: no-op identity.*
 
@@ -280,11 +280,7 @@ Each pass is either a PatternMatcher of ~5–15 rules or a direct Go function.
 
    *Determinism fix (resolved blocker):* Earlier, `createSchedule`, `splitKernels`, and `addBuffers` all keyed sort/numbering on arena allocation order, so a structurally-equal graph built differently produced a different-but-valid schedule. The schedule cache (§1.3) could not work without this being fixed — the cache keys on structure but would return a schedule with mismatched PARAM numbering on a hit. Fix: ordering everywhere is now a function of `StructuralKeys`.
 
-8. **`fixIndexDtype`** — narrows index expressions from int64 where the range bound proves int32 fits.
-
-9. **`finalRewrites`** — codegen-ready cleanup.
-
-10. **`Schedule cache`.** `CreateSchedule` is memoized on the structural key of its `sink` argument (+ device) via an arena-local cache. Hit returns the cached `[]ExecItem` directly; miss computes and stores. The cache is per-arena (arena indices in `ExecItem.Bufs` are only valid in their build arena), so it is correct within a step; JIT (§7.5c) is the across-step counterpart.
+8. **`Schedule cache`.** `CreateSchedule` is memoized on the structural key of its `sink` argument (+ device) via an arena-local cache. Hit returns the cached `[]ExecItem` directly; miss computes and stores. The cache is per-arena (arena indices in `ExecItem.Bufs` are only valid in their build arena), so it is correct within a step; JIT (§7.5c) is the across-step counterpart.
 
 ### 7.7 Codegen
 
