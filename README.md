@@ -8,7 +8,7 @@
 
 [![status](https://img.shields.io/badge/status-v1-14b8a6)](#status)
 [![backend](https://img.shields.io/badge/backend-WebGPU-0d9488)](#backend)
-[![go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![model](https://img.shields.io/badge/it's%20a-compiler-f59e0b)](#what-anneal-is)
 [![license](https://img.shields.io/badge/license-AGPL3-blue)](LICENSE)
 
@@ -33,7 +33,7 @@ Most autodiff libraries record a tape and replay it. anneal doesn't.
 
 In the visualizer (and throughout the project) color encodes architecture:
 
-![forward](https://img.shields.io/badge/forward-teal-14b8a6) &nbsp; ![backward](https://img.shields.io/badge/backward-ember-f97316) &nbsp; ![fused](https://img.shields.io/badge/fused-gold-f59e0b)
+![forward](https://img.shields.io/badge/forward-teal-14b8a6) &nbsp; ![backward](https://img.shields.io/badge/backward-ember-FF7A45) &nbsp; ![fused](https://img.shields.io/badge/fused-gold-f59e0b)
 
 ## Quickstart
 
