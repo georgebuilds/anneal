@@ -104,13 +104,6 @@ func makeJITModel(seed int64, device string) (params []*nn.Parameter, l1 *nn.Lin
 	return
 }
 
-// copyParams copies the Value slice of each src param into the corresponding dst param.
-func copyParams(dst, src []*nn.Parameter) {
-	for i := range dst {
-		copy(dst[i].Value, src[i].Value)
-	}
-}
-
 // jitRunStep builds a fresh graph on a new arena, runs backward, and realizes
 // each gradient using the provided realize function.  Returns the realized
 // gradient data per param in parameter order.

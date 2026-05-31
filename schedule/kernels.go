@@ -376,9 +376,9 @@ func bufShape(bufNode uop.UOp) []int64 {
 //   - Mul(DefineVar, Const)  → multiplier = Const value, var = DefineVar.Name
 //   - Mul(Const, DefineVar)  → multiplier = Const value, var = DefineVar.Name
 //
-// Any other bound shape panics. Slice 3 only introduces Mul(var, const) and
-// Mul(const, var) via the reshape-merge path; richer expressions require
-// extending this helper and Buffer.SymDimMul/SymDimVar together (Slice 4+).
+// Any other bound shape panics. Reshape-merge introduces Mul(var, const) and
+// Mul(const, var); richer ALU expressions (e.g. affine sums from pad amounts)
+// take the SymDimAffine path instead.
 func bufSymDimMul(bufNode uop.UOp) (muls []int64, vars []string) {
 	arg, ok := bufNode.Arg().(uop.ShapeSintArg)
 	if !ok {

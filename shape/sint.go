@@ -3,12 +3,11 @@ package shape
 import "github.com/georgebuilds/anneal/uop"
 
 // Sint is the symbolic-integer seam: either a concrete ConstInt or a SymInt backed
-// by a UOp node. SymInt is the production Option-A dynamic-batch representation;
-// arithmetic (Add/Sub/Mul/Neg/IDiv/Mod) builds real UOp expressions exercised by
-// every dynamic-batch test. The comparison functions Lt/Le/Eq deliberately panic for
-// symbolic operands — they are the Option-A/Option-B fence (SPEC §6.4): if code ever
-// needs to compare two symbolic values arithmetically, that is Option B territory
-// (deferred). Do not silently enable these.
+// by a UOp node. Arithmetic (Add/Sub/Mul/Neg/IDiv/Mod) builds real UOp expressions
+// exercised by every dynamic-batch test. The comparison functions Lt/Le/Eq
+// deliberately panic for symbolic operands — they are the symbolic-comparison fence
+// (SPEC §6.4): comparing two symbolic values arithmetically would require an SMT
+// solver, which §10 forbids on the core indexing path. Do not silently enable these.
 type Sint interface {
 	isSint()
 	ConstValue() (int64, bool)
@@ -218,7 +217,7 @@ func SintMin(a, b Sint) Sint {
 	return SymInt{Node: ar.New(uop.OpWhere, uop.Dtypes.Index, []uop.UOp{cond, ua, ub}, nil, nil)}
 }
 
-// Sint comparisons — panic for symbolic operands (not needed until slice 3b).
+// Sint comparisons — panic for symbolic operands (SPEC §6.4 fence).
 
 func Eq(a, b Sint) bool    { return cv(a) == cv(b) }
 func Lt(a, b Sint) bool    { return cv(a) < cv(b) }

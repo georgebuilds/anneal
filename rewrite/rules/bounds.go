@@ -54,18 +54,10 @@ func BoundsOf(u uop.UOp) Bounds {
 
 	case uop.OpRange:
 		// Range(upper) — GPU iteration range [0, upper). Lower is implicit zero.
-		// Two-src form Range(lower, upper) is preserved for unit-test fixtures.
-		switch u.NSrc() {
-		case 1:
+		if u.NSrc() == 1 {
 			hi := BoundsOf(u.Src(0))
 			if hi.Valid && hi.Max > 0 {
 				return Bounds{0, hi.Max - 1, true}
-			}
-		case 2:
-			lo := BoundsOf(u.Src(0))
-			hi := BoundsOf(u.Src(1))
-			if lo.Valid && hi.Valid && hi.Max > lo.Min {
-				return Bounds{lo.Min, hi.Max - 1, true}
 			}
 		}
 		return Bounds{}

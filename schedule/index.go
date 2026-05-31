@@ -377,26 +377,29 @@ func unflatIndex(a *uop.Arena, flat uop.UOp, shape []int64) []uop.UOp {
 	return out
 }
 
-// sintStrides computes concrete row-major strides from a Sint shape slice.
-// For Option A (symbolic dim is always outermost), all strides are concrete:
-// the symbolic dim's stride = product of the concrete trailing dims.
-func sintStrides(sh []shape.Sint) []int64 {
+// sintStrides computes row-major strides from a Sint shape slice.
+//
+// Each stride is itself a shape.Sint: concrete when every dim to its right
+// is concrete, symbolic otherwise. The accumulator uses shape.Mul, which
+// preserves the concrete fast-path (Mul(1, x) = x; ConstInt × ConstInt
+// folds) and builds symbolic UOp nodes when a symbolic dim enters the
+// product. The position of the symbolic dim is recovered structurally via
+// s.ConstValue() — strides for dims to the left of a symbolic dim now
+// carry the symbolic factor.
+func sintStrides(sh []shape.Sint) []shape.Sint {
 	n := len(sh)
-	strides := make([]int64, n)
-	acc := int64(1)
+	strides := make([]shape.Sint, n)
+	var acc shape.Sint = shape.Const(1)
 	for i := n - 1; i >= 0; i-- {
 		strides[i] = acc
-		if v, ok := sh[i].ConstValue(); ok {
-			acc *= v
-		}
-		// For symbolic dim: acc is not updated (it will only be used by dims to the
-		// left, which don't exist in Option A since symbolic is always outermost).
+		acc = shape.Mul(acc, sh[i])
 	}
 	return strides
 }
 
 // flatIndexSints computes a row-major flat index from multi-dim indices and a
-// Sint shape. Strides are extracted as concrete int64 values via sintStrides.
+// Sint shape. Strides are extracted via sintStrides; symbolic factors become
+// real UOp operands via dimToUOp.
 func flatIndexSints(a *uop.Arena, indices []uop.UOp, sh []shape.Sint) uop.UOp {
 	if len(indices) == 0 {
 		return a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
@@ -409,11 +412,11 @@ func flatIndexSints(a *uop.Arena, indices []uop.UOp, sh []shape.Sint) uop.UOp {
 	for i, r := range indices {
 		s := strides[i]
 		var term uop.UOp
-		if s == 1 {
+		if v, ok := s.ConstValue(); ok && v == 1 {
 			term = r
 		} else {
-			sc := a.New(uop.OpConst, uop.Dtypes.Index, nil, s, nil)
-			term = a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{r, sc}, nil, nil)
+			sUOp := dimToUOp(a, s)
+			term = a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{r, sUOp}, nil, nil)
 		}
 		if !result.Valid() {
 			result = term
@@ -424,9 +427,16 @@ func flatIndexSints(a *uop.Arena, indices []uop.UOp, sh []shape.Sint) uop.UOp {
 	return result
 }
 
-// unflatIndexSints decomposes a flat index into per-dim indices for a Sint shape.
-// For concrete dims: applies the usual div+mod. For the symbolic outermost dim:
-// only applies div (no mod needed — quotient is exact for valid flat indices).
+// unflatIndexSints decomposes a flat index into per-dim indices for a Sint
+// shape. Strides come from sintStrides (Sint) so non-outermost symbolic dims
+// produce correct divisors.
+//
+// Mod is applied per-dim with one exception: when the outermost dim (i==0)
+// is symbolic, the quotient is returned directly. Rationale: a Mod on the
+// symbolic outermost dim would force a runtime read of the symbolic bound
+// inside the inner loop. The quotient is exact for valid flat indices
+// (flat < total = sh[0] * strides[0]). For symbolic dims at i>0 the Mod is
+// required for correctness — flat / stride is not bounded by sh[i].
 func unflatIndexSints(a *uop.Arena, flat uop.UOp, sh []shape.Sint) []uop.UOp {
 	if len(sh) == 0 {
 		return nil
@@ -439,20 +449,20 @@ func unflatIndexSints(a *uop.Arena, flat uop.UOp, sh []shape.Sint) []uop.UOp {
 	for i, s := range sh {
 		stride := strides[i]
 		var divided uop.UOp
-		if stride == 1 {
+		if v, ok := stride.ConstValue(); ok && v == 1 {
 			divided = flat
 		} else {
-			sc := a.New(uop.OpConst, uop.Dtypes.Index, nil, stride, nil)
-			divided = a.New(uop.OpIDiv, uop.Dtypes.Index, []uop.UOp{flat, sc}, nil, nil)
+			strideUOp := dimToUOp(a, stride)
+			divided = a.New(uop.OpIDiv, uop.Dtypes.Index, []uop.UOp{flat, strideUOp}, nil, nil)
 		}
-		if _, ok := s.ConstValue(); ok {
-			// Concrete dim: modulo isolates this dimension.
-			sv, _ := s.ConstValue()
-			szc := a.New(uop.OpConst, uop.Dtypes.Index, nil, sv, nil)
-			out[i] = a.New(uop.OpMod, uop.Dtypes.Index, []uop.UOp{divided, szc}, nil, nil)
-		} else {
-			// Symbolic outermost dim: quotient is the exact index (no modulo needed).
+		_, dimConcrete := s.ConstValue()
+		if i == 0 && !dimConcrete {
+			// Outermost symbolic dim: skip Mod to avoid a runtime bound fetch
+			// in the inner loop. Quotient is exact for valid flat indices.
 			out[i] = divided
+		} else {
+			sizeUOp := dimToUOp(a, s)
+			out[i] = a.New(uop.OpMod, uop.Dtypes.Index, []uop.UOp{divided, sizeUOp}, nil, nil)
 		}
 	}
 	return out
@@ -547,8 +557,3 @@ func identityConst(a *uop.Arena, reduceOp uop.Op, dtype *uop.DType) uop.UOp {
 	return a.New(uop.OpConst, dtype, nil, arg, nil)
 }
 
-// zeroConst returns a zero constant of the given dtype.
-// Used for pad fill in elementwise (non-reduce) contexts.
-func zeroConst(a *uop.Arena, dtype *uop.DType) uop.UOp {
-	return identityConst(a, 0, dtype)
-}

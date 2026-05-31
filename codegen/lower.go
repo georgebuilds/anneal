@@ -14,7 +14,11 @@ import (
 type InstrKind int
 
 const (
-	// InstrBoundsCheck emits: if (gid_x >= TotalN) { return; }
+	// InstrBoundsCheck emits: if (gid_x >= <SymBoundExpr>) { return; }
+	// for symbolic kernels (Slice 7b: SymBoundExpr is the full trailingProduct
+	// over all loopRanges, possibly involving multiple sym vars). For static
+	// kernels the bound is encoded by workgroupCount * workgroupSize already
+	// matching totalOut, so the bounds check is a no-op (Symbolic=false).
 	InstrBoundsCheck InstrKind = iota
 	// InstrGIDVar emits: let r_RangeID: i32 = i32((gid.x / Stride) % RangeSize);
 	InstrGIDVar
@@ -59,14 +63,24 @@ type Instr struct {
 	Component int // 0:x, 1:y, 2:z
 	Level     int // 0:Global (gid), 1:Workgroup (wid), 2:Local (lid)
 
+	// InstrGIDVar (symbolic-stride case): WGSL u32 expression to use as the
+	// divisor instead of the literal Stride int64. Set when the stride product
+	// to the inner side of this range involves a symbolic factor (Slice 7b:
+	// non-outermost symbolic dim). When non-empty, supersedes Stride; the
+	// renderer emits `(base / <StrideExpr>) % rangeSize` (or `base / <StrideExpr>`
+	// when Symbolic). When empty, the renderer falls back to the int64 Stride
+	// path (byte-identical Slice 1–7a output).
+	StrideExpr string
+
 	// InstrBoundsCheck, InstrGIDVar, InstrLoopBegin: true when the range size is
 	// symbolic (read from the params_n storage buffer at runtime).
 	Symbolic bool
 
-	// InstrLoopBegin / InstrBoundsCheck (symbolic only): which params_n slot
-	// holds the loop bound (LoopBegin) or the symbolic dispatch-axis size
-	// used in the bounds-check multiplier (BoundsCheck). Used only when
-	// SymBoundExpr is empty (bare-DefineVar bound, pre-Slice-3 path).
+	// InstrLoopBegin (symbolic only): which params_n slot holds the loop
+	// bound when the bound is a bare DefineVar. Used only when SymBoundExpr
+	// is empty; the ALU-bound path populates SymBoundExpr directly and
+	// supersedes this. InstrBoundsCheck always populates SymBoundExpr and
+	// ignores this field.
 	SymParamIdx int
 
 	// InstrLoopBegin / InstrBoundsCheck (symbolic only): the symbolic bound
@@ -97,10 +111,6 @@ type Instr struct {
 	// InstrDefineLocal
 	LocalName string
 	LocalSize int
-
-	// InstrBoundsCheck: product of concrete dims trailing the symbolic dim.
-	// Used to emit "params_n[0] * N" bounds checks for multi-dim symbolic outputs.
-	ConcreteTrailing int64
 
 	// InstrLet, InstrAccUpdate, InstrStore, InstrIf, InstrAssign
 	Expr      string
@@ -268,6 +278,81 @@ func (l *lowerer) symBoundEmission(r uop.UOp) (slot int, expr string) {
 	return -1, l.renderSymBoundExpr(r.Src(0))
 }
 
+// strideAcc accumulates a WGSL u32 stride/bound expression as a product of a
+// concrete int64 part and an optional symbolic-WGSL part. Multiplication is
+// commutative; rendering folds the parts into a single u32 expression and
+// preserves byte-identical output for all-concrete accumulators (Slice 1–7a
+// regression bar).
+//
+// Invariants:
+//   - constPart >= 1
+//   - symPart is either "" or a WGSL u32 expression like "params_n.n0" or
+//     "(params_n.n0 * 4u)". Already parenthesised at composition boundaries
+//     so simple `a * b` concatenation is safe.
+type strideAcc struct {
+	constPart int64  // accumulated concrete multiplier (>= 1)
+	symPart   string // accumulated WGSL u32 expression of symbolic factors ("" if none)
+}
+
+func newStrideAcc() strideAcc { return strideAcc{constPart: 1} }
+
+// mulConst returns acc * k where k is a concrete int64. Multiplying by 1 is a
+// no-op so existing accs stay unchanged for size-1 dims.
+func (acc strideAcc) mulConst(k int64) strideAcc {
+	if k == 1 {
+		return acc
+	}
+	return strideAcc{constPart: acc.constPart * k, symPart: acc.symPart}
+}
+
+// mulSym returns acc * <expr> where expr is a WGSL u32 expression for a single
+// symbolic factor. Composition uses textual ` * ` joins; renderSymBoundExpr
+// already parenthesises ALU subexpressions, so no extra parens are needed.
+func (acc strideAcc) mulSym(expr string) strideAcc {
+	out := strideAcc{constPart: acc.constPart}
+	if acc.symPart == "" {
+		out.symPart = expr
+	} else {
+		out.symPart = acc.symPart + " * " + expr
+	}
+	return out
+}
+
+// isConcrete reports whether the accumulator is a pure int64 (no symbolic
+// factor accumulated yet). When true, downstream emission can use the int64
+// path; when false, the WGSL string path applies.
+func (acc strideAcc) isConcrete() bool { return acc.symPart == "" }
+
+// renderU32 returns a WGSL u32 expression for the accumulator. Concrete-only
+// accs render as `Nu`; sym-only as the bare symPart; mixed as `<symPart> * Nu`.
+// For 1: `1u`.
+func (acc strideAcc) renderU32() string {
+	if acc.symPart == "" {
+		return fmt.Sprintf("%du", acc.constPart)
+	}
+	if acc.constPart == 1 {
+		return acc.symPart
+	}
+	return fmt.Sprintf("%s * %du", acc.symPart, acc.constPart)
+}
+
+// rangeBoundFactor returns the strideAcc factor for one OpRange or OpConst
+// loopRange entry — the contribution of that range to a containing product
+// (e.g. a stride product or the trailingProduct bounds expression). For an
+// OpConst placeholder (size-1 dim already collapsed by freshRanges to const 0)
+// the factor is 1; for a concrete OpRange it's the int64 RangeSize; for a
+// symbolic OpRange it's the renderSymBoundExpr of the loop's bound UOp.
+func (l *lowerer) rangeBoundFactor(r uop.UOp) strideAcc {
+	if r.Op() == uop.OpConst {
+		// Size-1 dim placeholder; product is unchanged.
+		return newStrideAcc()
+	}
+	if uop.RangeIsSymbolic(r) {
+		return newStrideAcc().mulSym(l.renderSymBoundExpr(r.Src(0)))
+	}
+	return newStrideAcc().mulConst(uop.RangeSize(r))
+}
+
 func (l *lowerer) lowerSink() []Instr {
 	sink := l.item.Ast
 	if sink.Op() != uop.OpSink {
@@ -334,19 +419,28 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 	}
 
-	// Compute global strides for the final output store flat index.
-	globalStrides := make([]int64, len(loopRanges))
+	// Compute global strides for the final output store flat index. Walks
+	// loopRanges right-to-left so each stride is the product of all dims to
+	// its right (output-dim convention: outer dims have larger strides). The
+	// stride for dim i is the product of the bounds of dims (i+1)..(n-1); when
+	// any of those bounds is symbolic, the stride carries a symbolic factor —
+	// rendered as a WGSL u32 expression via rangeBoundFactor. Slice 7b: fixes
+	// the STOP-2 regression where left-of-sym strides silently defaulted to 0
+	// for non-outermost symbolic dims (preflight §9c.STOP-2).
+	globalStrides := make([]strideAcc, len(loopRanges))
 	if len(loopRanges) > 0 {
-		globalStrides[len(loopRanges)-1] = 1
+		globalStrides[len(loopRanges)-1] = newStrideAcc()
 		for i := len(loopRanges) - 2; i >= 0; i-- {
 			rNext := loopRanges[i+1]
-			if rNext.Op() == uop.OpConst {
-				globalStrides[i] = globalStrides[i+1]
-				continue
+			factor := l.rangeBoundFactor(rNext)
+			acc := globalStrides[i+1]
+			if !factor.isConcrete() {
+				acc = acc.mulSym(factor.symPart)
 			}
-			if !uop.RangeIsSymbolic(rNext) {
-				globalStrides[i] = globalStrides[i+1] * uop.RangeSize(rNext)
+			if factor.constPart != 1 {
+				acc = acc.mulConst(factor.constPart)
 			}
+			globalStrides[i] = acc
 		}
 	}
 
@@ -484,15 +578,24 @@ func (l *lowerer) lowerSink() []Instr {
 			// Matmul Col/Row -> Row is in dim 1, Col is in dim 0.
 			// If we had multi-range components, the outermost (first in loopRanges)
 			// would be at the end of levelRanges.
-			strides := make([]int64, len(levelRanges))
-			strides[0] = 1 // inmost range of this level
+			//
+			// Slice 7b: strides accumulate as strideAcc to support symbolic factors
+			// when a sym range is inner to another range in the same (dim, level)
+			// group. For all-concrete kernels the constPart-only path is byte-
+			// identical with the previous int64 representation.
+			strides := make([]strideAcc, len(levelRanges))
+			strides[0] = newStrideAcc()
 			for i := 1; i < len(levelRanges); i++ {
 				rPrev := levelRanges[i-1].u
-				if rPrev.Op() == uop.OpConst {
-					strides[i] = strides[i-1]
-				} else if !uop.RangeIsSymbolic(rPrev) {
-					strides[i] = strides[i-1] * uop.RangeSize(rPrev)
+				factor := l.rangeBoundFactor(rPrev)
+				acc := strides[i-1]
+				if !factor.isConcrete() {
+					acc = acc.mulSym(factor.symPart)
 				}
+				if factor.constPart != 1 {
+					acc = acc.mulConst(factor.constPart)
+				}
+				strides[i] = acc
 			}
 
 			for i, rg := range levelRanges {
@@ -505,15 +608,39 @@ func (l *lowerer) lowerSink() []Instr {
 				if !sym {
 					rangeSize = uop.RangeSize(rg.u)
 				}
-				l.emit(Instr{
+				// Slice 7b: when the stride product carries a symbolic factor,
+				// emit a StrideExpr WGSL expression; otherwise use the int64
+				// Stride for byte-identical Slice 1–7a output. Defensive panic:
+				// if a concrete stride for a non-Const range comes out as 0,
+				// that means the old "zero-default" sentinel leaked into the
+				// new path (per design call F).
+				instr := Instr{
 					Kind:      InstrGIDVar,
 					RangeID:   rg.ra.ID,
 					RangeSize: rangeSize,
-					Stride:    strides[i],
 					Symbolic:  sym,
 					Component: d,
 					Level:     lvl,
-				})
+				}
+				if strides[i].isConcrete() {
+					instr.Stride = strides[i].constPart
+					if instr.Stride == 0 {
+						panic(fmt.Sprintf("codegen: per-(dim=%d, lvl=%d) stride=0 for RangeID=%d — old zero-default sentinel leaked into Slice 7b path",
+							d, lvl, rg.ra.ID))
+					}
+				} else {
+					instr.StrideExpr = strides[i].renderU32()
+				}
+				// Slice 7b: for a NON-OUTERMOST symbolic range, the WGSL must
+				// apply a mod against the range's bound to extract that dim's
+				// contribution from the flat 1D dispatch index. Outermost-sym
+				// is exempt — the trailingProduct bounds-check guarantees the
+				// quotient lies in [0, outermost_size). levelRanges is
+				// inmost-first, so the outermost is at index len-1.
+				if sym && i != len(levelRanges)-1 {
+					instr.SymBoundExpr = l.renderSymBoundExpr(rg.u.Src(0))
+				}
+				l.emit(instr)
 				l.exprOf[rg.u.Index()] = fmt.Sprintf("r%d", rg.ra.ID)
 			}
 
@@ -565,8 +692,20 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 		ra := r.Arg().(uop.RangeArg)
 		term := fmt.Sprintf("u32(r%d)", ra.ID)
-		if globalStrides[i] > 1 {
-			term = fmt.Sprintf("(%s * %du)", term, globalStrides[i])
+		stride := globalStrides[i]
+		if stride.isConcrete() {
+			if stride.constPart == 0 {
+				// Defensive panic per design call F. globalStrides[i] coming out
+				// as concrete 0 is the old zero-default sentinel that Slice 7b
+				// eliminates; only Const(0) loopRange placeholders (size-1 dims)
+				// reach here, and those are skipped above.
+				panic(fmt.Sprintf("codegen: globalStrides[%d]=0 for non-Const range — old zero-default sentinel leaked into Slice 7b path", i))
+			}
+			if stride.constPart > 1 {
+				term = fmt.Sprintf("(%s * %du)", term, stride.constPart)
+			}
+		} else {
+			term = fmt.Sprintf("(%s * %s)", term, stride.renderU32())
 		}
 		indexTerms = append(indexTerms, term)
 	}
@@ -575,29 +714,36 @@ func (l *lowerer) lowerSink() []Instr {
 		indexExpr = "0u"
 	}
 
-	concreteTrailing := int64(1)
-	seenSym := false
-	var symDispatchRange uop.UOp
+	// Slice 7b trailingProduct: replace concreteTrailing/symDispatchRange
+	// (positional-first-sym + concrete-after) with a full per-axis product over
+	// every loopRange in dispatch (= output-dim) order. The dispatch is 1D
+	// per design call 1; the bound `gid_x >= <trailingProduct>` guards the
+	// flat dispatch against total output elements (a possibly-multi-sym
+	// expression). For all-concrete-stride-with-sym-outermost kernels the
+	// rendered expression is byte-identical to the old "symBound * Nu" form.
+	//
+	// Loop-order convention: loopRanges arrives in output-dim order (outermost
+	// first) — rangeify's freshRanges constructs them in shape order
+	// (schedule/rangeify.go:312-323). Tinygrad's gpudims.py matches this
+	// convention. Document it as the relied-on structural property; if the
+	// upstream order ever changes, the defensive panics in (F) will fire on
+	// any test that exercises multi-sym layouts.
+	trailingProduct := newStrideAcc()
 	for _, r := range loopRanges {
-		if r.Op() == uop.OpConst {
-			continue
+		factor := l.rangeBoundFactor(r)
+		if !factor.isConcrete() {
+			trailingProduct = trailingProduct.mulSym(factor.symPart)
 		}
-		if uop.RangeIsSymbolic(r) {
-			if !seenSym {
-				symDispatchRange = r
-			}
-			seenSym = true
-		} else if seenSym {
-			concreteTrailing *= uop.RangeSize(r)
+		if factor.constPart != 1 {
+			trailingProduct = trailingProduct.mulConst(factor.constPart)
 		}
 	}
 
-	boundsSlot := 0
 	var boundsExpr string
-	if hasSymRange && symDispatchRange.Valid() {
-		boundsSlot, boundsExpr = l.symBoundEmission(symDispatchRange)
+	if hasSymRange {
+		boundsExpr = trailingProduct.renderU32()
 	}
-	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, ConcreteTrailing: concreteTrailing, SymParamIdx: boundsSlot, SymBoundExpr: boundsExpr})
+	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, SymBoundExpr: boundsExpr})
 	bodyExpr := l.emitExpr(body)
 
 	var outBufDType *uop.DType

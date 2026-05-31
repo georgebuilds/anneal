@@ -90,23 +90,18 @@ func TestSymbolicPadConcreteAmount(t *testing.T) {
 	t.Logf("SymCompiledCount after pad-A: %d", dev.SymCompiledCount())
 }
 
-// TestSymbolicPadSymbolicAmount — Slice 5 deliverable (B).
+// TestSymbolicPadSymbolicAmount — pad axis 1 of [n,4] by symbolic hi=k.
 //
-// Pad axis 1 of [n,4] with (lo=0, hi=k) where both n and k are DefineVars
-// bound at dispatch. Output [n, 4+k]; the trailing k columns are zero.
-//
-// SCOPE BREACH (Slice 5 STOP-and-report): the output [n, 4+k] has symbolic
-// extent on BOTH axes (axis 0 is `n`, axis 1 is `4+k`). The current
-// symbolic-dispatch lowerer (codegen/lower.go) forces every symbolic kernel
-// into a 1D dispatch keyed on the single name-sorted-first symbolic
-// variable. With two symbolic dims it generates `i32(flat_gid_x / 0u)` for
-// the inner dim's index decomposition (the "concrete trailing dims = 0"
-// outermost-only assumption — schedule/index.go:296-309 sintStrings comment
-// and codegen/lower.go:62-83 InstrBoundsCheck doc). Per the Slice 5 brief
-// this is a scope breach; multi-axis symbolic dispatch is the next slice's
-// territory. Test is kept Skip()'d as a reproducer for that slice.
+// Output [n, 4+k]; the trailing k columns are zero. Two symbolic dims at
+// dispatch: axis 0 is `n`, axis 1 is `4+k`. The lowerer/executor surface
+// supports this end-to-end (verified by the C-case suite in
+// slice7b_ccase_test.go), but the tensor-side seam at this entry point
+// (PadSints + RealizeWithBinding) gates symbolic shapes through
+// NewSymbolicBatchInput, which currently only constructs outermost-symbolic
+// shapes. Lifting that gate is tracked separately. Test is kept Skip()'d
+// as the reproducer for that follow-up.
 func TestSymbolicPadSymbolicAmount(t *testing.T) {
-	t.Skip("Slice 5 scope-breach: multi-axis symbolic dispatch — out of scope; see test docstring")
+	t.Skip("tensor-side seam (NewSymbolicBatchInput) gates non-outermost symbolic; see docstring")
 	dev := requireDevice(t)
 	tensor.DefaultExecutor = dev
 	defer func() { tensor.DefaultExecutor = nil }()

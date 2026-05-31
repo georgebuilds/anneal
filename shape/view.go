@@ -99,7 +99,7 @@ func normalizeMask(mask [][2]Sint, shape []Sint) [][2]Sint {
 // Expand broadcasts dimensions.  Caller must ensure new_shape[i] == shape[i]
 // for all dims where shape[i] != 1.  Expanded dims keep stride 0.
 // Handles symbolic newShape: a concrete size-1 source dim may be expanded to
-// a symbolic target dim (Option A: symbolic batch is always the outermost dim).
+// a symbolic target dim at any axis position.
 func (v View) Expand(newShape []Sint) View {
 	if len(newShape) != len(v.Shape) {
 		panic(fmt.Sprintf("shape: expand: rank mismatch %d vs %d", len(v.Shape), len(newShape)))

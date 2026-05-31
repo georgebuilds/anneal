@@ -218,29 +218,6 @@ func schedShapeDimToSint(a *uop.Arena, d uop.ShapeDim) shape.Sint {
 	return shape.SymInt{Node: rebuildSymBound(a, d)}
 }
 
-// ── Consumer map ──────────────────────────────────────────────────────────────
-
-// buildConsumerMap returns a map from each node's index to the set of unique
-// parent node indices that directly reference it.
-func buildConsumerMap(topo []uop.UOp) map[uint32]map[uint32]struct{} {
-	result := make(map[uint32]map[uint32]struct{}, len(topo))
-	for _, u := range topo {
-		dedupe := make(map[uint32]bool)
-		for i := 0; i < u.NSrc(); i++ {
-			srcIdx := u.Src(i).Index()
-			if dedupe[srcIdx] {
-				continue
-			}
-			dedupe[srcIdx] = true
-			if result[srcIdx] == nil {
-				result[srcIdx] = make(map[uint32]struct{})
-			}
-			result[srcIdx][u.Index()] = struct{}{}
-		}
-	}
-	return result
-}
-
 // ── Realize map ───────────────────────────────────────────────────────────────
 
 // hardRealizeOps are ALWAYS_CONTIGUOUS: they must force a kernel boundary.

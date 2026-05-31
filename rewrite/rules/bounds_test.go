@@ -29,9 +29,9 @@ func dv(a *uop.Arena, lo, hi int64) uop.UOp {
 	return a.New(uop.OpDefineVar, uop.Dtypes.Int32, []uop.UOp{ci(a, lo), ci(a, hi)}, "x", nil)
 }
 
-// rng builds a two-src Range [lo, hi).  BoundsOf returns {lo, hi-1}.
-func rng(a *uop.Arena, lo, hi int64) uop.UOp {
-	return a.New(uop.OpRange, uop.Dtypes.Int32, []uop.UOp{ci(a, lo), ci(a, hi)}, nil, nil)
+// rng builds a one-src Range [0, hi).  BoundsOf returns {0, hi-1}.
+func rng(a *uop.Arena, hi int64) uop.UOp {
+	return a.New(uop.OpRange, uop.Dtypes.Int32, []uop.UOp{ci(a, hi)}, nil, nil)
 }
 
 // cmpeq builds a CmpEq bool node.
@@ -69,8 +69,8 @@ func TestBoundsOfLeaves(t *testing.T) {
 		{"define_var [1,10)", func(a *uop.Arena) uop.UOp { return dv(a, 1, 10) }, true, 1, 9},
 		{"define_var [0,1)", func(a *uop.Arena) uop.UOp { return dv(a, 0, 1) }, true, 0, 0},
 		{"define_var negative range [-5,3)", func(a *uop.Arena) uop.UOp { return dv(a, -5, 3) }, true, -5, 2},
-		{"range [0,8)", func(a *uop.Arena) uop.UOp { return rng(a, 0, 8) }, true, 0, 7},
-		{"range [3,7)", func(a *uop.Arena) uop.UOp { return rng(a, 3, 7) }, true, 3, 6},
+		{"range [0,8)", func(a *uop.Arena) uop.UOp { return rng(a, 8) }, true, 0, 7},
+		{"range [0,1)", func(a *uop.Arena) uop.UOp { return rng(a, 1) }, true, 0, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

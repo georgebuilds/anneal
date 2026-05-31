@@ -161,11 +161,6 @@ func (t *Tensor) Unsqueeze(dim int) *Tensor {
 	return t.Reshape(newShape)
 }
 
-// newShapeTracker is a package-level alias to avoid importing shape in caller files.
-func newShapeTracker(sh []int64) shape.ShapeTracker {
-	return shape.NewShapeTracker(sh)
-}
-
 // ReshapeSints reshapes t to newShape which may contain symbolic dimensions.
 // For fully-concrete newShape, falls back to the regular []int64 Reshape path.
 // For shapes with symbolic dims, creates an OpReshape with ShapeSintArg.

@@ -1026,16 +1026,6 @@ func (k *SymKernelHandle) Release() {
 	}
 }
 
-// itemHasSymDim reports whether the kernel represented by item contains at least
-// one symbolic range (i.e. a range whose bound depends on a DefineVar). When the
-// Ast has been released by the cache, fall back to the captured SymVars slice.
-func itemHasSymDim(item schedule.ExecItem) bool {
-	if !item.Ast.Valid() {
-		return len(item.SymVars) > 0
-	}
-	return len(uop.VariablesOf(item.Ast)) > 0
-}
-
 // CompileSymKernel compiles the WGSL shader for item exactly once and returns a
 // reusable handle.  item must contain at least one symbolic OpRange node.
 //
@@ -1426,7 +1416,7 @@ func (d *Device) dispatchSymKernelLocked(k *SymKernelHandle, n int64, inputs [][
 	wc := k.WorkgroupCount
 	wc[0] = int(wgs)
 
-	// Scalability spreading for Slice 1 symbolic kernels (always 1D).
+	// Scalability spreading for symbolic kernels (dispatched as 1D).
 	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
 		totalWGs := int64(wc[0])
 		wc[0] = 65535

@@ -34,16 +34,6 @@ func firstItem(t *testing.T, sink uop.UOp) schedule.ExecItem {
 	return items[0]
 }
 
-// allItems returns all ExecItems.
-func allItems(t *testing.T, sink uop.UOp) []schedule.ExecItem {
-	t.Helper()
-	items := schedule.CreateSchedule(sink, "webgpu")
-	if len(items) == 0 {
-		t.Fatal("CreateSchedule returned 0 items")
-	}
-	return items
-}
-
 // assertContains fails the test if wgsl does not contain every expected substring.
 func assertContains(t *testing.T, wgsl string, wants ...string) {
 	t.Helper()
@@ -62,11 +52,6 @@ func assertNotContains(t *testing.T, wgsl string, bads ...string) {
 			t.Errorf("WGSL should not contain %q\nfull shader:\n%s", bad, wgsl)
 		}
 	}
-}
-
-// countOccurrences counts non-overlapping occurrences of sub in s.
-func countOccurrences(s, sub string) int {
-	return strings.Count(s, sub)
 }
 
 // ── structural invariants (apply to every kernel) ─────────────────────────────

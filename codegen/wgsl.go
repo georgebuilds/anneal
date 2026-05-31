@@ -151,17 +151,10 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 		switch ins.Kind {
 		case InstrBoundsCheck:
 			if ins.Symbolic {
-				var symBound string
-				if ins.SymBoundExpr != "" {
-					symBound = ins.SymBoundExpr
-				} else {
-					symBound = fmt.Sprintf("params_n.n%d", ins.SymParamIdx)
-				}
-				if ins.ConcreteTrailing > 1 {
-					fmt.Fprintf(&b, "%sif (gid_x >= %s * %du) { return; }\n", indent(), symBound, ins.ConcreteTrailing)
-				} else {
-					fmt.Fprintf(&b, "%sif (gid_x >= %s) { return; }\n", indent(), symBound)
-				}
+				// Slice 7b: lowerSink always populates SymBoundExpr with the
+				// full trailing product (a possibly multi-sym WGSL u32 expr),
+				// dropping the old `<symBound> * <concreteTrailing>u` split.
+				fmt.Fprintf(&b, "%sif (gid_x >= %s) { return; }\n", indent(), ins.SymBoundExpr)
 			}
 
 		case InstrGIDVar:
@@ -172,15 +165,40 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 				base = fmt.Sprintf("flat_%s_%s", level, comp)
 			}
 
+			// Slice 7b: when ins.StrideExpr is non-empty, the stride is a
+			// symbolic WGSL u32 expression (non-outermost sym dim case);
+			// otherwise the int64 Stride path emits byte-identical Slice 1–7a.
+			// For symbolic INNER ranges, ins.SymBoundExpr carries the rendered
+			// sym bound to mod against — the outermost-sym path leaves it
+			// empty (the trailingProduct bound guarantees the quotient is
+			// already in range).
+			var divided string
+			if ins.StrideExpr != "" {
+				divided = fmt.Sprintf("%s / %s", base, ins.StrideExpr)
+			} else if ins.Stride == 1 {
+				divided = base
+			} else {
+				divided = fmt.Sprintf("%s / %du", base, ins.Stride)
+			}
 			var expr string
 			if ins.Symbolic {
-				if ins.Stride == 1 {
+				if ins.SymBoundExpr != "" {
+					if ins.StrideExpr == "" && ins.Stride == 1 {
+						// divided is a bare identifier — no precedence wrap needed.
+						expr = fmt.Sprintf("i32(%s %% %s)", divided, ins.SymBoundExpr)
+					} else {
+						expr = fmt.Sprintf("i32((%s) %% %s)", divided, ins.SymBoundExpr)
+					}
+				} else if ins.StrideExpr == "" && ins.Stride == 1 {
+					// Outermost-sym single-dim path — avoid extra parens around base.
 					expr = fmt.Sprintf("i32(%s)", base)
 				} else {
-					expr = fmt.Sprintf("i32(%s / %du)", base, ins.Stride)
+					expr = fmt.Sprintf("i32(%s)", divided)
 				}
 			} else if ins.Stride == 1 {
 				expr = fmt.Sprintf("i32(%s %% %du)", base, ins.RangeSize)
+			} else if ins.StrideExpr != "" {
+				expr = fmt.Sprintf("i32((%s) %% %du)", divided, ins.RangeSize)
 			} else {
 				expr = fmt.Sprintf("i32((%s / %du) %% %du)", base, ins.Stride, ins.RangeSize)
 			}

@@ -9,14 +9,15 @@ import (
 
 // index_sint_test.go — adversarial coverage for sintStrides, flatIndexSints, and
 // unflatIndexSints. These are the symbolic-shape variants of flatIndex/unflatIndex
-// used when an OpReshape carries a ShapeSintArg (Option A: symbolic dim is always
-// outermost). Production exercises them through dynamic-batch tensor paths; this
-// file pins their direct semantics so a regression cannot ship silently.
+// used when an OpReshape carries a ShapeSintArg. Production exercises them through
+// dynamic-batch tensor paths; this file pins their direct semantics so a
+// regression cannot ship silently.
 //
-// Per spec (index.go:287-303): for the symbolic dim, sintStrides does NOT update
-// the accumulator. Since Option A places the symbolic dim outermost, this is
-// equivalent to "trailing concrete dims set the symbolic dim's stride, and the
-// symbolic dim's stride is never multiplied into anything to its left (none exist)."
+// Post Slice 7a: sintStrides returns []shape.Sint and accumulates symbolic
+// factors via shape.Mul. The symbolic dim may now sit in any position; strides
+// for dims to its left carry the symbolic factor. The "skip Mod for symbolic
+// outermost" optimisation is preserved (i==0 + symbolic) but a symbolic dim at
+// i>0 now correctly gets a Mod with the symbolic bound.
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,24 +31,12 @@ func constShape(dims ...int64) []shape.Sint {
 }
 
 // symHeadShape returns []Sint with a SymInt (DefineVar "n", bounds [1,N]) at
-// position 0 and concrete dims for the rest (Option A: symbolic dim outermost).
+// position 0 and concrete dims for the rest (symbolic dim outermost).
 func symHeadShape(a *uop.Arena, name string, max int64, tailDims ...int64) []shape.Sint {
 	out := make([]shape.Sint, 1+len(tailDims))
 	out[0] = shape.SymInt{Node: a.DefineVar(name, 1, max)}
 	for i, d := range tailDims {
 		out[i+1] = shape.ConstInt{V: d}
-	}
-	return out
-}
-
-// indices builds OpRange nodes for each axis of size sz. Each carries a unique
-// ID so the intern-bypass keeps them distinct (one loop var per axis).
-func indices(a *uop.Arena, sz []int64) []uop.UOp {
-	out := make([]uop.UOp, len(sz))
-	for i, s := range sz {
-		bound := a.New(uop.OpConst, uop.Dtypes.Index, nil, s, nil)
-		out[i] = a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{bound},
-			uop.RangeArg{ID: i, Type: uop.AxisLoop}, nil)
 	}
 	return out
 }
@@ -66,12 +55,13 @@ func constIndices(a *uop.Arena, vals ...int64) []uop.UOp {
 // ── sintStrides — concrete shape ────────────────────────────────────────────
 
 // TestSintStridesAllConcrete verifies row-major strides for a fully concrete
-// shape: strides[i] = prod(shape[i+1:]).
+// shape: strides[i] = prod(shape[i+1:]). Strides are []shape.Sint; for an
+// all-concrete shape every stride must be a ConstInt.
 func TestSintStridesAllConcrete(t *testing.T) {
 	cases := []struct {
-		name    string
-		dims    []int64
-		want    []int64
+		name string
+		dims []int64
+		want []int64
 	}{
 		{"1D", []int64{4}, []int64{1}},
 		{"2D", []int64{2, 3}, []int64{3, 1}},
@@ -86,20 +76,26 @@ func TestSintStridesAllConcrete(t *testing.T) {
 				t.Fatalf("len(strides) = %d, want %d", len(got), len(tc.want))
 			}
 			for i, s := range got {
-				if s != tc.want[i] {
-					t.Errorf("strides[%d] = %d, want %d (full: got=%v want=%v)",
-						i, s, tc.want[i], got, tc.want)
+				v, ok := s.ConstValue()
+				if !ok {
+					t.Errorf("strides[%d] is symbolic, want concrete ConstInt", i)
+					continue
+				}
+				if v != tc.want[i] {
+					t.Errorf("strides[%d] = %d, want %d", i, v, tc.want[i])
 				}
 			}
 		})
 	}
 }
 
-// TestSintStridesSymbolicHead pins the Option-A invariant: a symbolic dim is
-// always outermost. The symbolic dim's stride equals the product of trailing
-// concrete dims; for dims to its right, strides[i] = prod(concrete tail of i+1:).
-// After the symbolic dim is processed, the accumulator is not updated — but no
-// dim to its LEFT exists in Option A, so the choice never leaks.
+// TestSintStridesSymbolicHead pins the symbolic-outermost case (Option-A
+// shape). The symbolic dim's stride equals the product of trailing concrete
+// dims (concrete ConstInt); for dims to its right, strides[i] = prod(concrete
+// tail of i+1:). Post Slice 7a the accumulator does multiply through the
+// symbolic dim (using shape.Mul) — but the resulting symbolic factor only
+// shows up in strides for dims to the LEFT of the symbolic dim, which don't
+// exist in the symbolic-outermost case.
 func TestSintStridesSymbolicHead(t *testing.T) {
 	a := uop.NewArena(8)
 
@@ -110,8 +106,13 @@ func TestSintStridesSymbolicHead(t *testing.T) {
 		// strides[0] (symbolic) = trailing product = 16
 		want := []int64{16, 1}
 		for i, s := range got {
-			if s != want[i] {
-				t.Errorf("strides[%d] = %d, want %d (sh=[Sym, 16], full got=%v)", i, s, want[i], got)
+			v, ok := s.ConstValue()
+			if !ok {
+				t.Errorf("strides[%d] symbolic, want ConstInt(%d) (sh=[Sym, 16])", i, want[i])
+				continue
+			}
+			if v != want[i] {
+				t.Errorf("strides[%d] = %d, want %d (sh=[Sym, 16])", i, v, want[i])
 			}
 		}
 	})
@@ -119,13 +120,16 @@ func TestSintStridesSymbolicHead(t *testing.T) {
 	t.Run("sym + 2 tail", func(t *testing.T) {
 		sh := symHeadShape(a, "m", 32, 4, 8) // [Sym(m), 4, 8]
 		got := sintStrides(sh)
-		// strides[2] = 1
-		// strides[1] = 8
-		// strides[0] (symbolic) = 4*8 = 32
+		// strides[2] = 1; strides[1] = 8; strides[0] (symbolic outermost) = 4*8 = 32
 		want := []int64{32, 8, 1}
 		for i, s := range got {
-			if s != want[i] {
-				t.Errorf("strides[%d] = %d, want %d (sh=[Sym, 4, 8], full got=%v)", i, s, want[i], got)
+			v, ok := s.ConstValue()
+			if !ok {
+				t.Errorf("strides[%d] symbolic, want ConstInt(%d)", i, want[i])
+				continue
+			}
+			if v != want[i] {
+				t.Errorf("strides[%d] = %d, want %d", i, v, want[i])
 			}
 		}
 	})
@@ -134,8 +138,12 @@ func TestSintStridesSymbolicHead(t *testing.T) {
 		// [Sym] alone: strides[0] = 1 (last dim is always stride 1, even if symbolic).
 		sh := []shape.Sint{shape.SymInt{Node: a.DefineVar("k", 1, 8)}}
 		got := sintStrides(sh)
-		if len(got) != 1 || got[0] != 1 {
-			t.Errorf("sintStrides([Sym]) = %v, want [1]", got)
+		if len(got) != 1 {
+			t.Fatalf("sintStrides([Sym]) len = %d, want 1", len(got))
+		}
+		v, ok := got[0].ConstValue()
+		if !ok || v != 1 {
+			t.Errorf("sintStrides([Sym])[0] = %+v, want ConstInt(1)", got[0])
 		}
 	})
 }
@@ -382,6 +390,301 @@ func TestFlatUnflatRoundTripConcrete(t *testing.T) {
 				t.Errorf("round-trip expression does not reference the original flat var — broken")
 			}
 		})
+	}
+}
+
+// ── Slice 7a: non-outermost symbolic structural strides ─────────────────────
+//
+// These tests pin the structural correctness of sintStrides /
+// flatIndexSints / unflatIndexSints for shapes where the symbolic dim is NOT
+// the outermost position. Pre-7a, sintStrides returned wrong strides for
+// any dim to the LEFT of a symbolic dim (left-of-sym strides defaulted to 1
+// instead of carrying the symbolic factor). Post-7a, sintStrides returns
+// []shape.Sint, and the symbolic factor appears in left-of-sym strides via
+// shape.Mul.
+//
+// The proof is two-pronged:
+//   1. Structural: stride[i] for a sym-bearing dim slot must be a UOp whose
+//      VariablesOf includes the right DefineVar.
+//   2. Numerical: under bindings, flat ∘ unflat = identity. We evaluate the
+//      built UOp expressions via evalUOp(binding) and check equality.
+
+// symAtShape returns []Sint where dim symAt is a SymInt with name name and
+// upper bound max+1 (DefineVar uses exclusive upper); all other dims are
+// concrete ConstInts from dims[i].
+func symAtShape(a *uop.Arena, name string, max int64, dims []int64, symAt int) []shape.Sint {
+	out := make([]shape.Sint, len(dims))
+	for i, d := range dims {
+		if i == symAt {
+			out[i] = shape.SymInt{Node: a.DefineVar(name, 1, max+1)}
+		} else {
+			out[i] = shape.ConstInt{V: d}
+		}
+	}
+	return out
+}
+
+// twoSymShape returns []Sint of length 2 with two distinct SymInts bound to
+// (1..maxA+1) and (1..maxB+1).
+func twoSymShape(a *uop.Arena, na, nb string, maxA, maxB int64) []shape.Sint {
+	return []shape.Sint{
+		shape.SymInt{Node: a.DefineVar(na, 1, maxA+1)},
+		shape.SymInt{Node: a.DefineVar(nb, 1, maxB+1)},
+	}
+}
+
+// evalUOp recursively evaluates an integer-typed UOp expression against a
+// binding from DefineVar arena index → value. Supports the small set of ops
+// that flatIndexSints / unflatIndexSints emit plus the leaves they consume.
+// Used to prove round-trip identity under concrete bindings.
+func evalUOp(u uop.UOp, binding map[uint32]int64) int64 {
+	switch u.Op() {
+	case uop.OpConst:
+		v, ok := u.Arg().(int64)
+		if !ok {
+			panic("evalUOp: non-int64 OpConst arg")
+		}
+		return v
+	case uop.OpDefineVar:
+		v, ok := binding[u.Index()]
+		if !ok {
+			panic("evalUOp: unbound DefineVar")
+		}
+		return v
+	case uop.OpRange:
+		// OpRange is a loop var; for these tests we never bind it (we use
+		// constIndices instead). Treat as unbound and report.
+		panic("evalUOp: OpRange encountered (use constIndices in tests)")
+	case uop.OpNeg:
+		return -evalUOp(u.Src(0), binding)
+	case uop.OpAdd:
+		return evalUOp(u.Src(0), binding) + evalUOp(u.Src(1), binding)
+	case uop.OpSub:
+		return evalUOp(u.Src(0), binding) - evalUOp(u.Src(1), binding)
+	case uop.OpMul:
+		return evalUOp(u.Src(0), binding) * evalUOp(u.Src(1), binding)
+	case uop.OpIDiv:
+		b := evalUOp(u.Src(1), binding)
+		return evalUOp(u.Src(0), binding) / b
+	case uop.OpMod:
+		b := evalUOp(u.Src(1), binding)
+		return evalUOp(u.Src(0), binding) % b
+	}
+	panic("evalUOp: unsupported op " + u.Op().String())
+}
+
+// TestStructuralStridesSymMid: shape [4, n] — symbolic non-outermost.
+// strides[0] must carry n; strides[1] = 1.
+// flat(r0, r1) = r0*n + r1; unflat(flat) = [(flat/n)%4, flat%n].
+func TestStructuralStridesSymMid(t *testing.T) {
+	for _, nv := range []int64{3, 5, 7} {
+		t.Run("n="+itoa(nv), func(t *testing.T) {
+			a := uop.NewArena(64)
+			sh := symAtShape(a, "n", 16, []int64{4, 0}, 1)
+			nNode := sh[1].(shape.SymInt).Node
+			binding := map[uint32]int64{nNode.Index(): nv}
+
+			// 1. Structural: strides[0] is symbolic (carries n); strides[1] is Const(1).
+			strides := sintStrides(sh)
+			if _, ok := strides[0].ConstValue(); ok {
+				t.Fatalf("strides[0] should be symbolic (carries n), got concrete %v", strides[0])
+			}
+			if v, ok := strides[1].ConstValue(); !ok || v != 1 {
+				t.Fatalf("strides[1] = %v, want ConstInt(1)", strides[1])
+			}
+			// strides[0] must equal n when evaluated.
+			s0val := evalUOp(dimToUOp(a, strides[0]), binding)
+			if s0val != nv {
+				t.Errorf("strides[0] evaluates to %d, want %d (= n)", s0val, nv)
+			}
+
+			// 2. Numerical round-trip over the full domain.
+			for r0 := int64(0); r0 < 4; r0++ {
+				for r1 := int64(0); r1 < nv; r1++ {
+					idx := constIndices(a, r0, r1)
+					flat := flatIndexSints(a, idx, sh)
+					gotFlat := evalUOp(flat, binding)
+					wantFlat := r0*nv + r1
+					if gotFlat != wantFlat {
+						t.Errorf("flat(r0=%d, r1=%d, n=%d) = %d, want %d", r0, r1, nv, gotFlat, wantFlat)
+					}
+					flatC := a.New(uop.OpConst, uop.Dtypes.Index, nil, gotFlat, nil)
+					per := unflatIndexSints(a, flatC, sh)
+					if len(per) != 2 {
+						t.Fatalf("unflat returned %d dims, want 2", len(per))
+					}
+					gr0 := evalUOp(per[0], binding)
+					gr1 := evalUOp(per[1], binding)
+					if gr0 != r0 || gr1 != r1 {
+						t.Errorf("unflat(%d, n=%d) = [%d, %d], want [%d, %d]", gotFlat, nv, gr0, gr1, r0, r1)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestStructuralStridesTwoSym: shape [n, m] — two symbolic dims.
+// strides[0] = m (symbolic); strides[1] = 1.
+// flat(r0, r1) = r0*m + r1; unflat(flat) = [(flat/m), flat%m] (i==0 sym → no Mod).
+func TestStructuralStridesTwoSym(t *testing.T) {
+	cases := [][2]int64{{3, 5}, {5, 3}, {7, 11}}
+	for _, bv := range cases {
+		nv, mv := bv[0], bv[1]
+		t.Run("n="+itoa(nv)+",m="+itoa(mv), func(t *testing.T) {
+			a := uop.NewArena(128)
+			sh := twoSymShape(a, "n", "m", 16, 16)
+			nNode := sh[0].(shape.SymInt).Node
+			mNode := sh[1].(shape.SymInt).Node
+			binding := map[uint32]int64{nNode.Index(): nv, mNode.Index(): mv}
+
+			strides := sintStrides(sh)
+			if _, ok := strides[0].ConstValue(); ok {
+				t.Fatalf("strides[0] should carry m, got concrete %v", strides[0])
+			}
+			if v, ok := strides[1].ConstValue(); !ok || v != 1 {
+				t.Fatalf("strides[1] = %v, want ConstInt(1)", strides[1])
+			}
+			s0val := evalUOp(dimToUOp(a, strides[0]), binding)
+			if s0val != mv {
+				t.Errorf("strides[0] evaluates to %d, want %d (= m)", s0val, mv)
+			}
+
+			for r0 := int64(0); r0 < nv; r0++ {
+				for r1 := int64(0); r1 < mv; r1++ {
+					idx := constIndices(a, r0, r1)
+					flat := flatIndexSints(a, idx, sh)
+					gotFlat := evalUOp(flat, binding)
+					wantFlat := r0*mv + r1
+					if gotFlat != wantFlat {
+						t.Errorf("flat(r0=%d, r1=%d, n=%d, m=%d) = %d, want %d",
+							r0, r1, nv, mv, gotFlat, wantFlat)
+					}
+					flatC := a.New(uop.OpConst, uop.Dtypes.Index, nil, gotFlat, nil)
+					per := unflatIndexSints(a, flatC, sh)
+					gr0 := evalUOp(per[0], binding)
+					gr1 := evalUOp(per[1], binding)
+					if gr0 != r0 || gr1 != r1 {
+						t.Errorf("unflat(%d) = [%d, %d], want [%d, %d]", gotFlat, gr0, gr1, r0, r1)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestStructuralStridesNMSplit: round-trip across reshape [n*m] ↔ [n, m].
+// This is the case that hit Slice 7 preflight §5.b — pre-7a, the flat index
+// over [n, m] came out r0 + r1 (strides [1,1]) instead of r0*m + r1.
+func TestStructuralStridesNMSplit(t *testing.T) {
+	cases := [][2]int64{{2, 3}, {3, 5}, {4, 4}}
+	for _, bv := range cases {
+		nv, mv := bv[0], bv[1]
+		t.Run("n="+itoa(nv)+",m="+itoa(mv), func(t *testing.T) {
+			a := uop.NewArena(128)
+			sh2D := twoSymShape(a, "n", "m", 16, 16)
+			nNode := sh2D[0].(shape.SymInt).Node
+			mNode := sh2D[1].(shape.SymInt).Node
+			binding := map[uint32]int64{nNode.Index(): nv, mNode.Index(): mv}
+
+			// [n*m] one-dim shape; the early-return for 1D skips strides.
+			sh1D := []shape.Sint{shape.Mul(sh2D[0], sh2D[1])}
+
+			// reshape [n*m] → [n, m]: indices on [n, m] flatten to [n*m] and back.
+			for r0 := int64(0); r0 < nv; r0++ {
+				for r1 := int64(0); r1 < mv; r1++ {
+					idx2D := constIndices(a, r0, r1)
+					flat2D := flatIndexSints(a, idx2D, sh2D)
+					f := evalUOp(flat2D, binding)
+					if f != r0*mv+r1 {
+						t.Errorf("flatIndexSints([n,m]) at (%d,%d) = %d, want %d",
+							r0, r1, f, r0*mv+r1)
+					}
+					// 1D source: unflat into single dim returns [flat] (early return),
+					// so reshape back via unflatIndexSints on sh2D using the same flat.
+					fC := a.New(uop.OpConst, uop.Dtypes.Index, nil, f, nil)
+					per := unflatIndexSints(a, fC, sh2D)
+					gr0 := evalUOp(per[0], binding)
+					gr1 := evalUOp(per[1], binding)
+					if gr0 != r0 || gr1 != r1 {
+						t.Errorf("reshape round-trip at (%d,%d) under (n=%d,m=%d): got [%d,%d]",
+							r0, r1, nv, mv, gr0, gr1)
+					}
+				}
+			}
+			_ = sh1D // 1D shape used for reasoning; helpers early-return on len==1.
+		})
+	}
+}
+
+// TestStructuralStridesSymMiddle: shape [4, n, 4] — sym strictly in the
+// middle. strides[0] must carry 4n; strides[1]=4; strides[2]=1.
+func TestStructuralStridesSymMiddle(t *testing.T) {
+	for _, nv := range []int64{2, 3, 5} {
+		t.Run("n="+itoa(nv), func(t *testing.T) {
+			a := uop.NewArena(128)
+			sh := symAtShape(a, "n", 8, []int64{4, 0, 4}, 1)
+			nNode := sh[1].(shape.SymInt).Node
+			binding := map[uint32]int64{nNode.Index(): nv}
+
+			strides := sintStrides(sh)
+			if _, ok := strides[0].ConstValue(); ok {
+				t.Fatalf("strides[0] should carry n, got concrete %v", strides[0])
+			}
+			if v, ok := strides[1].ConstValue(); !ok || v != 4 {
+				t.Fatalf("strides[1] = %v, want ConstInt(4)", strides[1])
+			}
+			if v, ok := strides[2].ConstValue(); !ok || v != 1 {
+				t.Fatalf("strides[2] = %v, want ConstInt(1)", strides[2])
+			}
+			s0val := evalUOp(dimToUOp(a, strides[0]), binding)
+			if s0val != 4*nv {
+				t.Errorf("strides[0] = %d, want %d (= 4n)", s0val, 4*nv)
+			}
+
+			for r0 := int64(0); r0 < 4; r0++ {
+				for r1 := int64(0); r1 < nv; r1++ {
+					for r2 := int64(0); r2 < 4; r2++ {
+						idx := constIndices(a, r0, r1, r2)
+						flat := flatIndexSints(a, idx, sh)
+						gotFlat := evalUOp(flat, binding)
+						wantFlat := r0*4*nv + r1*4 + r2
+						if gotFlat != wantFlat {
+							t.Errorf("flat(%d,%d,%d,n=%d) = %d, want %d",
+								r0, r1, r2, nv, gotFlat, wantFlat)
+						}
+						fC := a.New(uop.OpConst, uop.Dtypes.Index, nil, gotFlat, nil)
+						per := unflatIndexSints(a, fC, sh)
+						gr0, gr1, gr2 := evalUOp(per[0], binding), evalUOp(per[1], binding), evalUOp(per[2], binding)
+						if gr0 != r0 || gr1 != r1 || gr2 != r2 {
+							t.Errorf("unflat(%d) = [%d,%d,%d], want [%d,%d,%d]",
+								gotFlat, gr0, gr1, gr2, r0, r1, r2)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestStructuralStridesSymHeadRegression preserves the symbolic-outermost
+// path. Strides on [n, 4] must match pre-7a: stride[0]=4 (concrete), and
+// unflatIndexSints must NOT wrap the symbolic outermost dim in a Mod (the
+// optimisation pinned by TestUnflatIndexSintsSymbolicHead).
+func TestStructuralStridesSymHeadRegression(t *testing.T) {
+	a := uop.NewArena(64)
+	sh := symHeadShape(a, "n", 64, 4)
+	strides := sintStrides(sh)
+	if v, ok := strides[0].ConstValue(); !ok || v != 4 {
+		t.Errorf("strides[0] = %v, want ConstInt(4)", strides[0])
+	}
+	if v, ok := strides[1].ConstValue(); !ok || v != 1 {
+		t.Errorf("strides[1] = %v, want ConstInt(1)", strides[1])
+	}
+	flat := constIndices(a, 0)[0]
+	per := unflatIndexSints(a, flat, sh)
+	if per[0].Op() == uop.OpMod {
+		t.Errorf("sym-outermost dim must not be wrapped in Mod (forces runtime bound fetch in inner loop)")
 	}
 }
 
