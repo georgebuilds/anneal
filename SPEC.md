@@ -19,7 +19,7 @@ Build a from-scratch Go implementation of tinygrad's architecture: an immutable-
 Original v1 was deliberately bounded; several items have shipped past that bound. Current honest status:
 
 **Shipped beyond original v1:**
-- **Symbolic shapes — dynamic batch dimension.** A net trains with the batch dim NOT baked into the kernel. The seam (§6.4) is now load-bearing for this use case. **General symbolic axis movement** (split/merge a symbolic dim, pad/shrink on a symbolic axis, dynamic seq-length) remains deferred — see §6.4 and §11 for the Option-A/B line.
+- **Symbolic shapes — dynamic batch (Option A) + general axis movement (Option B).** A net trains with the batch dim NOT baked into the kernel; the symbolic seam (§6.4) further supports split/merge of a symbolic axis (`[n*4]↔[n,4]`), pad/shrink amounts that are themselves symbolic, multi-dim symbolic dispatch (including non-outermost symbolic positions on the kernel-output / tensor-result side), and an unbounded number of symbolic vars per kernel. See §6.4 for scope and the one known boundary (`emitIndex` strides on symbolic *input* buffers); §10 for the load-bearing invariants. Dynamic seq-length tensor APIs are the natural next user.
 - **JIT replay / `TinyJit`-style capture.** `tensor.JIT` captures the frozen execution plan on first call; subsequent calls skip sink construction, scheduling, and the leaf walk. The match guard is keyed on the captured output expression's structural key (§7.5c).
 - **Schedule cache.** `CreateSchedule` memoized on a structural key (in-process, single-arena). The former determinism BLOCKER is resolved (§7.6 pass-7b notes).
 - **`.upat` DSL codegen migration.** The symbolic ruleset is compiled from `rewrite/rules/symbolic.upat` (§4.1).
@@ -29,10 +29,10 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 - **BEAM autotuning (env-gated).** `codegen/opt.go` exposes the Opt seam; `codegen/beam.go` implements beam-of-k search over opt sequences. `BeamApplyToItems` is wired into the realize path, env-gated via ANNEAL_BEAM. Default mode is zero-overhead O(1) disk-cache lookup. See §7.7b–c.
 
 **Still deferred / dropped:**
-- General symbolic axis movement (Option B) — see §6.4 / §11. Picked up only when LLM seq-len reshaping is actually the goal.
 - Multi-device / sharding / `ALLREDUCE`. Dropped for v1; `OpCopy`'s hard-boundary role is conditionally dormant and rejoins when this lands (§7.3 note).
 - `ImageDType` and image-specific codegen paths. Dropped.
 - Backends beyond the first. v1 targets one backend (§7).
+- Slice 7d opt relaxations for multi-dim symbolic kernels — LOCAL/TILE/UPCAST/VECTORIZE currently blanket-bail on a symbolic axis; an opt-in slice would relax this where safe. Optional perf, not correctness.
 
 ---
 
@@ -41,8 +41,9 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 | Dimension | Status |
 |---|---|
 | Shapes — static | ✅ |
-| Shapes — dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
-| Symbolic shapes — general movement (split/merge/pad a symbolic axis, seq-len) | ⛔ Deferred (Option B; see §6.4) |
+| Shapes — dynamic batch (symbolic, Option A) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
+| Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch (Option B) | ✅ Shipped; see §6.4 |
+| Dynamic seq-length tensor API | ⛔ Deferred (Option-B capability is in; the tensor-surface constructor / fence is the open work) |
 | Devices | Single device (multi-device deferred) |
 | Autodiff | ✅ Full reverse-mode via typed graph traversal (D1 verified — §5) |
 | Backend | ✅ WebGPU (native + WASM; §7.8) |
@@ -90,7 +91,7 @@ Before constructing a UOp, hash its `(op, dtype, src, arg, tag)` signature and l
 
 Go uses an **arena-bound cache**: the cache lives and dies with the arena, so dead nodes vanish when the arena is abandoned at step end.
 
-**Bypass intern set:** `{OpUnique, OpLUnique, OpBuffer}` carry intrinsic identity that must not dedup.
+**Bypass intern set:** `{OpUnique, OpLUnique, OpBuffer, OpRange, OpDefineLocal}` carry intrinsic identity that must not dedup. `OpRange` is in the set because two loop variables with the same `(ID, Type)` from different kernels or realize calls must remain distinct — without bypass, hash-consing would collapse them and corrupt the per-kernel fused-ranges ordering. `OpRange` IDs come from a per-kernel `rangeCtx.nextID` counter rather than the intern cache.
 
 **Structural key:** `uop.StructuralKeys(a *Arena) []uint64` computes a bottom-up content hash per node — `H(op, dtype_struct_hash, arg, [child_key for child in srcs])`. Children contribute by their *structural keys*, not by arena indices, so two structurally-identical subtrees built in different arena order get the same key. `DType.StructuralHash()` is itself a pure function of dtype fields (not a pointer address), so the key is process-portable. This is the foundation for deterministic scheduling (§7.6 pass-7b) and the JIT match guard (§7.5c).
 
@@ -173,7 +174,7 @@ All six movement primitives are pure stride/offset/mask edits on the last view; 
 
 Under rangeify, cross-view composition is replaced by **range substitution**: movement ops swizzle index ranges rather than stacking views that later get merged. **I do not build `View.__add__` / `ShapeTracker.simplify`.** The View struct remains the per-op representation; the merge layer is the thing rangeify obviates.
 
-### 6.4 Symbolic seam — Option A (dynamic batch) shipped; Option B deferred
+### 6.4 Symbolic seam — Option A (dynamic batch) and Option B (general axis movement) both shipped
 
 The seam is `Sint = int | UOp`:
 
@@ -183,13 +184,21 @@ type ConstInt struct { V int64 }
 type SymInt   struct { Node uop.UOp }
 ```
 
-`SymInt` arithmetic builds real UOp expressions (`Add`/`Sub`/`Mul`/`Neg`/`IDiv`/`Mod`); `ConstInt`×`ConstInt` stays off-arena so the static path is bit-identical. `arena.DefineVar(name, min, max)` creates the symbolic dim. There is **no SMT/Z3 dependency** — bound reasoning is `BoundsOf` interval arithmetic over the same UOp graph (§4.4).
+`SymInt` arithmetic builds real UOp expressions (`Add`/`Sub`/`Mul`/`Neg`/`IDiv`/`Mod`); `ConstInt`×`ConstInt` stays off-arena so the static path is bit-identical. `arena.DefineVar(name, min, max)` creates the symbolic dim with `DefineVar.src = [minC, max+1 C]` (inclusive-min, exclusive-max internally; user-facing bounds are inclusive on both ends — see §10). There is **no SMT/Z3 dependency** — bound reasoning is `BoundsOf` interval arithmetic over the same UOp graph (§4.4).
 
-**Option A — dynamic batch (shipped):** a symbolic dim rides through ops as an **opaque passthrough axis**: matched by node identity (`SintShapesEqual`), moved whole by `Reshape`/`Expand`/`Permute`/`broadcast`/`Matmul`, never split or merged or compared arithmetically against another symbolic value. Reshape validation compares only the *concrete* sub-products, treating a symbolic dim as a matching token that must appear (by node identity) on both sides. Symbolic comparisons (`Lt`/`Le`/`Eq` on `SymInt`) deliberately **panic** as a fence: if the compiler ever reaches a path that needs to compare two symbolic values arithmetically, that is Option B territory and the panic catches it immediately rather than silently producing a wrong bound.
+**Option A — dynamic batch (shipped):** a symbolic dim rides through ops as an opaque passthrough axis, matched by node identity (`SintShapesEqual`) and routed through reshape/expand/permute/broadcast/matmul without arithmetic compare. The symbolic dim's value reaches the GPU via a trailing WGSL **uniform** buffer (`ParamsN`) keyed at dispatch time, so one compiled WGSL kernel runs at any batch size without recompiling (`Device.RunSymbolic` + a compile-once cache keyed on WGSL source). Binding is by point-substitution: `tensor.RealizeWithBinding(map[string]int64, tensors...)` substitutes each `DefineVar` with its `Const` value into the graph *before* scheduling, and the existing symbolic ruleset folds the result.
 
-The symbolic dim's value reaches the GPU via a trailing WGSL **uniform** buffer keyed at dispatch time, so one compiled WGSL kernel runs at any batch size without recompiling (`Device.RunSymbolic` + a compile-once cache keyed on WGSL source). Binding is by point-substitution: `tensor.RealizeWithBinding(map[string]int64, tensors...)` substitutes each `DefineVar` with its `Const` value into the graph *before* scheduling, and the existing symbolic ruleset folds the result.
+**Option B — split/merge, sym pad/shrink, multi-dim sym dispatch (shipped):** the capability now covers (a) reshape across a symbolic axis in both directions (`[n,4]↔[n*4]`), (b) pad/shrink amounts that are themselves symbolic, (c) multi-dim symbolic dispatch on GPU — including non-outermost symbolic positions on the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute landing patterns), (d) an unbounded number of distinct symbolic vars per kernel (the prior 4-var WGSL-uniform-field cap is gone; `ParamsN` grows dynamically, rounded up to a multiple of 4 for WGSL uniform alignment), and (e) cross-arena structural-key portability for symbolic graphs (same logical graph built in two arenas hashes byte-equal). All paths value-proven against a CPU oracle with max-abs-diff 0.
 
-**Option B — split/merge a symbolic dim (deferred, own slice).** Reshapes that split or merge a symbolic axis (`[n*4]→[n,4]`), pad/shrink on a symbolic axis, dynamic seq-len reshaping. Requires building `Lt/Le/Eq`-on-`SymInt` as predicate UOps, symbolic-product reshape arithmetic, and symbolic masks — re-enters real symbolic-indexing correctness risk. Not needed for dynamic batch; it is what LLM seq-len reshaping eventually wants.
+Mechanically, Option B replaces the cv()-trapping comparator path with `BoundsOf`-style reasoning: `shape.ResolveNonNeg` / `shape.ResolveLE` answer "is this provably ≥ 0 / ≤ that?" by walking the backing UOp tree's intervals, so Pad/Shrink validation never reaches the comparison fence. The `Lt`/`Le`/`Eq`-on-`SymInt` panic from Option A is retained as a defense-in-depth fence (any new call site that *does* require an arithmetic compare must be promoted to bound-based reasoning), not as Option B's blocker.
+
+Encoding details that landed and are load-bearing:
+- **`OpRange` bound** is `OpRange.src[0]` — a full UOp expression (Const for concrete, DefineVar / affine expression for symbolic). `RangeArg` is `{ID, Type}` only; size/symbolic flags/var-slot indices are recovered structurally from `src[0]` and the kernel's `VariablesOf` walk.
+- **`ShapeDim` encoding** is `{V, Sym, VarName, Mul}` — name-keyed and structural. Symbolic dims set `Sym=true`, `V=0`, and decompose as `Mul * binding[VarName]`. Pad/shrink amounts share the same encoding via `PadSintArg` / `ShrinkSintArg`.
+- **`BoundExprArg` + `Buffer.SymDimAffine`** carry two-var (and higher) affine sums (`Sum(Mul[i] * binding[VarName[i]]) + Offset`) on the runtime resolution surface only — used when a buffer's output bound is an Add of distinct DefineVars (e.g. pad on a symbolic axis). The structural-key surface stays at the simpler `(VarName, Mul)` decomposition.
+- **`sintStrides` / `flatIndexSints` / `unflatIndexSints`** handle symbolic dims in any position (including non-outermost). The lowerer's trailing-product walk dispatches multi-dim symbolic via the same `renderSymBoundExpr` machinery; `symElemCount` in the executor produces the correct total dispatch threads.
+
+**Known boundary (carried debt, not crossed in v1):** the lowerer's multi-dim `OpIndex` path (`emitIndex` in `codegen/lower.go`) computes strides from `Buffer.Shape []int64`, which silently misbehaves when an *input* buffer has a non-outermost symbolic dim (sym slots appear as `0` in the int64 shape). The tensor-surface constructor (`NewSymbolicBatchInput`) enforces sym-outermost at the leaf level, so no current code path reaches the buggy regime. Any future constructor that produces a non-outermost-symbolic *input* tensor must extend `emitIndex` to walk the buffer's `SymDimAffine` / sym positions, or the input strides will be wrong. Defensive panics in the lowerer catch regressions where a positional encoding would otherwise leak back in.
 
 ---
 
@@ -407,7 +416,7 @@ Module path: github.com/georgebuilds/anneal
 - Schedule cache.
 - JIT capture/replay (`tensor.JIT`) with output-SK match guard (§7.5c).
 - Metal AutoreleasePool race fix — single locked GPU-owner goroutine (§7.8).
-- Symbolic shapes — dynamic batch (Option A, §6.4); `Lt/Le/Eq`-on-`SymInt` deliberately panic as the Option-B fence.
+- Symbolic shapes — dynamic batch (Option A, §6.4) and general axis movement (Option B): split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch including non-outermost sym positions, dynamic `ParamsN` (the 4-var WGSL uniform-field cap is gone), cross-arena structural-key portability. `Lt/Le/Eq`-on-`SymInt` panic is retained as defense-in-depth; Option B uses `shape.ResolveNonNeg` / `ResolveLE` bound predicates, not arithmetic comparators.
 - Migration I/O — `tensor/npy` (load) and `tensor/safetensors` (save+load, bidirectional with the real Python library).
 - `explain` symbolic-rule drift check vs `symbolic.upat`.
 - Bounds-system test coverage + `OpMod` floor-div fix.
@@ -435,7 +444,7 @@ Module path: github.com/georgebuilds/anneal
 - Dtype structural identity goes through `DType.StructuralHash()` (a function of dtype fields), not pointer address — so structural keys are portable across processes.
 - All Metal-touching calls go through the `onGPU` owner-goroutine funnel (§7.8). Bypassing it reintroduces the autorelease-pool race.
 - JIT replay's match guard is keyed on the captured output expression's structural key, not on per-leaf identity. Same-shape sibling `OpBuffer` leaves cannot be discriminated at the leaf level (§7.5c).
-- Symbolic comparisons (`Lt/Le/Eq` on `SymInt`) panic by design — they are the Option-A/Option-B fence (§6.4). If a code path needs one, that path is Option B and must be scoped as such, not silently unfenced.
+- Symbolic comparisons (`Lt/Le/Eq` on `SymInt`) panic by design — defense-in-depth fence (§6.4). Option B paths reach the same site through `shape.ResolveNonNeg` / `ResolveLE`, which walk the backing UOp's intervals and return false on "provably-negative OR unprovable" without ever invoking the arithmetic comparator. A new call site that *would* need to compare two symbolic values arithmetically must be routed through bound predicates, not silently unfenced.
 - **DefineVar bounds are inclusive on both ends.** A `DefineVar(name, min, max)` declares that the variable may take any value in `[min, max]` — both endpoints reachable. Internally `uop.Arena.DefineVar` stores the upper as `max+1` so the renderer convention is exclusive-upper (loop runs `< bound`); `BoundsOf` and `shape.boundsOfUOp` unwrap the `+1` so every user-facing consumer reads inclusive `[Min, Max]`. Mirrors tinygrad master: `RANGE._min_max` returns `(0, (self.src[0]-1).vmax)` — the `-1` is the inclusive-bounds correction. Any new bound-consumer site must either (a) read `BoundsOf(u).Max` as the inclusive maximum, or (b) destructure the raw `src[1]` Const and document that it consumes the exclusive-upper encoding. Mixing the two interpretations is the canonical off-by-one footgun.
 - **Vmax-driven index dtype upcast.** `rules.IndexDtypeForBound(b)` returns `Int64` when the bound's `vmax` would overflow `int32`, else `Int32`; this is the single source of truth for "is i32 enough for this index expression?" WebGPU's renderer downgrades `Int64` → `i32` (WebGPU has no i64) and emits an acknowledging comment on the affected symbolic-loop emission; a future CUDA/Metal-direct backend would honor the i64 unchanged. The decision lives in one place — backends choose to honor or downgrade. References tinygrad PR #8268.
 - Reduction accumulators are f32 even when operands are f16; never accumulate in f16. The FP16/FP16 fast path is a deferred opt-in, not the default.
@@ -467,7 +476,7 @@ Module path: github.com/georgebuilds/anneal
 
 4. **Renderer target. RESOLVED: WGSL-only.** Codegen is WGSL-only (`codegen/lower.go` + `codegen/wgsl.go`). The C-style renderer family (for CUDA/Metal Phase 2/3) is deferred.
 
-5. **Symbolic Option B (split/merge a symbolic dim) trigger.** When does the project actually need general symbolic axis movement? Recommendation: when LLM seq-len reshaping becomes a real target. Until then, the Option-A fence in `SymInt` comparisons (§6.4) holds.
+5. **Symbolic Option B status. RESOLVED.** General symbolic axis movement — split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch, unbounded sym-vars-per-kernel, cross-arena portability — has shipped (§6.4). The one carried boundary is `emitIndex` strides on non-outermost symbolic *input* buffers, which the tensor-surface constructor `NewSymbolicBatchInput` does not produce; surfacing a dynamic seq-length input API is the natural next slice and will need that path completed.
 
 ---
 
@@ -476,6 +485,7 @@ Module path: github.com/georgebuilds/anneal
 This spec is calibrated against the as-built implementation. Original Phases 1–10 were verified end-to-end by GPU training of MLP and conv net; subsequent shipped work (listed in §9) is each value-proven against an oracle appropriate to its surface:
 
 - **Symbolic batch (Option A):** forward 1.19e-7 vs CPU (compile-once across batch sizes); backward FD gradient check 2.43e-4; symbolic-vs-static gradients identical (0.0 max-abs-diff); learnable-task training matches static MLP trajectory.
+- **General symbolic axis movement (Option B):** split/merge across a symbolic dim (`[n,4]↔[n*4]`), symbolic pad/shrink amounts, multi-dim symbolic dispatch with sym in any position on the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute) — every case value-proven against a CPU oracle with max-abs-diff 0. Cross-arena structural-key portability: same logical graph built in two arenas produces byte-equal structural keys, so the schedule cache and BEAM disk cache survive arena churn. DefineVar bounds inclusive on both ends with `BoundsOf`-driven int32→int64 dtype selection (WebGPU emits the documented downgrade comment when honoring i32).
 - **Schedule cache:** hit returns identical GPU results (max-abs-diff 0); one symbolic schedule serves multiple bindings; static path byte-identical.
 - **JIT capture/replay:** replay vs non-JIT max-abs-diff 0 over many steps with changing weights; training converges (ratio 0.0011, Pearson 0.9752); adversarial output-SK guard test demonstrates the count-only guard's failure mode (+9 vs −9) and the structural-key fix.
 - **Metal AutoreleasePool fix:** 0 crashes / 60 runs (30 + 30 with test-side pinning removed); value oracle byte-identical.

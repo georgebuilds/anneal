@@ -103,7 +103,8 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Backend | ✅ WebGPU (native + WASM) |
 | Shapes — static | ✅ |
 | Shapes — dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
-| Symbolic shapes — general movement (split/merge/pad a symbolic axis, seq-len) | ⛔ Deferred |
+| Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch | ✅ Shipped |
+| Dynamic seq-length tensor API | ⛔ Deferred (the capability is in; the seq-length input constructor is the open work) |
 | JIT | ✅ Capture/replay (`tensor.JIT`) |
 | Schedule cache | ✅ Memoized on structural key |
 | Devices | Single device |
@@ -112,7 +113,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Image dtypes | ⛔ Deferred |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
 
-The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional.
+The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), general symbolic axis movement (split/merge a symbolic dim, sym pad/shrink, multi-dim sym dispatch including non-outermost positions on the kernel-output side), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional. One carried boundary: the lowerer's `emitIndex` strides are still int64-based, which is correct for any tensor produced by `NewSymbolicBatchInput` (sym is outermost on inputs) but would need extending before introducing a non-outermost-symbolic *input* tensor.
 
 ## Contributing
 
