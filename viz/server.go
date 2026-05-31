@@ -49,6 +49,7 @@ func Serve(addr string) error {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// w.Write error: client disconnected mid-response; nothing useful to do.
 		_, _ = w.Write(b)
 	})
 
@@ -71,6 +72,7 @@ func Serve(addr string) error {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// w.Write error: client disconnected mid-response; nothing useful to do.
 		_, _ = w.Write(b)
 	})
 
