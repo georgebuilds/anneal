@@ -29,3 +29,10 @@ go.work.sum
 
 # Local notes (not tracked)
 notes/
+
+# Compiled binaries (built locally; not tracked)
+/anneal
+/wasm
+
+# JS dev helpers (package-lock.json is the lockfile)
+/node_modules/

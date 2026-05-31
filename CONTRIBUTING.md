@@ -26,6 +26,17 @@ go run ./cmd/anneal doctor   # confirm a WebGPU device is reachable
 
 You'll need a recent Go toolchain (see `go.mod`) and a platform with a WebGPU-capable driver. anneal links the driver at runtime via zero-CGO, so you do **not** need a C compiler, CUDA toolkit, or Xcode at build time.
 
+### Optional: regenerating `docs/og-image.png`
+
+The repo's social preview PNG (`docs/og-image.png`) is rasterized from `docs/og-image.svg`. If you edit the SVG, regenerate the PNG with the Node helper declared in `package.json`:
+
+```bash
+npm install
+node -e "const {Resvg}=require('@resvg/resvg-js'); const fs=require('fs'); const svg=fs.readFileSync('docs/og-image.svg'); fs.writeFileSync('docs/og-image.png', new Resvg(svg).render().asPng())"
+```
+
+`node_modules/` is gitignored; only `package.json` and `package-lock.json` are tracked. Skip this step if you're not touching the SVG.
+
 ## The invariants (don't break these)
 
 These are non-negotiable. A PR that violates one will be sent back regardless of how good it otherwise is. They come straight from SPEC §10:
