@@ -28,14 +28,14 @@ func kernelUsesF16(item schedule.ExecItem) bool {
 
 // CompileWGSL converts a kernel's SINK AST to WGSL.
 func CompileWGSL(item schedule.ExecItem) (schedule.RenderResult, error) {
-	instrs, ws, wc := Lower(item)
-	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc}, nil
+	instrs, ws, wc, sd := Lower(item)
+	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc, SymDispatch: sd}, nil
 }
 
 // RenderWGSL converts a kernel's SINK AST to a WGSL compute shader string.
 func RenderWGSL(item schedule.ExecItem) schedule.RenderResult {
-	instrs, ws, wc := Lower(item)
-	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc}
+	instrs, ws, wc, sd := Lower(item)
+	return schedule.RenderResult{WGSL: renderInstrs(instrs, item, ws, wc), LocalSize: ws, WorkgroupCount: wc, SymDispatch: sd}
 }
 
 func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) string {
@@ -204,7 +204,11 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 			}
 			fmt.Fprintf(&b, "%slet r%d: i32 = %s;\n", indent(), ins.RangeID, expr)
 			// Axis guard: mask out threads in the padding of a workgroup dimension.
-			if !ins.Symbolic && ins.RangeSize > 1 {
+			// Static path uses the literal RangeSize; symbolic multi-dim path uses
+			// the rendered WGSL bound expression carried in AxisGuardExpr.
+			if ins.Symbolic && ins.AxisGuardExpr != "" {
+				fmt.Fprintf(&b, "%sif (r%d >= i32(%s)) { return; }\n", indent(), ins.RangeID, ins.AxisGuardExpr)
+			} else if !ins.Symbolic && ins.RangeSize > 1 {
 				fmt.Fprintf(&b, "%sif (r%d >= %d) { return; }\n", indent(), ins.RangeID, ins.RangeSize)
 			}
 

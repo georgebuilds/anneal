@@ -98,6 +98,14 @@ type Instr struct {
 	// On a future non-WebGPU backend the dtype decision would be honored.
 	Int64Downgraded bool
 
+	// InstrGIDVar (symbolic only): the rendered WGSL u32 expression for this
+	// range's bound, used to emit a per-axis guard `if (r{N} >= <expr>) { return; }`
+	// after the r{N} let-binding. Populated for sym ranges in multi-dim sym
+	// dispatch; empty for static (which uses ins.RangeSize as the literal) and
+	// for the legacy 1D-flatten path. Cooperates with the static-path
+	// `if (r{N} >= RangeSize)` guard at wgsl.go:207.
+	AxisGuardExpr string
+
 	// InstrAccInit, InstrAccUpdate
 	AccIdx   int
 	WGSLType string // for InstrAccInit
@@ -124,13 +132,16 @@ type Instr struct {
 
 // Lower converts one kernel's SINK AST into a linear instruction sequence.
 // Instructions are in emit order; loop nesting depth is tracked by the renderer.
-func Lower(item schedule.ExecItem) ([]Instr, [3]int, [3]int) {
+// symDispatch carries per-dim runtime extent info for symbolic kernels; entries
+// with non-empty SymFactors instruct the executor to override workgroupCount[d]
+// per binding.
+func Lower(item schedule.ExecItem) ([]Instr, [3]int, [3]int, [3]schedule.DimDispatch) {
 	l := &lowerer{
 		item:   item,
 		exprOf: make(map[uint32]string),
 	}
 	instrs := l.lowerSink()
-	return instrs, l.workgroupSize, l.workgroupCount
+	return instrs, l.workgroupSize, l.workgroupCount, l.symDispatch
 }
 
 type rangeGroup struct {
@@ -148,6 +159,7 @@ type lowerer struct {
 	widenF16       bool              // when true, f16 loads/ops are widened to f32 in reduce body
 	workgroupSize  [3]int            // computed from AxisLocal ranges
 	workgroupCount [3]int
+	symDispatch    [3]schedule.DimDispatch // per-dim runtime extent (sym kernels)
 	loopRanges     []uop.UOp
 	dims           [3][]rangeGroup
 
@@ -367,6 +379,36 @@ func (acc strideAcc) renderI32StrideFactor() (string, bool) {
 	return fmt.Sprintf("i32(%s * %du)", acc.symPart, acc.constPart), false
 }
 
+// boundExprFromUOp converts a symbolic-bound UOp expression to the
+// dispatch-time-evaluable schedule.BoundExpr tree. Supports the same op set
+// as renderSymBoundExpr — Const / DefineVar / Add / Sub / Mul / IDiv / Mod —
+// so any bound the WGSL renderer can emit, the runtime can evaluate. Panics
+// on any other op so a future codegen extension that introduces a new bound
+// shape gets surfaced immediately rather than silently misdispatching.
+func boundExprFromUOp(u uop.UOp) schedule.BoundExpr {
+	switch u.Op() {
+	case uop.OpConst:
+		v, ok := u.Arg().(int64)
+		if !ok {
+			panic(fmt.Sprintf("codegen.boundExprFromUOp: OpConst arg type %T (expected int64)", u.Arg()))
+		}
+		return schedule.BoundExpr{Op: schedule.BoundOpConst, Const: v}
+	case uop.OpDefineVar:
+		return schedule.BoundExpr{Op: schedule.BoundOpVar, VarName: u.Arg().(uop.VarArg).Name}
+	case uop.OpAdd:
+		return schedule.BoundExpr{Op: schedule.BoundOpAdd, Children: []schedule.BoundExpr{boundExprFromUOp(u.Src(0)), boundExprFromUOp(u.Src(1))}}
+	case uop.OpSub:
+		return schedule.BoundExpr{Op: schedule.BoundOpSub, Children: []schedule.BoundExpr{boundExprFromUOp(u.Src(0)), boundExprFromUOp(u.Src(1))}}
+	case uop.OpMul:
+		return schedule.BoundExpr{Op: schedule.BoundOpMul, Children: []schedule.BoundExpr{boundExprFromUOp(u.Src(0)), boundExprFromUOp(u.Src(1))}}
+	case uop.OpIDiv:
+		return schedule.BoundExpr{Op: schedule.BoundOpIDiv, Children: []schedule.BoundExpr{boundExprFromUOp(u.Src(0)), boundExprFromUOp(u.Src(1))}}
+	case uop.OpMod:
+		return schedule.BoundExpr{Op: schedule.BoundOpMod, Children: []schedule.BoundExpr{boundExprFromUOp(u.Src(0)), boundExprFromUOp(u.Src(1))}}
+	}
+	panic(fmt.Sprintf("codegen.boundExprFromUOp: unsupported op %s in symbolic bound", u.Op()))
+}
+
 // rangeBoundFactor returns the strideAcc factor for one OpRange or OpConst
 // loopRange entry — the contribution of that range to a containing product
 // (e.g. a stride product or the trailingProduct bounds expression). For an
@@ -483,13 +525,15 @@ func (l *lowerer) lowerSink() []Instr {
 	// Group ranges into Axes.
 	// We assign ranges to Dimensions starting from the INMOST (last) range to X.
 	// Matmul: [Row, Col] -> Col is X, Row is Y.
+	// The cyclic dimIdx % 3 assignment is structural (depends on loopRanges
+	// position, not arena order) and is shared between static and symbolic
+	// kernels — the legacy `if hasSymRange { targetDim = 0 }` collapse that
+	// forced the 1D-flatten layout for sym was the only sym-specific deviation
+	// and is now dropped.
 	dims := [3][]rangeGroup{}
 	dimIdx := 0
 	for i := len(loopRanges) - 1; i >= 0; i-- {
 		targetDim := dimIdx % 3
-		if hasSymRange {
-			targetDim = 0
-		}
 		r := loopRanges[i]
 		if r.Op() == uop.OpConst {
 			dims[targetDim] = append(dims[targetDim], rangeGroup{u: r, lvl: 0, idx: i})
@@ -580,6 +624,7 @@ func (l *lowerer) lowerSink() []Instr {
 	// Compute strides and local sizes for each (dimension, level).
 	l.workgroupSize = [3]int{1, 1, 1}
 	l.workgroupCount = [3]int{1, 1, 1}
+	l.symDispatch = [3]schedule.DimDispatch{{Const: 1}, {Const: 1}, {Const: 1}}
 	dimSizes := [3]int64{1, 1, 1}
 
 	for d := 0; d < 3; d++ {
@@ -593,9 +638,16 @@ func (l *lowerer) lowerSink() []Instr {
 				// The trailing `workgroupCount[d] == 0 → 1` guard preserves
 				// a valid static plan that runSymKernelWithHandle overrides.
 				dimSizes[d] *= 0
+				// Per-dim sym dispatch (multi-dim sym): capture the range's
+				// bound as a BoundExpr; the executor evaluates the product
+				// (Const × Π SymBounds) at dispatch time to compute
+				// workgroupCount[d]. boundExprFromUOp panics on unsupported
+				// shapes so a regression surfaces immediately.
+				l.symDispatch[d].SymBounds = append(l.symDispatch[d].SymBounds, boundExprFromUOp(rg.u.Src(0)))
 				continue
 			}
 			dimSizes[d] *= uop.RangeSize(rg.u)
+			l.symDispatch[d].Const *= uop.RangeSize(rg.u)
 		}
 
 		for lvl := 0; lvl < 3; lvl++ {
@@ -670,11 +722,20 @@ func (l *lowerer) lowerSink() []Instr {
 				// Slice 7b: for a NON-OUTERMOST symbolic range, the WGSL must
 				// apply a mod against the range's bound to extract that dim's
 				// contribution from the flat 1D dispatch index. Outermost-sym
-				// is exempt — the trailingProduct bounds-check guarantees the
-				// quotient lies in [0, outermost_size). levelRanges is
-				// inmost-first, so the outermost is at index len-1.
+				// is exempt — its (dim, level) group has no factor above it,
+				// so the gid_x / outer-stride is already in [0, bound).
+				// levelRanges is inmost-first, so the outermost is at index len-1.
+				//
+				// Multi-dim sym dispatch (this slice): per-axis guards mask out
+				// LOCAL-padding when L∤bound — populated for every sym range
+				// so the wgsl renderer emits `if (r{N} >= AxisGuardExpr) { return; }`
+				// after the let-binding. Redundant-but-correct when paired with
+				// a mod, since mod constrains r to [0, bound) already.
 				if sym && i != len(levelRanges)-1 {
 					instr.SymBoundExpr = l.renderSymBoundExpr(rg.u.Src(0))
+				}
+				if sym {
+					instr.AxisGuardExpr = l.renderSymBoundExpr(rg.u.Src(0))
 				}
 				l.emit(instr)
 				l.exprOf[rg.u.Index()] = fmt.Sprintf("r%d", rg.ra.ID)
@@ -750,36 +811,13 @@ func (l *lowerer) lowerSink() []Instr {
 		indexExpr = "0u"
 	}
 
-	// Slice 7b trailingProduct: replace concreteTrailing/symDispatchRange
-	// (positional-first-sym + concrete-after) with a full per-axis product over
-	// every loopRange in dispatch (= output-dim) order. The dispatch is 1D
-	// per design call 1; the bound `gid_x >= <trailingProduct>` guards the
-	// flat dispatch against total output elements (a possibly-multi-sym
-	// expression). For all-concrete-stride-with-sym-outermost kernels the
-	// rendered expression is byte-identical to the old "symBound * Nu" form.
-	//
-	// Loop-order convention: loopRanges arrives in output-dim order (outermost
-	// first) — rangeify's freshRanges constructs them in shape order
-	// (schedule/rangeify.go:312-323). Tinygrad's gpudims.py matches this
-	// convention. Document it as the relied-on structural property; if the
-	// upstream order ever changes, the defensive panics in (F) will fire on
-	// any test that exercises multi-sym layouts.
-	trailingProduct := newStrideAcc()
-	for _, r := range loopRanges {
-		factor := l.rangeBoundFactor(r)
-		if !factor.isConcrete() {
-			trailingProduct = trailingProduct.mulSym(factor.symPart)
-		}
-		if factor.constPart != 1 {
-			trailingProduct = trailingProduct.mulConst(factor.constPart)
-		}
-	}
-
-	var boundsExpr string
-	if hasSymRange {
-		boundsExpr = trailingProduct.renderU32()
-	}
-	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: hasSymRange, SymBoundExpr: boundsExpr})
+	// Multi-dim sym dispatch (this slice): per-axis guards on each InstrGIDVar
+	// (populated above via AxisGuardExpr) supersede the legacy single-flat
+	// `if (gid_x >= trailingProduct)` bound. The bounds-check instr is still
+	// emitted for symmetry with the static path but with Symbolic=false so the
+	// renderer skips it — same effective behavior as static, where per-axis
+	// guards are the sole padding mask.
+	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: false})
 	bodyExpr := l.emitExpr(body)
 
 	var outBufDType *uop.DType

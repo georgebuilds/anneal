@@ -46,6 +46,99 @@ type SymDimAffineEntry struct {
 	Offset int64
 }
 
+// BoundExprOp identifies a node in a serializable expression tree used to
+// evaluate a symbolic range bound at dispatch time. The supported set mirrors
+// codegen's renderSymBoundExpr — Const / Var / Add / Sub / Mul / IDiv / Mod —
+// which together cover bare DefineVars, reshape-merge bounds, pad/shrink Adds,
+// and the LOCAL workgroup-count formula `(n + L - 1) / L`.
+type BoundExprOp uint8
+
+const (
+	BoundOpConst BoundExprOp = iota + 1
+	BoundOpVar
+	BoundOpAdd
+	BoundOpSub
+	BoundOpMul
+	BoundOpIDiv
+	BoundOpMod
+)
+
+// BoundExpr is one node in a symbolic-bound expression tree, evaluable at
+// dispatch time against a binding map. Leaves use Const or VarName; binary
+// ops use Children[0] and Children[1]. Construction lives in codegen
+// (boundExprFromUOp), which walks the corresponding UOp.
+type BoundExpr struct {
+	Op       BoundExprOp
+	Const    int64
+	VarName  string
+	Children []BoundExpr
+}
+
+// Eval returns e's integer value under binding. Reports an error for an
+// unbound variable; all other failure modes panic (malformed tree).
+func (e BoundExpr) Eval(binding map[string]int64) (int64, error) {
+	switch e.Op {
+	case BoundOpConst:
+		return e.Const, nil
+	case BoundOpVar:
+		v, ok := binding[e.VarName]
+		if !ok {
+			return 0, &boundEvalErr{kind: "missing binding for var", name: e.VarName}
+		}
+		return v, nil
+	case BoundOpAdd, BoundOpSub, BoundOpMul, BoundOpIDiv, BoundOpMod:
+		if len(e.Children) != 2 {
+			panic("schedule.BoundExpr: binary op without 2 children")
+		}
+		a, err := e.Children[0].Eval(binding)
+		if err != nil {
+			return 0, err
+		}
+		b, err := e.Children[1].Eval(binding)
+		if err != nil {
+			return 0, err
+		}
+		switch e.Op {
+		case BoundOpAdd:
+			return a + b, nil
+		case BoundOpSub:
+			return a - b, nil
+		case BoundOpMul:
+			return a * b, nil
+		case BoundOpIDiv:
+			if b == 0 {
+				panic("schedule.BoundExpr: IDiv by zero")
+			}
+			return a / b, nil
+		case BoundOpMod:
+			if b == 0 {
+				panic("schedule.BoundExpr: Mod by zero")
+			}
+			return a % b, nil
+		}
+	}
+	panic("schedule.BoundExpr: unknown op")
+}
+
+type boundEvalErr struct {
+	kind string
+	name string
+}
+
+func (e *boundEvalErr) Error() string {
+	return "schedule.BoundExpr.Eval: " + e.kind + " " + e.name
+}
+
+// DimDispatch carries the per-dispatch-dim extent decomposition for a kernel.
+// At runtime: dim extent = Const * Π_k SymBounds[k].Eval(binding).
+// For an all-concrete dim, SymBounds is nil and extent == Const (matches the
+// lowerer-computed dimSizes[d]). For a dim with at least one symbolic range,
+// the executor uses this to compute workgroupCount[d] from the binding.
+type DimDispatch struct {
+	Const     int64
+	SymBounds []BoundExpr
+}
+
 // ExecItem is one executable kernel in the ordered schedule.
 // Ast is the kernel SINK-rooted UOp tree (what Phase 8 codegen renders).
 // Bufs[N] is the runtime buffer for the kernel's PARAM(arg=N).
@@ -57,6 +150,9 @@ type SymDimAffineEntry struct {
 // release the arena reference.
 // LocalSize is the [x, y, z] workgroup size computed by codegen.
 // WorkgroupCount is the [x, y, z] workgroup count computed by codegen.
+// SymDispatch is the per-dim extent decomposition for symbolic kernels; entries
+// with non-empty SymFactors instruct the runtime to override WorkgroupCount[d]
+// after evaluating the affine sum against the binding.
 type ExecItem struct {
 	Ast            uop.UOp
 	Bufs           []Buffer
@@ -64,4 +160,5 @@ type ExecItem struct {
 	WGSL           string
 	LocalSize      [3]int
 	WorkgroupCount [3]int
+	SymDispatch    [3]DimDispatch
 }

@@ -925,31 +925,15 @@ func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKerne
 	}
 	defer bg.Release()
 
-	// Dispatch over total output elements (n × concrete trailing dims).
-	outElems := symElemCount(item.Bufs[0], binding, item.SymVars)
-	if outElems == 0 {
-		outElems = n
+	// Dispatch grid: compute per-dim workgroup counts from the lowerer's
+	// SymDispatch artifact (handle.SymDispatch). Dims with no sym ranges keep
+	// the lowerer-computed wc — byte-identical with the static path.
+	wc, derr := computeSymDispatchWC(handle, binding)
+	if derr != nil {
+		return derr
 	}
-	wgs := uint32((outElems + int64(handle.LocalSize[0]) - 1) / int64(handle.LocalSize[0]))
-	if wgs == 0 {
-		wgs = 1
-	}
-
-	wc := item.WorkgroupCount
-	wc[0] = int(wgs)
-
-	// Scalability spreading: if Dim 0 was forced to 1D (typical for symbolic kernels),
-	// spread it across Y and Z if it exceeds 65535.
-	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
-		totalWGs := int64(wc[0])
-		wc[0] = 65535
-		wc[1] = int((totalWGs + 65534) / 65535)
-		if wc[1] > 65535 {
-			totalWGs2 := int64(wc[1])
-			wc[1] = 65535
-			wc[2] = int((totalWGs2 + 65534) / 65535)
-		}
-	}
+	// Suppress unused-var warning when the per-axis path drops outElems.
+	_ = n
 
 	enc, err := d.device.CreateCommandEncoder(nil)
 	if err != nil {
@@ -995,6 +979,72 @@ func (d *Device) SymCompiledCount() int { return len(d.symCache) }
 //	out8, grid8, err := dev.DispatchSymKernel(k, 8, inputs8)
 //	out128, grid128, err := dev.DispatchSymKernel(k, 128, inputs128)
 
+// collectVarNames walks a BoundExpr tree, inserting every VarName it
+// encounters as a key in the binding map (with zero value). Used by the
+// single-var DispatchSymKernel entry-point to discover what binding keys
+// are needed before resolving them to the supplied n.
+func collectVarNames(be schedule.BoundExpr, binding map[string]int64) {
+	if be.Op == schedule.BoundOpVar {
+		binding[be.VarName] = 0
+		return
+	}
+	for _, c := range be.Children {
+		collectVarNames(c, binding)
+	}
+}
+
+// computeSymDispatchWC computes the per-dim WebGPU workgroup count for a
+// symbolic kernel from handle.SymDispatch and the runtime binding. For each
+// dim with at least one symbolic range it evaluates the bound expressions and
+// overrides wc[d]; dims with no sym ranges keep handle.WorkgroupCount[d]
+// (byte-identical with the static path). After per-dim computation, when
+// only dim 0 is in use (1D-sym kernel) and wc[0] > 65535, excess workgroup
+// count spreads into Y/Z to stay within WebGPU's per-dim limit. Skipped for
+// genuine multi-dim sym (wc[1] or wc[2] > 1).
+func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3]int, error) {
+	wc := handle.WorkgroupCount
+	for axis := 0; axis < 3; axis++ {
+		dd := handle.SymDispatch[axis]
+		if len(dd.SymBounds) == 0 {
+			continue
+		}
+		extent := dd.Const
+		if extent <= 0 {
+			panic(fmt.Sprintf("webgpu: SymDispatch[%d].Const=%d (must be >=1) — lowerer invariant violated", axis, extent))
+		}
+		for fi, be := range dd.SymBounds {
+			v, err := be.Eval(binding)
+			if err != nil {
+				return wc, fmt.Errorf("webgpu: SymDispatch[%d].SymBounds[%d]: %w", axis, fi, err)
+			}
+			if v <= 0 {
+				panic(fmt.Sprintf("webgpu: SymDispatch[%d].SymBounds[%d] evaluates to %d (binding %v) — non-positive sym extent",
+					axis, fi, v, binding))
+			}
+			extent *= v
+		}
+		ls := int64(handle.LocalSize[axis])
+		if ls < 1 {
+			ls = 1
+		}
+		wc[axis] = int((extent + ls - 1) / ls)
+		if wc[axis] == 0 {
+			wc[axis] = 1
+		}
+	}
+	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
+		totalWGs := int64(wc[0])
+		wc[0] = 65535
+		wc[1] = int((totalWGs + 65534) / 65535)
+		if wc[1] > 65535 {
+			totalWGs2 := int64(wc[1])
+			wc[1] = 65535
+			wc[2] = int((totalWGs2 + 65534) / 65535)
+		}
+	}
+	return wc, nil
+}
+
 // SymKernelHandle is an opaque handle to a compiled symbolic kernel.
 type SymKernelHandle struct {
 	shader         *wgpu.ShaderModule
@@ -1005,6 +1055,7 @@ type SymKernelHandle struct {
 	wgsl           string
 	LocalSize      [3]int
 	WorkgroupCount [3]int
+	SymDispatch    [3]schedule.DimDispatch // per-dim extent decomposition; non-empty SymFactors triggers per-launch wc override
 }
 
 // WGSL returns the compiled shader source, useful for debugging.
@@ -1047,15 +1098,18 @@ func (d *Device) CompileSymKernel(item schedule.ExecItem) (*SymKernelHandle, err
 func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandle, error) {
 	var wgsl string
 	var ws, wc [3]int
+	var sd [3]schedule.DimDispatch
 	if item.WGSL != "" {
 		wgsl = item.WGSL
 		ws = item.LocalSize
 		wc = item.WorkgroupCount
+		sd = item.SymDispatch
 	} else {
 		res := codegen.RenderWGSL(item)
 		wgsl = res.WGSL
 		ws = res.LocalSize
 		wc = res.WorkgroupCount
+		sd = res.SymDispatch
 	}
 	var numData int
 	if item.Ast.Valid() {
@@ -1127,6 +1181,7 @@ func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandl
 		wgsl:           wgsl,
 		LocalSize:      ws,
 		WorkgroupCount: wc,
+		SymDispatch:    sd,
 	}, nil
 }
 
@@ -1252,22 +1307,12 @@ func (d *Device) dispatchSymKernelBindingLocked(k *SymKernelHandle, varNames []s
 	}
 	defer bg.Release()
 
-	wgs := uint32((outElems + int64(k.LocalSize[0]) - 1) / int64(k.LocalSize[0]))
-	if wgs == 0 {
-		wgs = 1
+	wc, derr := computeSymDispatchWC(k, binding)
+	if derr != nil {
+		return nil, 0, derr
 	}
-	wc := k.WorkgroupCount
-	wc[0] = int(wgs)
-	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
-		totalWGs := int64(wc[0])
-		wc[0] = 65535
-		wc[1] = int((totalWGs + 65534) / 65535)
-		if wc[1] > 65535 {
-			totalWGs2 := int64(wc[1])
-			wc[1] = 65535
-			wc[2] = int((totalWGs2 + 65534) / 65535)
-		}
-	}
+	wgs := uint32(wc[0])
+	_ = outElems // outElems still drives buffer allocation above; per-dim wc comes from k.SymDispatch.
 
 	enc, err := d.device.CreateCommandEncoder(nil)
 	if err != nil {
@@ -1408,25 +1453,24 @@ func (d *Device) dispatchSymKernelLocked(k *SymKernelHandle, n int64, inputs [][
 	defer bg.Release()
 
 	// ── Dispatch ──────────────────────────────────────────────────────────
-	wgs := uint32((n + int64(k.LocalSize[0]) - 1) / int64(k.LocalSize[0]))
-	if wgs == 0 {
-		wgs = 1
-	}
-
-	wc := k.WorkgroupCount
-	wc[0] = int(wgs)
-
-	// Scalability spreading for symbolic kernels (dispatched as 1D).
-	if wc[1] == 1 && wc[2] == 1 && wc[0] > 65535 {
-		totalWGs := int64(wc[0])
-		wc[0] = 65535
-		wc[1] = int((totalWGs + 65534) / 65535)
-		if wc[1] > 65535 {
-			totalWGs2 := int64(wc[1])
-			wc[1] = 65535
-			wc[2] = int((totalWGs2 + 65534) / 65535)
+	// Single-var sym path: synthesize a binding from the kernel's first sym
+	// var (this entry-point assumes one var, matching its API contract) and
+	// route through the same per-dim SymDispatch evaluator as the multi-var
+	// path.
+	binding := map[string]int64{}
+	for axis := 0; axis < 3; axis++ {
+		for _, be := range k.SymDispatch[axis].SymBounds {
+			collectVarNames(be, binding)
 		}
 	}
+	for name := range binding {
+		binding[name] = n
+	}
+	wc, werr := computeSymDispatchWC(k, binding)
+	if werr != nil {
+		return nil, 0, werr
+	}
+	wgs := uint32(wc[0])
 
 	enc, err := d.device.CreateCommandEncoder(nil)
 	if err != nil {

@@ -136,7 +136,7 @@ func TestB1_Scalability_LargeGrid(t *testing.T) {
 	item := items[0]
 
 	// Verify spreading in lowerer
-	_, _, wc := codegen.Lower(item)
+	_, _, wc, _ := codegen.Lower(item)
 	t.Logf("Dispatch grid for N=%d: %v", N, wc)
 	if wc[0] > 65535 {
 		t.Errorf("Spreading failed: wc[0]=%d exceeds 65535", wc[0])

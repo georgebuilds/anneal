@@ -105,15 +105,7 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	}
 
 	ra := targetRange.Arg().(uop.RangeArg)
-	if uop.RangeIsSymbolic(targetRange) {
-		// Multi-dim symbolic dispatch is out of scope for B1
-		return sink
-	}
-
-	// Split S into wg_size = ceil(S/L) and local_size = L
 	L := int64(localSize)
-	S := uop.RangeSize(targetRange)
-	W := (S + L - 1) / L
 
 	// Find max existing Range ID to pick unique ones for the new ranges
 	maxID := -1
@@ -128,8 +120,22 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	}
 
 	// Create new ranges. We reuse the original ID for the workgroup part.
-	wConst := arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
-	rwg := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wConst}, uop.RangeArg{
+	// Static path: workgroup bound is the concrete int64 ceil(S/L).
+	// Symbolic path: workgroup bound is the UOp expression (boundUOp + (L-1)) IDiv L,
+	// which boundExprFromUOp turns into a dispatch-time-evaluable BoundExpr.
+	var wBoundUOp uop.UOp
+	if uop.RangeIsSymbolic(targetRange) {
+		boundUOp := targetRange.Src(0)
+		lMinusOne := arena.New(uop.OpConst, uop.Dtypes.Index, nil, L-1, nil)
+		sumNode := arena.New(uop.OpAdd, uop.Dtypes.Index, []uop.UOp{boundUOp, lMinusOne}, nil, nil)
+		lConstForDiv := arena.New(uop.OpConst, uop.Dtypes.Index, nil, L, nil)
+		wBoundUOp = arena.New(uop.OpIDiv, uop.Dtypes.Index, []uop.UOp{sumNode, lConstForDiv}, nil, nil)
+	} else {
+		S := uop.RangeSize(targetRange)
+		W := (S + L - 1) / L
+		wBoundUOp = arena.New(uop.OpConst, uop.Dtypes.Index, nil, W, nil)
+	}
+	rwg := arena.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{wBoundUOp}, uop.RangeArg{
 		ID:   ra.ID,
 		Type: uop.AxisWorkgroup,
 	}, nil)

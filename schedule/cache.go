@@ -20,6 +20,7 @@ type RenderResult struct {
 	WGSL           string
 	LocalSize      [3]int
 	WorkgroupCount [3]int
+	SymDispatch    [3]DimDispatch
 }
 
 // WGSLRenderFunc, when non-nil, is called in cacheStore to pre-render each
@@ -69,6 +70,7 @@ func cacheStore(sink uop.UOp, device string, items []ExecItem) {
 			items[i].WGSL = res.WGSL
 			items[i].LocalSize = res.LocalSize
 			items[i].WorkgroupCount = res.WorkgroupCount
+			items[i].SymDispatch = res.SymDispatch
 
 			// Store a stripped copy in the cache.
 			toStore[i] = ExecItem{
@@ -77,6 +79,7 @@ func cacheStore(sink uop.UOp, device string, items []ExecItem) {
 				WGSL:           res.WGSL,
 				LocalSize:      res.LocalSize,
 				WorkgroupCount: res.WorkgroupCount,
+				SymDispatch:    res.SymDispatch,
 				// Ast intentionally zeroed: arena reference released.
 			}
 		}
