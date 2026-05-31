@@ -229,16 +229,6 @@ func TestBoundsOfIDiv(t *testing.T) {
 
 // ── TestBoundsOfMod ───────────────────────────────────────────────────────────
 
-// BUG: bounds.go line 134 uses Go truncating division (s0.Min/c == s0.Max/c) instead
-// of floorDiv for the "same modular period" check.  For ranges that straddle a
-// period boundary while having the same truncated quotient (e.g. [-3,3] mod 4),
-// the check incorrectly reports "same period" and returns a wrong lower bound:
-// it returns {1,3} instead of the correct {0,3} because floorMod(0,4)=0 is
-// reachable (x=0) but the truncated-div check misses the period crossing.
-//
-// The cases marked with "BUG" below will FAIL until line 134 is corrected to:
-//
-//	if floorDiv(s0.Min, c) == floorDiv(s0.Max, c) {
 func TestBoundsOfMod(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -258,16 +248,16 @@ func TestBoundsOfMod(t *testing.T) {
 			return mod(a, dv(a, 0, 17), ci(a, 8))
 		}, true, 0, 7, ""},
 
-		// [-3,3] mod 4: correct={0,3}, buggy code returns {1,3}         ← BUG
-		// Truncating: (-3)/4=0, 3/4=0 → "same period" → {floorMod(-3,4),floorMod(3,4)}={1,3}
-		// Floor div:  floorDiv(-3,4)=-1 ≠ floorDiv(3,4)=0 → wrapping → {0,3}
+		// [-3,3] mod 4: {0,3}. Regression guard for the floor-vs-truncating-div
+		// period check: floorDiv(-3,4)=-1 ≠ floorDiv(3,4)=0 → wrapping → {0,3}.
+		// Truncating div would produce (-3)/4=0, 3/4=0 → "same period" → {1,3}.
 		{"zero-crossing period boundary", func(a *uop.Arena) uop.UOp {
 			return mod(a, dv(a, -3, 4), ci(a, 4))
 		}, true, 0, 3, ""},
 
-		// [-1,1] mod 2: correct={0,1}, buggy code returns {1,1}          ← BUG
-		// Truncating: (-1)/2=0, 1/2=0 → "same period" → {floorMod(-1,2),floorMod(1,2)}={1,1}
-		// Floor div:  floorDiv(-1,2)=-1 ≠ floorDiv(1,2)=0 → wrapping → {0,1}
+		// [-1,1] mod 2: {0,1}. Minimal regression guard for the same floorDiv check.
+		// floorDiv(-1,2)=-1 ≠ floorDiv(1,2)=0 → wrapping → {0,1}.
+		// Truncating div would give (-1)/2=0, 1/2=0 → "same period" → {1,1}.
 		{"minimal crossing case", func(a *uop.Arena) uop.UOp {
 			return mod(a, dv(a, -1, 2), ci(a, 2))
 		}, true, 0, 1, ""},
