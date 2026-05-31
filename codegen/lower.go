@@ -157,6 +157,12 @@ type lowerer struct {
 	// even when the kernel has no symbolic ranges (then empty).
 	symSlot map[uint32]int
 
+	// symSlotByName maps DefineVar name → params_n slot index. Parallel to
+	// symSlot but keyed by name, so callers with only the var name (e.g.
+	// emitIndex resolving Buffer.SymDimVar entries) can recover the slot
+	// without walking the DefineVar UOps. Populated alongside symSlot.
+	symSlotByName map[string]int
+
 	// Per-dim AxisUpcast info (B3 register blocking).
 	// upcastByDim[d] = the AxisUpcast range UOp for dim d (Valid() iff factor > 1).
 	// upcastFactorByDim[d] = the upcast factor (1 if no upcast on dim d).
@@ -324,7 +330,12 @@ func (acc strideAcc) mulSym(expr string) strideAcc {
 func (acc strideAcc) isConcrete() bool { return acc.symPart == "" }
 
 // renderU32 returns a WGSL u32 expression for the accumulator. Concrete-only
-// accs render as `Nu`; sym-only as the bare symPart; mixed as `<symPart> * Nu`.
+// accs render as `Nu`; sym-only as the bare symPart; mixed as
+// `(<symPart> * Nu)` — parenthesised so the expression composes safely when
+// used as a divisor (e.g. `base / <renderU32()>` in InstrGIDVar). WGSL `*`
+// and `/` are left-associative with equal precedence, so without parens
+// `base / params_n.n0 * 4u` parses as `(base / params_n.n0) * 4u` —
+// silently emitting wrong indices for the [4, n, 4] / sym-middle shape.
 // For 1: `1u`.
 func (acc strideAcc) renderU32() string {
 	if acc.symPart == "" {
@@ -333,7 +344,27 @@ func (acc strideAcc) renderU32() string {
 	if acc.constPart == 1 {
 		return acc.symPart
 	}
-	return fmt.Sprintf("%s * %du", acc.symPart, acc.constPart)
+	return fmt.Sprintf("(%s * %du)", acc.symPart, acc.constPart)
+}
+
+// renderI32StrideFactor returns the multiplicative i32 factor for the
+// accumulator, suitable as the RHS of `(<dim> * <factor>)` in emitIndex's
+// load index. For concrete strides it returns `%d` matching the Slice 1–7a
+// byte-exact format (no `u` suffix). For symbolic strides it casts the u32
+// expression to i32 so the surrounding i32 arithmetic stays well-typed.
+// Returns ("", true) when the factor is exactly 1 — callers omit the
+// multiplication entirely (mirrors the old `strides[d] == 1` branch).
+func (acc strideAcc) renderI32StrideFactor() (string, bool) {
+	if acc.symPart == "" {
+		if acc.constPart == 1 {
+			return "", true
+		}
+		return fmt.Sprintf("%d", acc.constPart), false
+	}
+	if acc.constPart == 1 {
+		return fmt.Sprintf("i32(%s)", acc.symPart), false
+	}
+	return fmt.Sprintf("i32(%s * %du)", acc.symPart, acc.constPart), false
 }
 
 // rangeBoundFactor returns the strideAcc factor for one OpRange or OpConst
@@ -364,9 +395,14 @@ func (l *lowerer) lowerSink() []Instr {
 
 	// Assign params_n slots for every DefineVar reachable from this kernel.
 	// Sorted by VarArg.Name inside VariablesOf for deterministic ordering.
+	// symSlotByName is a parallel name → slot map used by emitIndex when
+	// resolving Buffer.SymDimVar entries (which carry the var name, not the
+	// arena index) to their params_n slot.
 	l.symSlot = map[uint32]int{}
+	l.symSlotByName = map[string]int{}
 	for i, v := range uop.VariablesOf(sink) {
 		l.symSlot[v.Index()] = i
+		l.symSlotByName[v.Arg().(uop.VarArg).Name] = i
 	}
 
 	// Collect AxisLoop/Workgroup/Local ranges from END.src[1:]. AxisUpcast and
@@ -882,30 +918,50 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	case nDims == 1:
 		flatExpr = l.emitExpr(u.Src(1))
 	default:
-		var shape []int64
-		if isLocal {
-			// For now, assume 2D local tiles for matmul
-			sz := int64(math.Sqrt(float64(paramNode.Arg().(int64))))
-			shape = []int64{sz, sz}
-		} else {
-			shape = l.paramShape(paramIdx)
-		}
-		strides := make([]int64, nDims)
-		strides[nDims-1] = 1
+		// Slice 7d: stride accumulation widened from int64 to strideAcc so a
+		// symbolic dim contributes a WGSL u32 expression (params_n.n{slot} ×
+		// SymDimMul) rather than the 0-sentinel that silently zeroed every
+		// stride to its left. For local tiles and all-concrete input shapes
+		// renderI32StrideFactor emits the bare int literal — byte-identical
+		// to the pre-Slice-7d format `(<dim> * %d)`.
+		strides := make([]strideAcc, nDims)
+		strides[nDims-1] = newStrideAcc()
 		for i := nDims - 2; i >= 0; i-- {
-			if i+1 < len(shape) {
-				strides[i] = strides[i+1] * shape[i+1]
+			var factor strideAcc
+			if isLocal {
+				// Local tiles are square 2D matmul scratchpads (sz × sz);
+				// dim 1's size is the inner edge length.
+				sz := int64(math.Sqrt(float64(paramNode.Arg().(int64))))
+				factor = newStrideAcc().mulConst(sz)
 			} else {
-				strides[i] = 1
+				factor = l.paramDimFactor(paramIdx, i+1)
 			}
+			acc := strides[i+1]
+			if !factor.isConcrete() {
+				acc = acc.mulSym(factor.symPart)
+			}
+			if factor.constPart != 1 {
+				acc = acc.mulConst(factor.constPart)
+			}
+			strides[i] = acc
 		}
 		var terms []string
 		for d := 0; d < nDims; d++ {
 			dimExpr := l.emitExpr(u.Src(d + 1))
-			if strides[d] == 1 {
+			// Defensive panic per design call D (Slice 7d closure): a
+			// concrete stride of 0 for a non-trailing dim means the old
+			// shape[i]==0 sentinel leaked into the new strideAcc path —
+			// the exact bug class this rewrite eliminates. The trailing
+			// dim's stride is always 1 (newStrideAcc()), so this only
+			// fires on non-trailing dims.
+			if strides[d].isConcrete() && strides[d].constPart == 0 {
+				panic(fmt.Sprintf("codegen: emitIndex stride[d=%d]=0 for paramIdx=%d nDims=%d — sym-shape sentinel leak", d, paramIdx, nDims))
+			}
+			factor, isOne := strides[d].renderI32StrideFactor()
+			if isOne {
 				terms = append(terms, dimExpr)
 			} else {
-				terms = append(terms, fmt.Sprintf("(%s * %d)", dimExpr, strides[d]))
+				terms = append(terms, fmt.Sprintf("(%s * %s)", dimExpr, factor))
 			}
 		}
 		flatExpr = joinPlus(terms)
@@ -1365,6 +1421,93 @@ func (l *lowerer) paramShape(paramIdx int) []int64 {
 		return []int64{1}
 	}
 	return l.item.Bufs[paramIdx].Shape
+}
+
+// paramDimFactor returns a strideAcc representing the size of dim `dim` of
+// buffer paramIdx. For concrete dims (Shape[dim] != 0) it returns the
+// constant int64 size. For symbolic dims (Shape[dim] == 0, the SPEC §10
+// sentinel) it consults SymDimAffine / (SymDimMul, SymDimVar) to produce a
+// WGSL u32 expression in terms of params_n.n{slot} for the bound DefineVars.
+// For `dim` beyond Shape length, returns the identity (constPart=1), matching
+// the old emitIndex implicit-size-1 fallback when shape is shorter than nDims.
+//
+// This is the codegen-time analogue of executor.symElemCount: same encoding
+// surface (Shape[i]==0 + SymDimMul/SymDimVar or SymDimAffine), but resolves
+// the var name to a params_n slot rather than to a binding value.
+//
+// Slice 7d closure: replaces the implicit `shape[i+1]` int64 multiplication
+// in emitIndex, which silently produced stride=0 when shape[i+1]==0 (sym
+// non-outermost) — the latent flagged in the Slice 7b report.
+func (l *lowerer) paramDimFactor(paramIdx int, dim int) strideAcc {
+	if paramIdx >= len(l.item.Bufs) {
+		return newStrideAcc()
+	}
+	buf := l.item.Bufs[paramIdx]
+	if dim < 0 || dim >= len(buf.Shape) {
+		return newStrideAcc()
+	}
+	s := buf.Shape[dim]
+	if s != 0 {
+		return newStrideAcc().mulConst(s)
+	}
+	symIdx := 0
+	for k := 0; k < dim; k++ {
+		if buf.Shape[k] == 0 {
+			symIdx++
+		}
+	}
+	if symIdx < len(buf.SymDimAffine) {
+		entry := buf.SymDimAffine[symIdx]
+		var parts []string
+		for _, t := range entry.Terms {
+			slot, ok := l.symSlotByName[t.VarName]
+			if !ok {
+				panic(fmt.Sprintf("codegen: paramDimFactor: SymDimAffine var %q (paramIdx=%d dim=%d) not in symSlot map", t.VarName, paramIdx, dim))
+			}
+			if t.Mul == 1 {
+				parts = append(parts, fmt.Sprintf("params_n.n%d", slot))
+			} else {
+				parts = append(parts, fmt.Sprintf("params_n.n%d * %du", slot, t.Mul))
+			}
+		}
+		if entry.Offset != 0 {
+			parts = append(parts, fmt.Sprintf("%du", entry.Offset))
+		}
+		var expr string
+		switch len(parts) {
+		case 0:
+			return newStrideAcc()
+		case 1:
+			expr = parts[0]
+		default:
+			expr = "(" + strings.Join(parts, " + ") + ")"
+		}
+		return newStrideAcc().mulSym(expr)
+	}
+	var name string
+	if symIdx < len(buf.SymDimVar) {
+		name = buf.SymDimVar[symIdx]
+	} else if symIdx < len(l.item.SymVars) {
+		name = l.item.SymVars[symIdx]
+	}
+	if name == "" {
+		panic(fmt.Sprintf("codegen: paramDimFactor: no SymDimVar for paramIdx=%d dim=%d symIdx=%d (Shape=%v SymDimVar=%v)", paramIdx, dim, symIdx, buf.Shape, buf.SymDimVar))
+	}
+	slot, ok := l.symSlotByName[name]
+	if !ok {
+		panic(fmt.Sprintf("codegen: paramDimFactor: var %q (paramIdx=%d dim=%d) not in symSlot map", name, paramIdx, dim))
+	}
+	mul := int64(1)
+	if symIdx < len(buf.SymDimMul) {
+		if m := buf.SymDimMul[symIdx]; m > 0 {
+			mul = m
+		}
+	}
+	acc := newStrideAcc().mulSym(fmt.Sprintf("params_n.n%d", slot))
+	if mul != 1 {
+		acc = acc.mulConst(mul)
+	}
+	return acc
 }
 
 func joinPlus(terms []string) string {
