@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"github.com/georgebuilds/anneal/rewrite"
 	"github.com/georgebuilds/anneal/uop"
 )
 
@@ -192,34 +191,3 @@ func hBindFold(c map[string]uop.UOp, _ any) (uop.UOp, bool) {
 	return node.Arena().New(uop.OpConst, node.DType(), nil, val, nil), true
 }
 
-// handlerTable maps handler names (as used in .upat files) to their MatchFn implementations.
-// Used by the v0 PatternMatcher builder; the generated matcher calls handlers directly.
-var handlerTable = map[string]rewrite.MatchFn{
-	"hReturnX":      hReturnX,
-	"hReturnV":      hReturnV,
-	"hReturnA":      hReturnA,
-	"hReturnB":      hReturnB,
-	"hReturnBase":   hReturnBase,
-	"hFoldUnary":    hFoldUnary,
-	"hFoldBinary":   hFoldBinary,
-	"hFoldTernary":  hFoldTernary,
-	"hCastConstFold": hCastConstFold,
-	"hIdentityCast": hIdentityCast,
-	"hMulZero":      hMulZero,
-	"hIDivNegOne":   hIDivNegOne,
-	"hAndFalse":     hAndFalse,
-	"hOrTrue":       hOrTrue,
-	"hAndZeroInt":   hAndZeroInt,
-	"hSubSelf":      hSubSelf,
-	"hXorSelf":      hXorSelf,
-	"hModSelf":      hModSelf,
-	"hIDivSelf":     hIDivSelf,
-	"hCmpSelf":      hCmpSelf,
-	"hBoolMul":      hBoolMul,
-	"hBoolAdd":      hBoolAdd,
-	"hBoolMax":      hBoolMax,
-	"hCmpLtBounds":  hCmpLtBounds,
-	"hCmpNeBounds":  hCmpNeBounds,
-	"hCanonicalize": hCanonicalize,
-	"hBindFold":     hBindFold,
-}

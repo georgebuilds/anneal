@@ -1,10 +1,10 @@
 // Package schedule implements the ten-pass rangeify pipeline: realize-map,
 // bufferize, kernel split, toposort, and memory plan.
 //
-// This file implements passes 1–6 (GetKernelGraph): from a SINK-rooted tensor
+// schedule.go implements passes 1–6 (GetKernelGraph): from a SINK-rooted tensor
 // graph to a kernel-segmented graph with explicit BUFFER+STORE+AFTER boundaries.
-// Passes 7–10 (split_kernels, create_schedule, linear_to_schedule,
-// memory_planner) are Phase 7b and are not yet implemented.
+// kernels.go implements passes 7–10 (split_kernels, create_schedule,
+// linear_to_schedule, memory_planner) — see CreateSchedule.
 package schedule
 
 import (

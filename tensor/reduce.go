@@ -101,7 +101,7 @@ func (t *Tensor) Mean(axes []int, keepdim bool) *Tensor {
 //  3. Multiply element-wise → [..., M, K, N].
 //  4. Sum over K (axis=-2) → [..., M, N].
 //
-// Supports symbolic outer (batch) dims in A (Option A): K and N must be concrete.
+// Supports symbolic outer (batch) dims in A; K and N must be concrete.
 func (t *Tensor) Matmul(other *Tensor) *Tensor {
 	aSints := t.ShapeSints()
 	bSints := other.ShapeSints()
@@ -110,7 +110,7 @@ func (t *Tensor) Matmul(other *Tensor) *Tensor {
 		panic("tensor: Matmul: operands must be at least 1D")
 	}
 
-	// K = innermost dim of A (must be concrete for Option A)
+	// K = innermost dim of A (must be concrete)
 	Ks := aSints[len(aSints)-1]
 	Kv, ok := Ks.ConstValue()
 	if !ok {

@@ -51,7 +51,6 @@ func foldAt2(expr, v0, v1 uop.UOp, val0, val1 int64) uop.UOp {
 	a := expr.Arena()
 	c0 := a.New(uop.OpConst, v0.DType(), nil, val0, nil)
 	c1 := a.New(uop.OpConst, v1.DType(), nil, val1, nil)
-	type two struct{ ps pointSubst }
 	bpm := &twoSubst{
 		t0: v0.Index(), r0: c0,
 		t1: v1.Index(), r1: c1,
@@ -90,13 +89,6 @@ func TestSymbolicEqualsConcreteOracle(t *testing.T) {
 	// Test values: chosen to span small, medium, and large; prime-free so
 	// products don't accidentally cancel each other's errors.
 	bindVals := []int64{1, 7, 8, 64, 1000}
-
-	type row struct {
-		expr   string
-		sym    int64
-		conc   int64
-		match  bool
-	}
 
 	// Each case: build the expression symbolically, evaluate at each binding,
 	// compare with the concrete expression evaluated directly.

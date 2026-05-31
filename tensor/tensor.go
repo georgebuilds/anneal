@@ -348,7 +348,7 @@ func broadcastShapes(a, b []int64) (aOut, bOut []int64, out []int64) {
 
 // broadcast returns a and b expanded to their common broadcast shape.
 // For purely concrete shapes it uses broadcastShapes. For symbolic shapes
-// (Option A: batch is the outermost dim), it uses Sint-aware broadcast.
+// it uses Sint-aware broadcast.
 func broadcast(a, b *Tensor) (*Tensor, *Tensor) {
 	aSints := a.st.ShapeSints()
 	bSints := b.st.ShapeSints()

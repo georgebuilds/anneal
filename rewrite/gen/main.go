@@ -449,12 +449,6 @@ func matchParen(s string) (int, error) {
 
 // ── Code generator ────────────────────────────────────────────────────────────
 
-// opRules maps op name → ordered list of rules for that op.
-type opRules struct {
-	op    string
-	rules []rule
-}
-
 func generate(pkg, inputFile string, rules []rule) ([]byte, error) {
 	// Group rules by op, preserving original order within each op.
 	opOrder := []string{}

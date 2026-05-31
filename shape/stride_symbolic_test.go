@@ -8,7 +8,7 @@ import (
 )
 
 // TestStridesForShapeSymbolic proves that stridesForShape produces concrete strides
-// for the symbolic-batch shapes used in Option A (batch always outermost).
+// for symbolic-batch shapes when the batch dim is outermost.
 //
 // Invariants tested:
 //   - [n, 4]   → strides [Const(4), Const(1)]   (all concrete; no symbolic stride)

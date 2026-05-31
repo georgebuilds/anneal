@@ -12,13 +12,6 @@ type arenaLocalKey struct {
 	device  string
 }
 
-// kernelKey is a secondary key for a single kernel's structural identity,
-// including dispatch metadata that affects codegen (like local size).
-type kernelKey struct {
-	astIdx    uint32
-	localSize [3]int
-}
-
 // arenaSchedCache is the concrete type stored in Arena.Ext by this package.
 type arenaSchedCache map[arenaLocalKey][]ExecItem
 
