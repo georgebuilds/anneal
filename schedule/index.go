@@ -63,12 +63,15 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 	case uop.OpPermute:
 		// perm[i] = j means "output dim i comes from source dim j".
 		// Source dim j is accessed by the output index for the position k where perm[k]=j.
-		perm := expr.Arg().([]int64)
-		srcIndices := make([]uop.UOp, len(perm))
-		for i, p := range perm {
-			srcIndices[p] = indices[i]
+		switch perm := expr.Arg().(type) {
+		case []int64:
+			srcIndices := make([]uop.UOp, len(perm))
+			for i, p := range perm {
+				srcIndices[p] = indices[i]
+			}
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 		}
-		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		panic("schedule/index: OpPermute: unexpected arg type")
 
 	case uop.OpExpand:
 		// Broadcast: source dims that were size 1 map to index 0.
@@ -214,25 +217,28 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		// Mirror: index r → (size-1) - r for flipped axes. Concrete shape uses
 		// a baked-in Const(size-1); symbolic shape builds Sub(srcSize, Const(1))
 		// so the operand can be a SymInt expression.
-		axisFlags := expr.Arg().([]int64)
-		srcSints := shapeMap[expr.Src(0).Index()]
-		srcIndices := make([]uop.UOp, len(axisFlags))
-		for i, f := range axisFlags {
-			if f != 0 {
-				if v, ok := srcSints[i].ConstValue(); ok {
-					sm1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, v-1, nil)
-					srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+		switch axisFlags := expr.Arg().(type) {
+		case []int64:
+			srcSints := shapeMap[expr.Src(0).Index()]
+			srcIndices := make([]uop.UOp, len(axisFlags))
+			for i, f := range axisFlags {
+				if f != 0 {
+					if v, ok := srcSints[i].ConstValue(); ok {
+						sm1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, v-1, nil)
+						srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+					} else {
+						srcSz := dimToUOp(a, srcSints[i])
+						one := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(1), nil)
+						sm1 := a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{srcSz, one}, nil, nil)
+						srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+					}
 				} else {
-					srcSz := dimToUOp(a, srcSints[i])
-					one := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(1), nil)
-					sm1 := a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{srcSz, one}, nil, nil)
-					srcIndices[i] = a.New(uop.OpSub, uop.Dtypes.Index, []uop.UOp{sm1, indices[i]}, nil, nil)
+					srcIndices[i] = indices[i]
 				}
-			} else {
-				srcIndices[i] = indices[i]
 			}
+			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 		}
-		return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
+		panic("schedule/index: OpFlip: unexpected arg type")
 
 	// ── materialization hint ──────────────────────────────────────────────
 
@@ -247,47 +253,50 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 	case uop.OpReduceAxis:
 		// Creates AxisReduce range vars for the reduced axes, then indexes through
 		// the source. Returns a kernel-level REDUCE(acc_op, elem_expr, *reduce_ranges).
-		ra := expr.Arg().(uop.ReduceArg)
-		srcSints := shapeMap[expr.Src(0).Index()]
+		switch ra := expr.Arg().(type) {
+		case uop.ReduceArg:
+			srcSints := shapeMap[expr.Src(0).Index()]
 
-		// Reduce ranges, one per reduced axis.
-		// Symbolic axes use a symbolic RANGE so the WGSL loop reads params_n at runtime.
-		reduceRanges := make([]uop.UOp, len(ra.Axes))
-		reducedAt := make(map[int]uop.UOp, len(ra.Axes))
-		for i, ax := range ra.Axes {
-			s := srcSints[ax]
-			var rr uop.UOp
-			if v, ok := s.ConstValue(); ok {
-				rr = rc.newRange(v, uop.AxisReduce)
-			} else {
-				sym := s.(shape.SymInt)
-				rr = rc.newSymRange(sym.Node, uop.AxisReduce)
+			// Reduce ranges, one per reduced axis.
+			// Symbolic axes use a symbolic RANGE so the WGSL loop reads params_n at runtime.
+			reduceRanges := make([]uop.UOp, len(ra.Axes))
+			reducedAt := make(map[int]uop.UOp, len(ra.Axes))
+			for i, ax := range ra.Axes {
+				s := srcSints[ax]
+				var rr uop.UOp
+				if v, ok := s.ConstValue(); ok {
+					rr = rc.newRange(v, uop.AxisReduce)
+				} else {
+					sym := s.(shape.SymInt)
+					rr = rc.newSymRange(sym.Node, uop.AxisReduce)
+				}
+				reduceRanges[i] = rr
+				reducedAt[ax] = rr
 			}
-			reduceRanges[i] = rr
-			reducedAt[ax] = rr
-		}
 
-		// Build full source index: reduced dims → reduce range; others → output index.
-		fullIndices := make([]uop.UOp, len(srcSints))
-		outIdx := 0
-		for i := range srcSints {
-			if rr, ok := reducedAt[i]; ok {
-				fullIndices[i] = rr
-			} else {
-				fullIndices[i] = indices[outIdx]
-				outIdx++
+			// Build full source index: reduced dims → reduce range; others → output index.
+			fullIndices := make([]uop.UOp, len(srcSints))
+			outIdx := 0
+			for i := range srcSints {
+				if rr, ok := reducedAt[i]; ok {
+					fullIndices[i] = rr
+				} else {
+					fullIndices[i] = indices[outIdx]
+					outIdx++
+				}
 			}
+
+			// Pass ra.Op as fillOp so any Pad in the source uses the correct
+			// reduce identity element (not 0) for out-of-bounds positions.
+			indexedSrc := indexExprNode(a, expr.Src(0), fullIndices, shapeMap, rc, ra.Op)
+
+			// REDUCE(acc_op, elem_expr, *reduce_ranges)
+			reduceSrcs := make([]uop.UOp, 1+len(reduceRanges))
+			reduceSrcs[0] = indexedSrc
+			copy(reduceSrcs[1:], reduceRanges)
+			return a.New(uop.OpReduce, expr.DType(), reduceSrcs, ra.Op, nil)
 		}
-
-		// Pass ra.Op as fillOp so any Pad in the source uses the correct
-		// reduce identity element (not 0) for out-of-bounds positions.
-		indexedSrc := indexExprNode(a, expr.Src(0), fullIndices, shapeMap, rc, ra.Op)
-
-		// REDUCE(acc_op, elem_expr, *reduce_ranges)
-		reduceSrcs := make([]uop.UOp, 1+len(reduceRanges))
-		reduceSrcs[0] = indexedSrc
-		copy(reduceSrcs[1:], reduceRanges)
-		return a.New(uop.OpReduce, expr.DType(), reduceSrcs, ra.Op, nil)
+		panic("schedule/index: OpReduceAxis: unexpected arg type")
 
 	// ── elementwise / ALU — distribute index through all sources ──────────
 
