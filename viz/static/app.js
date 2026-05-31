@@ -1,6 +1,13 @@
-// anneal viz — static UOp graph renderer
-// Loads the real graph from WASM (anneal.wasm) or the native REST API,
-// lays it out with a layered DAG algorithm, and renders to SVG.
+// anneal viz — scrub-timeline UOp graph renderer.
+//
+// Loads the real timeline from WASM (anneal.wasm) or the native REST API, lays
+// out the union of all stages once with a layered DAG algorithm, then scrubs
+// through compiler-pipeline stages by toggling node visibility / class without
+// touching positions. Position stability is the whole point: the eye tracks
+// what *changes* between stages, not a reshuffle (DESIGN.md §7).
+//
+// Brand: forward = teal, backward = ember, kernel boundary = gold (DD1).
+// Chrome recedes; the graph is the artifact.
 
 'use strict';
 
@@ -23,6 +30,16 @@ function cycleTheme() {
 }
 
 (function initTheme() {
+  // URL ?theme=… wins (for screenshot harnesses), then localStorage, then system.
+  try {
+    const u = new URL(window.location.href);
+    const t = u.searchParams.get('theme');
+    if (t && THEMES.includes(t)) {
+      themeIdx = THEMES.indexOf(t);
+      applyTheme(t);
+      return;
+    }
+  } catch (_) {}
   try {
     const saved = localStorage.getItem('anneal-theme');
     if (saved && THEMES.includes(saved)) {
@@ -43,27 +60,31 @@ function setStatus(msg, isError) {
   el.className = 'status' + (isError ? ' error' : '');
 }
 
-function setStats(data) {
+// Stats formatter: stage-aware, suppresses zero counters so the line stays
+// honest at the forward stage (kernels = 0 until scheduling runs).
+function setStats(stageStats, source) {
   const el = document.getElementById('stats');
   if (!el) return;
-  const s = data.stats;
-  el.textContent =
-    `${s.allNodes} nodes  ·  ${s.fwdNodes} forward  ·  ${s.bwdNodes} backward  ·  ${s.kernels} kernels`;
+  const parts = [];
+  parts.push(`${stageStats.fwdNodes || 0} forward`);
+  if (stageStats.bwdNodes) parts.push(`${stageStats.bwdNodes} backward`);
+  if (stageStats.kernels)  parts.push(`${stageStats.kernels} kernels`);
+  if (stageStats.fused)    parts.push(`${stageStats.fused} fused`);
+  if (source) parts.push(`(real compiler via ${source})`);
+  el.textContent = parts.join('  ·  ');
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────
 
-// Try WASM first; fall back to REST /api/graph?name=...
-// Returns a Promise<GraphData>.
-async function loadGraph(name) {
-  if (window._wasmReady && typeof window.annealGetGraph === 'function') {
-    const json = window.annealGetGraph(name);
+// Try WASM first; fall back to REST /api/timeline?name=...
+async function loadTimeline(name) {
+  if (window._wasmReady && typeof window.annealGetTimeline === 'function') {
+    const json = window.annealGetTimeline(name);
     const data = JSON.parse(json);
     if (data.error) throw new Error('WASM: ' + data.error);
     return data;
   }
-  // REST fallback (native server)
-  const resp = await fetch('/api/graph?name=' + encodeURIComponent(name));
+  const resp = await fetch('/api/timeline?name=' + encodeURIComponent(name));
   if (!resp.ok) throw new Error('API ' + resp.status);
   const data = await resp.json();
   if (data.error) throw new Error('API: ' + data.error);
@@ -73,10 +94,7 @@ async function loadGraph(name) {
 // ── WASM initialisation ───────────────────────────────────────────────────
 
 async function initWASM() {
-  if (window._wasmExecMissing) {
-    // wasm_exec.js not found — will use REST fallback
-    return false;
-  }
+  if (window._wasmExecMissing) return false;
   try {
     const go = new Go(); // eslint-disable-line no-undef
     const result = await WebAssembly.instantiateStreaming(
@@ -93,15 +111,14 @@ async function initWASM() {
 }
 
 // ── Layout algorithm ──────────────────────────────────────────────────────
-// Topological level assignment (longest path from sources) + barycenter
-// X positioning with 4 alternating sweeps to reduce edge crossings.
+// Layered DAG layout on the *union* graph (every node from every stage). The
+// layout is computed once per (model) load; stages share these coordinates.
 
-const NODE_DX = 96;   // horizontal spacing between nodes in a level
-const NODE_DY = 88;   // vertical spacing between levels
-const MARGIN  = 48;   // SVG border margin
+const NODE_DX = 96;
+const NODE_DY = 88;
+const MARGIN  = 48;
 
 function computeLayout(nodes, edges) {
-  // Build adjacency maps.
   const parentOf = new Map(nodes.map(n => [n.id, []]));
   const childOf  = new Map(nodes.map(n => [n.id, []]));
   edges.forEach(e => {
@@ -109,8 +126,6 @@ function computeLayout(nodes, edges) {
     if (childOf.has(e.from))  childOf.get(e.from).push(e.to);
   });
 
-  // Assign levels via longest-path from leaf sources.
-  // nodes are in topological order (sources first) from Go's post-order DFS.
   const level = new Map();
   for (const n of nodes) {
     const ps = parentOf.get(n.id) || [];
@@ -118,7 +133,6 @@ function computeLayout(nodes, edges) {
     level.set(n.id, maxPL + 1);
   }
 
-  // Group nodes by level.
   const byLevel = new Map();
   nodes.forEach(n => {
     const l = level.get(n.id);
@@ -126,11 +140,9 @@ function computeLayout(nodes, edges) {
     byLevel.get(l).push(n.id);
   });
 
-  // Initial X order: sequential within level.
   const xOrder = new Map();
   byLevel.forEach(ids => ids.forEach((id, i) => xOrder.set(id, i)));
 
-  // Barycenter sweeps: alternate top→bottom and bottom→top passes.
   const maxLevel = Math.max(...level.values());
   for (let pass = 0; pass < 4; pass++) {
     const lvls = Array.from({length: maxLevel + 1}, (_, i) => i);
@@ -151,26 +163,22 @@ function computeLayout(nodes, edges) {
             : (xOrder.get(id) ?? 0)
         );
       }
-      // Re-rank within level by barycenter value, preserving tie order.
       const sorted = [...ids].sort((a, b) => bary.get(a) - bary.get(b));
       sorted.forEach((id, i) => xOrder.set(id, i));
     }
   }
 
-  // Compute final pixel positions.
   const pos = new Map();
   nodes.forEach(n => {
     const l  = level.get(n.id) ?? 0;
     const x  = xOrder.get(n.id) ?? 0;
-    const lw = byLevel.get(l).length;
     pos.set(n.id, {
       x: MARGIN + x * NODE_DX,
       y: MARGIN + l * NODE_DY,
-      levelW: lw
     });
   });
 
-  return { pos, byLevel, maxLevel };
+  return { pos, maxLevel };
 }
 
 // ── SVG helpers ───────────────────────────────────────────────────────────
@@ -182,67 +190,96 @@ function svgEl(tag, attrs) {
   return el;
 }
 
-// ── Graph rendering ───────────────────────────────────────────────────────
+// ── Per-stage rendering helpers ───────────────────────────────────────────
 
-function renderGraph(data, svgEl_) {
+function classFillStroke(cls, kind) {
+  // Mirrors the original BuildGraph rendering rules. Sink is neutral surface;
+  // reduce (kernel boundary) is always gold; backward is ember; leaf/default
+  // keep their teal forward styling.
+  if (kind === 'sink') {
+    return { fill: 'var(--surface)', stroke: 'var(--muted)', text: 'var(--muted)', sw: '1.5', dash: '' };
+  }
+  if (kind === 'reduce') {
+    return { fill: 'var(--red-fill)', stroke: 'var(--red-stroke)', text: 'var(--red-text)', sw: '2.5', dash: '' };
+  }
+  if (cls === 'backward') {
+    return { fill: 'var(--bwd-fill)', stroke: 'var(--bwd-stroke)', text: 'var(--bwd-text)', sw: '1.5', dash: '5,3' };
+  }
+  if (kind === 'leaf') {
+    return { fill: 'var(--leaf-fill)', stroke: 'var(--leaf-stroke)', text: 'var(--fwd-text)', sw: '1.5', dash: '' };
+  }
+  return { fill: 'var(--fwd-fill)', stroke: 'var(--fwd-stroke)', text: 'var(--fwd-text)', sw: '1.5', dash: '' };
+}
+
+function makeShape(kind) {
+  switch (kind) {
+    case 'reduce':
+      return svgEl('polygon', { points: '0,-22 22,0 0,22 -22,0' });
+    case 'leaf':
+      return svgEl('rect', { x: '-36', y: '-16', width: '72', height: '32', rx: '8', ry: '8' });
+    case 'sink': {
+      const r = 20;
+      const pts = Array.from({length: 6}, (_, i) => {
+        const a = (i * 60 - 30) * Math.PI / 180;
+        return `${(r * Math.cos(a)).toFixed(1)},${(r * Math.sin(a)).toFixed(1)}`;
+      }).join(' ');
+      return svgEl('polygon', { points: pts });
+    }
+    default:
+      return svgEl('circle', { r: '18' });
+  }
+}
+
+// ── Graph rendering ───────────────────────────────────────────────────────
+//
+// Render the SVG skeleton once per loaded timeline (union nodes + edges in
+// fixed positions). applyStage() then mutates per-node attributes to reflect
+// the current stage's overrides — cheap and avoids re-laying out.
+
+let timelineState = null; // { data, pos, nodeEls, edgeEls, currentStage }
+
+function renderTimelineSkeleton(data, svgRoot) {
   const { nodes, edges } = data;
   if (!nodes || nodes.length === 0) {
     setStatus('graph is empty', true);
-    return;
+    return null;
   }
 
-  const { pos, byLevel, maxLevel } = computeLayout(nodes, edges);
+  const { pos } = computeLayout(nodes, edges);
 
-  // Compute SVG dimensions.
   let maxX = 0, maxY = 0;
   pos.forEach(p => { maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
   const W = maxX + MARGIN + NODE_DX;
   const H = maxY + MARGIN + NODE_DY;
 
-  svgEl_.setAttribute('width',   W);
-  svgEl_.setAttribute('height',  H);
-  svgEl_.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svgEl_.innerHTML = '';
+  svgRoot.setAttribute('width',   W);
+  svgRoot.setAttribute('height',  H);
+  svgRoot.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgRoot.innerHTML = '';
 
-  // Build lookup maps.
-  const nodeClass = new Map(nodes.map(n => [n.id, n.class]));
-  const nodeKind  = new Map(nodes.map(n => [n.id, n.kind]));
-
-  // ── 1. Draw edges (below nodes) ──────────────────────────────────────
+  // Edges first, below nodes.
   const edgeG = svgEl('g', {'class': 'edges'});
-
+  const edgeEls = new Map(); // "from→to" -> {path}
   for (const e of edges) {
     const from = pos.get(e.from);
     const to   = pos.get(e.to);
     if (!from || !to) continue;
-
-    const srcClass = nodeClass.get(e.from) || 'forward';
-    const dstKind  = nodeKind.get(e.to)   || 'default';
-
-    let stroke    = 'var(--edge-fwd)';
-    let dasharray = '';
-    if (srcClass === 'backward') {
-      stroke    = 'var(--edge-bwd)';
-      dasharray = '5,3';
-    }
-    if (dstKind === 'reduce') stroke = 'var(--edge-red)';
-
-    // Smooth cubic bezier: vertical control arms at source and destination.
     const midY = (from.y + to.y) / 2;
-    const attrs = {
-      d:              `M ${from.x},${from.y} C ${from.x},${midY} ${to.x},${midY} ${to.x},${to.y}`,
-      stroke,
-      'stroke-width': '1.5',
-      fill:           'none',
-    };
-    if (dasharray) attrs['stroke-dasharray'] = dasharray;
-    edgeG.appendChild(svgEl('path', attrs));
+    const path = svgEl('path', {
+      class:           'edge',
+      d:               `M ${from.x},${from.y} C ${from.x},${midY} ${to.x},${midY} ${to.x},${to.y}`,
+      stroke:          'var(--edge-fwd)',
+      'stroke-width':  '1.5',
+      fill:            'none',
+    });
+    edgeG.appendChild(path);
+    edgeEls.set(`${e.from}→${e.to}`, path);
   }
-  svgEl_.appendChild(edgeG);
+  svgRoot.appendChild(edgeG);
 
-  // ── 2. Draw nodes ─────────────────────────────────────────────────────
+  // Nodes.
   const nodeG = svgEl('g', {'class': 'nodes'});
-
+  const nodeEls = new Map();
   for (const n of nodes) {
     const p = pos.get(n.id);
     if (!p) continue;
@@ -250,93 +287,34 @@ function renderGraph(data, svgEl_) {
     const g = document.createElementNS(NS, 'g');
     g.setAttribute('class', `node ${n.class} ${n.kind}`);
     g.setAttribute('transform', `translate(${p.x},${p.y})`);
-    // Accessibility: each node is an img with a descriptive label.
     g.setAttribute('role', 'img');
     g.setAttribute('aria-label', `${n.class} ${n.op} node: ${n.label}`);
 
-    // ── Determine fill / stroke from CSS variables ────────────────────
-    // This preserves the DD1 semantic across light and dark themes.
-    let fillVar, strokeVar, textVar;
-    let strokeW  = '1.5';
-    let dasharray = '';
-
-    if (n.kind === 'sink') {
-      // Neutral aggregation point — surface color, not forward/backward.
-      fillVar   = 'var(--surface)';
-      strokeVar = 'var(--muted)';
-      textVar   = 'var(--muted)';
-    } else if (n.kind === 'reduce') {
-      // Gold: kernel boundary / ReduceAxis — always gold regardless of provenance.
-      // (v1 honest: every reduce is a hard boundary, removeBufferize is a no-op.)
-      fillVar   = 'var(--red-fill)';
-      strokeVar = 'var(--red-stroke)';
-      textVar   = 'var(--red-text)';
-      strokeW   = '2.5';
-    } else if (n.class === 'backward') {
-      // Ember: backward pass. Dashed border = second encoding channel (§9).
-      fillVar   = 'var(--bwd-fill)';
-      strokeVar = 'var(--bwd-stroke)';
-      textVar   = 'var(--bwd-text)';
-      dasharray = '5,3';
-    } else if (n.kind === 'leaf') {
-      // Teal leaf: parameter / input buffer. Rounded rect shape = second channel.
-      fillVar   = 'var(--leaf-fill)';
-      strokeVar = 'var(--leaf-stroke)';
-      textVar   = 'var(--fwd-text)';
-    } else {
-      // Teal: forward pass. Solid circle = second encoding channel (§9).
-      fillVar   = 'var(--fwd-fill)';
-      strokeVar = 'var(--fwd-stroke)';
-      textVar   = 'var(--fwd-text)';
-    }
-
-    // ── Shape by kind (second encoding channel, per §9) ───────────────
-    let shape;
-    switch (n.kind) {
-      case 'reduce': {
-        // Diamond: visually distinct from circles; signals "this is a boundary".
-        shape = svgEl('polygon', { points: '0,-22 22,0 0,22 -22,0' });
-        break;
-      }
-      case 'leaf': {
-        // Rounded rect: parameter/input buffer — wider to fit the shape label.
-        shape = svgEl('rect', { x: '-36', y: '-16', width: '72', height: '32', rx: '8', ry: '8' });
-        break;
-      }
-      case 'sink': {
-        // Hexagon: aggregation point.
-        const r = 20;
-        const pts = Array.from({length: 6}, (_, i) => {
-          const a = (i * 60 - 30) * Math.PI / 180;
-          return `${(r * Math.cos(a)).toFixed(1)},${(r * Math.sin(a)).toFixed(1)}`;
-        }).join(' ');
-        shape = svgEl('polygon', { points: pts });
-        break;
-      }
-      default: {
-        // Circle: standard operation node.
-        shape = svgEl('circle', { r: '18' });
-      }
-    }
-    shape.setAttribute('fill',         fillVar);
-    shape.setAttribute('stroke',       strokeVar);
-    shape.setAttribute('stroke-width', strokeW);
-    if (dasharray) shape.setAttribute('stroke-dasharray', dasharray);
+    // Shape: container we'll mutate on stage change. We render the union's
+    // shape here; applyStage swaps if a stage overrides kind (e.g. reduce
+    // demoted to default at forward stage).
+    const shape = makeShape(n.kind);
+    const fs = classFillStroke(n.class, n.kind);
+    shape.setAttribute('class', 'node-shape');
+    shape.setAttribute('fill', fs.fill);
+    shape.setAttribute('stroke', fs.stroke);
+    shape.setAttribute('stroke-width', fs.sw);
+    if (fs.dash) shape.setAttribute('stroke-dasharray', fs.dash);
     g.appendChild(shape);
 
-    // ── Op mnemonic inside shape ──────────────────────────────────────
     const opShort = n.op.length > 9 ? n.op.slice(0, 8) + '…' : n.op;
     const opTxt = svgEl('text', {
+      class: 'node-op',
       y: '4', 'text-anchor': 'middle',
       'font-size': '9', 'font-family': 'monospace', 'font-weight': 'bold',
-      fill: textVar, 'pointer-events': 'none',
+      fill: fs.text, 'pointer-events': 'none',
     });
     opTxt.textContent = opShort;
     g.appendChild(opTxt);
 
-    // ── Human label below the node ────────────────────────────────────
     const labelShort = n.label.length > 16 ? n.label.slice(0, 15) + '…' : n.label;
     const lbl = svgEl('text', {
+      class: 'node-label',
       y: '34', 'text-anchor': 'middle',
       'font-size': '9', 'font-family': 'monospace',
       fill: 'var(--muted)', 'pointer-events': 'none',
@@ -344,7 +322,6 @@ function renderGraph(data, svgEl_) {
     lbl.textContent = labelShort;
     g.appendChild(lbl);
 
-    // ── Tooltip via <title> ───────────────────────────────────────────
     const title = document.createElementNS(NS, 'title');
     title.textContent = [
       n.op,
@@ -357,8 +334,157 @@ function renderGraph(data, svgEl_) {
     g.insertBefore(title, g.firstChild);
 
     nodeG.appendChild(g);
+    nodeEls.set(n.id, { g, shape, opTxt, baseKind: n.kind, baseClass: n.class });
   }
-  svgEl_.appendChild(nodeG);
+  svgRoot.appendChild(nodeG);
+
+  return { pos, nodeEls, edgeEls };
+}
+
+// applyStage mutates the rendered SVG to reflect stage.Overrides without
+// touching positions. Nodes absent from overrides become hidden; nodes
+// present get reclassified per the stage's hints.
+function applyStage(stageIdx) {
+  if (!timelineState) return;
+  const { data, nodeEls, edgeEls } = timelineState;
+  const stage = data.stages[stageIdx];
+  if (!stage) return;
+  timelineState.currentStage = stageIdx;
+
+  const overrides = stage.overrides || {};
+  // Track which nodes are visible so edges can hide both endpoints are absent.
+  const visible = new Set();
+
+  // First pass: visibility + per-node restyling.
+  for (const [id, refs] of nodeEls.entries()) {
+    const ov = overrides[id];
+    if (!ov) {
+      refs.g.classList.add('hidden');
+      continue;
+    }
+    refs.g.classList.remove('hidden');
+    visible.add(id);
+
+    // Determine effective kind / class for this stage.
+    const cls  = ov.class || refs.baseClass;
+    const kind = ov.kind  || refs.baseKind;
+
+    // If kind changed, replace the shape element (preserves DOM order so the
+    // op text overlay stays on top).
+    if (kind !== refs.shape.dataset.kind) {
+      const newShape = makeShape(kind);
+      newShape.setAttribute('class', 'node-shape');
+      newShape.dataset.kind = kind;
+      refs.g.replaceChild(newShape, refs.shape);
+      refs.shape = newShape;
+    } else if (!refs.shape.dataset.kind) {
+      refs.shape.dataset.kind = kind;
+    }
+
+    const fs = classFillStroke(cls, kind);
+    refs.shape.setAttribute('fill',   fs.fill);
+    refs.shape.setAttribute('stroke', fs.stroke);
+    refs.shape.setAttribute('stroke-width', fs.sw);
+    if (fs.dash) refs.shape.setAttribute('stroke-dasharray', fs.dash);
+    else         refs.shape.removeAttribute('stroke-dasharray');
+    refs.opTxt.setAttribute('fill', fs.text);
+
+    // Keep group class accurate so CSS selectors line up.
+    refs.g.setAttribute('class', `node ${cls} ${kind}`);
+  }
+
+  // Edge pass: hide edges whose endpoints aren't both visible; recolour by
+  // the source node's effective class + destination kind.
+  for (const [key, path] of edgeEls.entries()) {
+    const [fromS, toS] = key.split('→');
+    const from = Number(fromS), to = Number(toS);
+    if (!visible.has(from) || !visible.has(to)) {
+      path.classList.add('hidden');
+      continue;
+    }
+    path.classList.remove('hidden');
+
+    const srcOv = overrides[from] || {};
+    const dstOv = overrides[to]   || {};
+    const srcCls  = srcOv.class || (nodeEls.get(from) || {}).baseClass || 'forward';
+    const dstKind = dstOv.kind  || (nodeEls.get(to)   || {}).baseKind  || 'default';
+
+    let stroke = 'var(--edge-fwd)';
+    let dash = '';
+    if (srcCls === 'backward') {
+      stroke = 'var(--edge-bwd)';
+      dash = '5,3';
+    }
+    if (dstKind === 'reduce') stroke = 'var(--edge-red)';
+    path.setAttribute('stroke', stroke);
+    if (dash) path.setAttribute('stroke-dasharray', dash);
+    else      path.removeAttribute('stroke-dasharray');
+  }
+
+  // Header + footer copy.
+  document.getElementById('stageLabel').textContent = stage.label || stage.id;
+  document.getElementById('stageDesc').textContent  = stage.description || '';
+
+  const source = window._wasmReady ? 'WASM' : 'REST API';
+  setStats(stage.stats || {}, source);
+
+  // Sync the tick row.
+  document.querySelectorAll('.timeline-tick').forEach((t, i) => {
+    t.classList.toggle('active',  i === stageIdx);
+    t.classList.toggle('visited', i <  stageIdx);
+  });
+  const slider = document.getElementById('timelineSlider');
+  if (slider) slider.value = String(stageIdx);
+}
+
+// ── Timeline UI wiring ────────────────────────────────────────────────────
+
+function buildTickRow(stages) {
+  const track = document.getElementById('timelineTrack');
+  if (!track) return;
+  track.innerHTML = '';
+  stages.forEach((s, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'timeline-tick';
+    btn.setAttribute('aria-label', `stage ${i + 1} of ${stages.length}: ${s.label}`);
+    const dot = document.createElement('span');
+    dot.className = 'tick-dot';
+    btn.appendChild(dot);
+    const lbl = document.createElement('span');
+    lbl.className = 'tick-text';
+    lbl.textContent = s.label;
+    btn.appendChild(lbl);
+    btn.addEventListener('click', () => applyStage(i));
+    track.appendChild(btn);
+  });
+  const slider = document.getElementById('timelineSlider');
+  if (slider) {
+    slider.max = String(stages.length - 1);
+    slider.value = '0';
+  }
+}
+
+function wireSliderAndKeys() {
+  const slider = document.getElementById('timelineSlider');
+  if (slider) {
+    slider.addEventListener('input', e => applyStage(Number(e.target.value)));
+  }
+  // Global keyboard scrub: arrows step through stages, home/end jump to ends.
+  document.addEventListener('keydown', e => {
+    if (!timelineState) return;
+    const n = timelineState.data.stages.length;
+    let next = timelineState.currentStage;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': next = Math.min(n - 1, next + 1); break;
+      case 'ArrowLeft':  case 'ArrowUp':   next = Math.max(0,     next - 1); break;
+      case 'Home':       next = 0; break;
+      case 'End':        next = n - 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    applyStage(next);
+  });
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────
@@ -367,15 +493,32 @@ let currentName = 'mlp';
 
 async function loadAndRender(name) {
   currentName = name;
-  setStatus('loading graph…');
+  setStatus('loading timeline…');
   const svg = document.getElementById('graph-svg');
 
   try {
-    const data = await loadGraph(name);
-    renderGraph(data, svg);
-    setStats(data);
+    const data = await loadTimeline(name);
+    if (!data.stages || data.stages.length === 0) {
+      throw new Error('timeline has no stages');
+    }
+
+    const skel = renderTimelineSkeleton(data, svg);
+    if (!skel) return;
+    timelineState = { data, ...skel, currentStage: 0 };
+
+    buildTickRow(data.stages);
+
+    // Optional URL param ?stage=N for deep-linking and screenshot harnesses.
+    let startStage = 0;
+    try {
+      const u = new URL(window.location.href);
+      const s = parseInt(u.searchParams.get('stage') ?? '', 10);
+      if (Number.isFinite(s) && s >= 0 && s < data.stages.length) startStage = s;
+    } catch (_) {}
+    applyStage(startStage);
+
     const src = window._wasmReady ? 'WASM' : 'REST API';
-    setStatus(`${name} — rendered via ${src} (real compiler output)`);
+    setStatus(`${name} — real compiler via ${src} · ${data.stages.length} stages · arrows to scrub`);
   } catch (e) {
     setStatus('error: ' + e.message, true);
     console.error(e);
@@ -383,20 +526,18 @@ async function loadAndRender(name) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Wire theme toggle.
   document.getElementById('themeToggle')?.addEventListener('click', cycleTheme);
 
-  // Wire model selector.
   document.querySelectorAll('input[name="model"]').forEach(radio => {
     radio.addEventListener('change', () => {
       if (radio.checked) loadAndRender(radio.value);
     });
   });
 
-  // Initialise WASM (best-effort; falls back to REST).
+  wireSliderAndKeys();
+
   setStatus('initialising compiler…');
   await initWASM();
 
-  // Render initial graph.
   await loadAndRender(currentName);
 });

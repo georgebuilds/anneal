@@ -23,6 +23,8 @@ import (
 func main() {
 	// Expose annealGetGraph(name string) string (JSON) on the global JS object.
 	js.Global().Set("annealGetGraph", js.FuncOf(getGraph))
+	// Expose annealGetTimeline(name string) string (JSON) — multi-stage scrub.
+	js.Global().Set("annealGetTimeline", js.FuncOf(getTimeline))
 
 	// Block forever so the Go runtime stays alive while the page is open.
 	select {}
@@ -38,6 +40,22 @@ func getGraph(_ js.Value, args []js.Value) any {
 		return js.ValueOf(`{"error":"` + err.Error() + `"}`)
 	}
 	b, err := g.ToJSON()
+	if err != nil {
+		return js.ValueOf(`{"error":"json marshal: ` + err.Error() + `"}`)
+	}
+	return js.ValueOf(string(b))
+}
+
+func getTimeline(_ js.Value, args []js.Value) any {
+	name := "mlp"
+	if len(args) > 0 && args[0].Type() == js.TypeString {
+		name = args[0].String()
+	}
+	t, err := viz.BuildTimeline(name)
+	if err != nil {
+		return js.ValueOf(`{"error":"` + err.Error() + `"}`)
+	}
+	b, err := t.ToJSON()
 	if err != nil {
 		return js.ValueOf(`{"error":"json marshal: ` + err.Error() + `"}`)
 	}

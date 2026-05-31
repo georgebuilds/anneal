@@ -52,5 +52,27 @@ func Serve(addr string) error {
 		_, _ = w.Write(b)
 	})
 
+	mux.HandleFunc("/api/timeline", func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			name = "mlp"
+		}
+		t, err := BuildTimeline(name)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		b, err := t.ToJSON()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = w.Write(b)
+	})
+
 	return http.ListenAndServe(addr, mux)
 }
