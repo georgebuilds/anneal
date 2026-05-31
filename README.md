@@ -85,7 +85,7 @@ schedule/    rangeify, realize-map, bufferize, kernel split
 codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel transforms), beam.go (BEAM autotuning)
 backend/     device abstraction; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
-  nn/        Linear, Conv2d, activations, SGD, Parameter
+  nn/        Linear, Conv2d, MaxPool2D, activations, SGD, Parameter
 cmd/anneal/  the CLI
 viz/         the WASM visualizer
 examples/    mlp.go, conv.go, dynmlp.go
