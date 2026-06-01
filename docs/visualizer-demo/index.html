@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+        <!--
+          Anti-FOUC: read the site's saved theme before first paint so the
+          correct palette applies immediately. Mirrors docs/index.html.
+        -->
+        <script>
+            (function () {
+                var t = localStorage.getItem("anneal-theme");
+                if (!t)
+                    t = window.matchMedia("(prefers-color-scheme:light)")
+                        .matches
+                        ? "light"
+                        : "dark";
+                document.documentElement.setAttribute("data-theme", t);
+            })();
+        </script>
+
+        <title>anneal · visualizer demo</title>
+        <meta
+            name="description"
+            content="A captured trace from the real anneal compiler: forward, backward, and the scheduler fusing across the boundary into one kernel."
+        />
+        <meta name="robots" content="index, follow" />
+        <link
+            rel="canonical"
+            href="https://georgebuilds.github.io/anneal/visualizer-demo/"
+        />
+        <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+            rel="stylesheet"
+        />
+
+        <!-- Renderer stylesheet (shared with viz/static — same brand tokens). -->
+        <link rel="stylesheet" href="viz.css" />
+
+        <style>
+            /* ─── Site chrome (mirrors docs/index.html header/footer) ─────────── */
+
+            :root {
+                --site-bg-glass: rgba(20, 17, 15, 0.88);
+                --mono:
+                    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
+                    Consolas, monospace;
+            }
+            [data-theme="light"] {
+                --site-bg-glass: rgba(251, 248, 243, 0.88);
+            }
+
+            body {
+                font-family: var(--mono);
+                line-height: 1.6;
+            }
+
+            /* Reset the renderer's body flex so the site chrome can lay out
+               naturally. The renderer needs no flex parent; main owns the SVG. */
+            body { display: block; }
+
+            /* ─── Header ─────────────────────────────────────────────────────── */
+            header.site {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 clamp(1.5rem, 5vw, 3rem);
+                height: 52px;
+                background: var(--site-bg-glass);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid var(--faint);
+            }
+            header.site .brand {
+                display: inline-flex;
+                align-items: center;
+                font-size: 13px;
+                letter-spacing: 0.01em;
+                color: var(--text);
+            }
+            header.site .gb-link {
+                color: var(--muted);
+                text-decoration: none;
+            }
+            header.site .gb-link:hover { color: var(--text); }
+            header.site .brand-sep {
+                color: var(--faint);
+                margin: 0 0.35em;
+                user-select: none;
+            }
+            header.site .proj-name { color: var(--text); font-weight: 500; }
+            header.site nav {
+                display: flex;
+                align-items: center;
+                gap: 1.5rem;
+                height: 100%;
+            }
+            header.site nav a {
+                font-size: 13px;
+                color: var(--muted);
+                text-decoration: none;
+                transition: color 0.2s ease;
+                display: inline-flex;
+                align-items: center;
+                height: 100%;
+                padding: 0 0.15rem;
+                background: none;
+                border: 0;
+                font-family: inherit;
+                cursor: pointer;
+            }
+            header.site nav a:hover { color: var(--text); }
+            header.site nav a::before {
+                content: "> ";
+                color: var(--faint);
+                margin-right: 0.2em;
+            }
+            header.site nav a[aria-current="page"] {
+                color: var(--text);
+            }
+            header.site nav a[aria-current="page"]::before {
+                color: var(--fwd-stroke);
+            }
+            header.site .icon-btn {
+                background: none;
+                border: 0;
+                color: var(--muted);
+                cursor: pointer;
+                font-family: inherit;
+                font-size: 14px;
+                padding: 0.2rem 0.4rem;
+            }
+            header.site .icon-btn:hover { color: var(--text); }
+
+            /* ─── Main + renderer layout ─────────────────────────────────────── */
+            main.demo {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: clamp(1rem, 3vw, 2rem);
+                position: relative;
+            }
+            main.demo .intro {
+                color: var(--muted);
+                font-size: 13px;
+                margin-bottom: 1rem;
+                max-width: 60ch;
+            }
+            main.demo .intro strong { color: var(--text); font-weight: 500; }
+
+            /* The renderer's #graph-container reads its own tokens — leave it
+               alone but cap the height so the scrub timeline + graph sit on
+               one screen on a laptop. */
+            #graph-container {
+                max-height: 70vh;
+                min-height: 480px;
+            }
+
+            /* ─── Sticky-note overlay ────────────────────────────────────────── */
+            /* Neutral paper colour — deliberately NOT teal / ember / gold so the
+               three pass-meaning hues stay unambiguous on the graph itself. Sage
+               cream reads as "paper" against the cream-and-charcoal site without
+               competing with any kernel-pass colour. */
+            .sticky {
+                position: relative;
+                background: #ecf1d6;
+                color: #2a3019;
+                border: 1px solid #b6c194;
+                border-radius: 2px;
+                padding: 14px 16px 12px;
+                margin: 0 0 18px;
+                font-family: var(--mono);
+                font-size: 12.5px;
+                line-height: 1.55;
+                max-width: 58ch;
+                box-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.04),
+                    0 6px 14px -8px rgba(20, 17, 15, 0.35);
+                transform: rotate(-0.4deg);
+                transform-origin: top left;
+            }
+            .sticky::before {
+                /* tape strip to read as overlay, not chrome */
+                content: "";
+                position: absolute;
+                top: -8px;
+                left: 20px;
+                width: 56px;
+                height: 14px;
+                background: rgba(225, 225, 200, 0.65);
+                border: 1px solid rgba(160, 160, 130, 0.45);
+                transform: rotate(-2deg);
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+            }
+            .sticky-label {
+                display: inline-block;
+                font-size: 10.5px;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #6b7449;
+                margin-bottom: 4px;
+            }
+            .sticky p { margin: 0; }
+            .sticky a.cli-jump {
+                color: inherit;
+                font-weight: 600;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+                text-decoration-color: #b6c194;
+            }
+            .sticky a.cli-jump:hover { text-decoration-color: #6b7449; }
+
+            /* ─── Footer ─────────────────────────────────────────────────────── */
+            footer.site {
+                padding: 1.5rem clamp(1.5rem, 5vw, 3rem);
+                background: var(--surface);
+                border-top: 1px solid var(--faint);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 1rem;
+                flex-wrap: wrap;
+                font-size: 12px;
+                color: var(--muted);
+            }
+            footer.site .right { display: inline-flex; gap: 1.2rem; }
+            footer.site a {
+                color: var(--muted);
+                text-decoration: none;
+            }
+            footer.site a:hover { color: var(--text); }
+        </style>
+    </head>
+    <body>
+        <a href="#main-content" class="skip-link">skip to main content</a>
+
+        <header class="site">
+            <div class="brand">
+                <a
+                    class="gb-link"
+                    href="https://georgebuilds.github.io/"
+                    aria-label="georgebuilds home"
+                >
+                    georgebuilds
+                </a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <a class="proj-name" href="../" style="text-decoration:none">anneal</a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <span class="proj-name">visualizer demo</span>
+            </div>
+            <nav aria-label="site navigation">
+                <a href="../#architecture">how it works</a>
+                <a href="../#cli" id="cli-link">cli</a>
+                <a
+                    href="https://github.com/georgebuilds/anneal"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    github
+                </a>
+                <button
+                    class="icon-btn"
+                    id="js-theme"
+                    aria-label="toggle theme"
+                    title="toggle theme"
+                >
+                    ☀
+                </button>
+            </nav>
+        </header>
+
+        <main class="demo" id="main-content">
+            <aside class="sticky" role="note" aria-label="demo annotation">
+                <span class="sticky-label">demo · captured trace</span>
+                <p>
+                    Demo page. This is a captured trace from a real
+                    compilation, not a mock and not hand-drawn. Model: a small
+                    MLP. Shown: one forward and backward pass, plus the
+                    scheduler's kernel fusion. Commit
+                    <strong>e66de45</strong>, generated
+                    <strong>2026-06-01</strong>. Teal is the forward pass,
+                    ember is the backward pass, gold marks the 7 kernels the
+                    scheduler formed at each reduce boundary, with 5 epilogues
+                    fused across the forward/backward seam. Run it yourself
+                    from the CLI (see <a class="cli-jump" href="../#cli">&gt;cli</a>).
+                </p>
+            </aside>
+
+            <p class="intro">
+                Scrub the timeline below to step through the compiler
+                pipeline. Each stage is a real checkpoint produced by
+                <strong>viz.BuildTimeline</strong> over the
+                <strong>mlp</strong> example: forward construction, then the
+                gradient pass, then the scheduler. Node positions are stable
+                across stages so the eye tracks what changes, not what moved.
+            </p>
+
+            <div id="status" class="status" role="status" aria-live="polite">
+                loading…
+            </div>
+
+            <section
+                class="timeline"
+                aria-label="compiler pipeline timeline"
+            >
+                <div class="timeline-header">
+                    <span
+                        class="stage-label"
+                        id="stageLabel"
+                        aria-live="polite"
+                    >
+                        ...
+                    </span>
+                    <span class="stage-desc" id="stageDesc"></span>
+                </div>
+                <div
+                    class="timeline-track"
+                    id="timelineTrack"
+                    role="group"
+                    aria-label="pipeline stage scrubber: left / right arrows to step"
+                ></div>
+                <input
+                    type="range"
+                    id="timelineSlider"
+                    class="timeline-slider"
+                    min="0"
+                    max="0"
+                    step="1"
+                    value="0"
+                    aria-label="scrub through pipeline stages"
+                />
+            </section>
+
+            <div
+                id="graph-container"
+                role="img"
+                aria-label="UOp computation graph"
+            >
+                <svg
+                    id="graph-svg"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                    focusable="false"
+                ></svg>
+            </div>
+
+            <footer style="display:flex;gap:20px;flex-wrap:wrap;padding:8px 0 0;margin:0;background:transparent;border:0">
+                <div class="stats" id="stats" aria-live="polite"></div>
+                <nav class="legend" aria-label="graph legend">
+                    <!-- Dual encoding: color + shape + label. Color is never
+                         the sole carrier (matches DESIGN.md §9). -->
+                    <span
+                        class="legend-item forward"
+                        aria-label="forward pass node: solid circle, teal"
+                    >
+                        ● forward
+                    </span>
+                    <span
+                        class="legend-item backward"
+                        aria-label="backward pass node: dashed circle, ember"
+                    >
+                        ⊙ backward
+                    </span>
+                    <span
+                        class="legend-item reduce"
+                        aria-label="reduce / kernel boundary: diamond, gold"
+                    >
+                        ◆ kernel boundary
+                    </span>
+                    <span
+                        class="legend-item leaf"
+                        aria-label="buffer / parameter: rounded rect, teal"
+                    >
+                        ▭ buffer/leaf
+                    </span>
+                </nav>
+            </footer>
+        </main>
+
+        <footer class="site">
+            <div>
+                <a
+                    href="https://georgebuilds.github.io/"
+                    aria-label="georgebuilds home"
+                >
+                    georgebuilds
+                </a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <a href="../">anneal</a>
+            </div>
+            <div class="right">
+                <span>v0.1 · agpl-3.0</span>
+                <a
+                    href="https://github.com/georgebuilds/anneal"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    github
+                </a>
+            </div>
+        </footer>
+
+        <!-- Theme toggle: shares localStorage["anneal-theme"] with the site,
+             so flipping it here persists to the landing page. -->
+        <script>
+            (function () {
+                var btn = document.getElementById("js-theme");
+                function applyTheme(t) {
+                    document.documentElement.setAttribute("data-theme", t);
+                    btn.textContent = t === "light" ? "☾" : "☀";
+                    btn.setAttribute(
+                        "aria-label",
+                        "switch to " + (t === "light" ? "dark" : "light") +
+                            " mode",
+                    );
+                }
+                applyTheme(
+                    document.documentElement.getAttribute("data-theme") ||
+                        "dark",
+                );
+                btn.addEventListener("click", function () {
+                    var cur =
+                        document.documentElement.getAttribute("data-theme") ===
+                        "light"
+                            ? "dark"
+                            : "light";
+                    try {
+                        localStorage.setItem("anneal-theme", cur);
+                    } catch (e) {}
+                    applyTheme(cur);
+                });
+            })();
+        </script>
+
+        <script src="viz.js"></script>
+    </body>
+</html>
