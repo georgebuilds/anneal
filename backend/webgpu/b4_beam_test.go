@@ -85,6 +85,7 @@ func TestB4_ActionSpace_Size(t *testing.T) {
 //   - search terminates; wall-clock is reported for B5 viability assessment
 func TestB4_BeamSearch_Matmul1024(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	codegen.BeamCacheReset()
 	cfg := codegen.DefaultBeamConfig()
 
@@ -178,6 +179,7 @@ func TestB4_BeamSearch_Matmul1024(t *testing.T) {
 // the output values.
 func TestB4_BeamSearch_MLPForwardBackward(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	codegen.BeamCacheReset()
 	cfg := codegen.DefaultBeamConfig()
 
@@ -245,6 +247,7 @@ func TestB4_BeamSearch_MLPForwardBackward(t *testing.T) {
 // the winning opts preserve values.
 func TestB4_BeamSearch_Conv(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	codegen.BeamCacheReset()
 	cfg := codegen.DefaultBeamConfig()
 
