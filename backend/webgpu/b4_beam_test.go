@@ -296,6 +296,7 @@ func TestB4_BeamSearch_Conv(t *testing.T) {
 // return identical opt sequences, and that the 2nd and 3rd are cache hits.
 func TestB4_Cache_Determinism(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	codegen.BeamCacheReset()
 	cfg := codegen.DefaultBeamConfig()
 
@@ -335,6 +336,7 @@ func TestB4_Cache_Determinism(t *testing.T) {
 // WGSL to a fresh render of the winning opts on a structurally identical kernel.
 func TestB4_Cache_HitCorrect(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	codegen.BeamCacheReset()
 	cfg := codegen.DefaultBeamConfig()
 

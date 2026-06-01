@@ -137,6 +137,7 @@ func TestB5_DefaultModeNoOverhead(t *testing.T) {
 
 func TestB5_CacheHitBitIdentical(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	tensor.DefaultExecutor = dev
 	defer func() { tensor.DefaultExecutor = nil }()
 
