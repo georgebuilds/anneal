@@ -265,22 +265,21 @@
                 outline-offset: 1px;
             }
 
-            /* Floating "show note" pill that reappears after the sticky is
-               dismissed, so the annotation can always be recalled. */
+            /* "Show note" pill that reappears after the sticky is dismissed,
+               so the annotation can always be recalled. Slots into the centre
+               of the footer; flexbox handles the centring. */
             .sticky-restore {
-                position: fixed;
-                bottom: 20px;
-                left: 20px;
-                z-index: 89;
-                background: var(--surface);
+                background: var(--bg);
                 color: var(--muted);
                 border: 1px solid var(--faint);
                 border-radius: 999px;
-                padding: 6px 12px;
+                padding: 4px 12px;
                 font-family: var(--mono);
                 font-size: 11.5px;
                 cursor: pointer;
-                box-shadow: 0 4px 10px -6px rgba(20, 17, 15, 0.5);
+                transition:
+                    color 0.15s ease,
+                    border-color 0.15s ease;
             }
             .sticky-restore:hover {
                 color: var(--text);
@@ -480,6 +479,16 @@
                 <span class="brand-sep" aria-hidden="true">/</span>
                 <a href="../">anneal</a>
             </div>
+            <button
+                class="sticky-restore"
+                id="sticky-restore"
+                type="button"
+                hidden
+                aria-label="show demo note"
+                title="show demo note"
+            >
+                demo note
+            </button>
             <div class="right">
                 <span>v0.1 · agpl-3.0</span>
                 <a
@@ -491,17 +500,6 @@
                 </a>
             </div>
         </footer>
-
-        <button
-            class="sticky-restore"
-            id="sticky-restore"
-            type="button"
-            hidden
-            aria-label="show demo note"
-            title="show demo note"
-        >
-            demo note
-        </button>
 
         <!-- Theme toggle: shares localStorage["anneal-theme"] with the site,
              so flipping it here persists to the landing page. -->
