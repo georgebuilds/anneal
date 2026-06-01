@@ -60,13 +60,23 @@ type gpuJob struct {
 	done chan error
 }
 
-// gpuOwnerLoop is the body of the single GPU-owner goroutine. It locks itself to
-// one OS thread permanently and never unlocks: when the loop returns (jobs
-// closed) while still locked, the Go runtime terminates the underlying OS thread,
-// which is the desired teardown. Every job runs to completion on this one thread,
-// so all NSAutoreleasePool create/drain pairs share it.
+// gpuOwnerLoop is the body of the single GPU-owner goroutine. On darwin it
+// locks itself to one OS thread permanently and never unlocks: when the loop
+// returns (jobs closed) while still locked, the Go runtime terminates the
+// underlying OS thread, which is the desired teardown. Every job runs to
+// completion on this one thread, so all NSAutoreleasePool create/drain pairs
+// share it.
+//
+// On non-darwin platforms (Vulkan, DX12), wgpu does not need this thread
+// pinning: there are no autorelease pools, and Vulkan worker threads spawned
+// by wgpu are independent of any goroutine's OS thread. Locking on Linux is
+// actively harmful — terminating the locked OS thread on Close() leaves
+// Vulkan worker threads (e.g. Mesa llvmpipe's workers) racing process exit,
+// which manifests as a SIGSEGV in native code with no Go traceback.
 func (d *Device) gpuOwnerLoop() {
-	runtime.LockOSThread()
+	if runtime.GOOS == "darwin" {
+		runtime.LockOSThread()
+	}
 	for j := range d.jobs {
 		j.done <- j.fn()
 	}
