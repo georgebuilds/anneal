@@ -13,6 +13,7 @@ package nn_test
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/georgebuilds/anneal/backend/webgpu"
@@ -35,6 +36,23 @@ func requireGPU(t *testing.T) {
 		dev.Close()
 	})
 	tensor.DefaultExecutor = dev
+}
+
+// skipIfSoftwareGPU skips when the active executor's adapter is a software
+// rasterizer (e.g. Mesa llvmpipe in CI). For perf-bench tests where running
+// on software produces no useful signal and would blow the test timeout.
+// Must be called after requireGPU has set tensor.DefaultExecutor.
+func skipIfSoftwareGPU(t *testing.T) {
+	t.Helper()
+	dev, ok := tensor.DefaultExecutor.(*webgpu.Device)
+	if !ok {
+		return
+	}
+	name := strings.ToLower(dev.AdapterName())
+	if strings.Contains(name, "llvmpipe") || strings.Contains(name, "swiftshader") ||
+		strings.Contains(name, "software") || strings.Contains(name, "cpu") {
+		t.Skipf("skipping perf test on software adapter %q", dev.AdapterName())
+	}
 }
 
 // runStep builds a fresh graph, runs backward on loss = sum((pLeaf-target)²),

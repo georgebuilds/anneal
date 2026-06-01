@@ -21,6 +21,17 @@ func requireDevice(t *testing.T) *webgpu.Device {
 	return dev
 }
 
+// skipIfSoftwareGPU skips the calling test when the active adapter is a
+// software rasterizer (e.g. Mesa llvmpipe in CI). Timing/benchmark tests
+// produce no useful signal on software adapters and run orders of magnitude
+// slower — long enough to blow Go's default 10-minute per-package timeout.
+func skipIfSoftwareGPU(t *testing.T, dev *webgpu.Device) {
+	t.Helper()
+	if isSoftwareAdapter(dev.AdapterName()) {
+		t.Skipf("skipping perf test on software adapter %q", dev.AdapterName())
+	}
+}
+
 // approxEq reports whether two float32 slices are element-wise equal within tol.
 func approxEq(got, want []float32, tol float64) bool {
 	if len(got) != len(want) {
