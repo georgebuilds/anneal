@@ -21,10 +21,10 @@
         </script>
 
         <!-- Primary SEO ------------------------------------------------ -->
-        <title>anneal — a Go tensor compiler</title>
+        <title>anneal: a machine learning compiler in Go</title>
         <meta
             name="description"
-            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
+            content="A machine learning compiler written in Go. It compiles neural networks into GPU code, with autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
         />
         <meta
             name="robots"
@@ -56,10 +56,10 @@
             content="https://georgebuilds.github.io/anneal/"
         />
         <meta property="og:site_name" content="anneal" />
-        <meta property="og:title" content="anneal — a Go tensor compiler" />
+        <meta property="og:title" content="anneal: a machine learning compiler in Go" />
         <meta
             property="og:description"
-            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
+            content="A machine learning compiler written in Go. It compiles neural networks into GPU code, with autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary."
         />
         <meta
             property="og:image"
@@ -69,7 +69,7 @@
         <meta property="og:image:height" content="630" />
         <meta
             property="og:image:alt"
-            content="anneal — a Go tensor compiler."
+            content="anneal: a machine learning compiler in Go."
         />
         <meta property="og:locale" content="en_US" />
         <meta property="og:locale:alternate" content="es_ES" />
@@ -80,10 +80,10 @@
 
         <!-- Twitter / X Card ------------------------------------------ -->
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="anneal — a Go tensor compiler" />
+        <meta name="twitter:title" content="anneal: a machine learning compiler in Go" />
         <meta
             name="twitter:description"
-            content="A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR."
+            content="A machine learning compiler written in Go. It compiles neural networks into GPU code, with autodiff and optimization as first-class compiler passes over one immutable UOp IR."
         />
         <meta
             name="twitter:image"
@@ -91,7 +91,7 @@
         />
         <meta
             name="twitter:image:alt"
-            content="anneal — a Go tensor compiler"
+            content="anneal: a machine learning compiler in Go"
         />
 
         <!-- Theme / appearance ----------------------------------------- -->
@@ -122,7 +122,7 @@
                     "name": "Go"
                 },
                 "operatingSystem": "Linux, macOS, Windows",
-                "description": "A Go tensor compiler. Autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary.",
+                "description": "A machine learning compiler written in Go. It compiles neural networks into GPU code, with autodiff and optimization as first-class compiler passes over one immutable UOp IR. The scheduler fuses across the forward/backward boundary.",
                 "url": "https://georgebuilds.github.io/anneal/",
                 "author": {
                     "@type": "Organization",
@@ -135,7 +135,7 @@
                     "price": "0",
                     "priceCurrency": "USD"
                 },
-                "keywords": "tensor compiler, autodiff, GPU, WebGPU, Go, machine learning, graph rewrite, WGSL"
+                "keywords": "machine learning compiler, ML compiler, autodiff, GPU, WebGPU, Go, machine learning, graph rewrite, WGSL"
             }
         </script>
 
@@ -1008,7 +1008,7 @@
                 <a
                     class="gb-link"
                     href="https://georgebuilds.github.io/"
-                    aria-label="georgebuilds — home"
+                    aria-label="georgebuilds: home"
                 >
                     <span class="gb-abbr">gb</span
                     ><span class="gb-full">georgebuilds</span>
@@ -1113,11 +1113,23 @@
                 </div>
 
                 <h1 class="wordmark" id="js-wordmark">anneal</h1>
-                <p class="tagline" id="js-tagline" data-i18n="hero.tagline">
-                    Autodiff is a compiler pass.
+                <p class="tagline" id="js-headline" data-i18n="hero.headline">
+                    Anneal is a machine learning compiler written in Go.
                 </p>
-                <p class="disambig" id="js-disambig" data-i18n="hero.disambig">
-                    a Go tensor compiler
+                <p
+                    class="disambig"
+                    id="js-subhead"
+                    data-i18n="hero.subhead"
+                    style="margin-bottom: 0.55rem"
+                >
+                    It compiles neural networks into GPU code, with reverse-mode autodiff built in.
+                </p>
+                <p
+                    class="disambig"
+                    id="js-secondary"
+                    data-i18n="hero.secondary"
+                >
+                    Autodiff is a compiler pass over the same graph as the forward computation, so it fuses forward and backward work into the same GPU kernels.
                 </p>
 
                 <div class="install-row" id="js-install" title="click to copy">
@@ -1157,7 +1169,7 @@
                 </h2>
                 <p class="sec-body" data-i18n="arch.body">
                     Autodiff and optimization are first-class compiler passes
-                    over one immutable UOp IR — not runtime hooks bolted onto a
+                    over one immutable UOp IR, not runtime hooks bolted onto a
                     separate tape. Per-op gradient rules are dispatched through
                     a drift-checked ruleset, producing a uniform, fusible
                     backward graph. The scheduler sees the whole computation,
@@ -1169,20 +1181,20 @@
                     <div class="leg">
                         <div class="leg-line" aria-hidden="true"></div>
                         <span class="leg-text" data-i18n-html="leg.teal"
-                            ><strong>teal</strong> — forward pass (solid)</span
+                            ><strong>teal</strong>:forward pass (solid)</span
                         >
                     </div>
                     <div class="leg">
                         <div class="leg-line ember" aria-hidden="true"></div>
                         <span class="leg-text" data-i18n-html="leg.ember"
-                            ><strong>ember</strong> — backward pass
+                            ><strong>ember</strong>:backward pass
                             (dashed)</span
                         >
                     </div>
                     <div class="leg">
                         <div class="leg-box" aria-hidden="true"></div>
                         <span class="leg-text" data-i18n-html="leg.gold"
-                            ><strong>gold</strong> — fused kernel</span
+                            ><strong>gold</strong>:fused kernel</span
                         >
                     </div>
                 </div>
@@ -1196,7 +1208,7 @@
                             An immutable UOp DAG
                         </div>
                         <p class="card-body" data-i18n="card.fwd.body">
-                            Every operation is a node in a shared arena —
+                            Every operation is a node in a shared arena,
                             interned, never mutated. Rewrites produce new nodes.
                             Structural equality is identity equality; no deep
                             comparisons in hot paths.
@@ -1228,7 +1240,7 @@
                         </div>
                         <p class="card-body" data-i18n="card.fsd.body">
                             The rangeify scheduler sees forward and backward
-                            together. It can fuse across that boundary —
+                            together. It can fuse across that boundary,
                             collapsing both into a single WGSL kernel that a
                             backend-aware scheduler would never produce.
                         </p>
@@ -1374,7 +1386,7 @@
                     The <code>tensor/npy</code> and
                     <code>tensor/safetensors</code> packages load
                     <code>.npy</code>/<code>.npz</code> arrays and read/write
-                    <code>.safetensors</code> checkpoints in pure Go — no Python
+                    <code>.safetensors</code> checkpoints in pure Go. No Python
                     dependency at runtime.
                 </p>
 
@@ -1446,9 +1458,9 @@
                     No shortcuts.
                 </h2>
                 <p class="sec-body" data-i18n="phil.body">
-                    The graph-rewrite approach to tensor compilation is proven.
+                    The graph-rewrite approach to ML compilation is proven.
                     Anneal's contribution is rigor, ergonomics, and a visualizer
-                    that shows you what the compiler is actually doing —
+                    that shows you what the compiler is actually doing,
                     compiled to WASM, running in your browser, not a mock.
                 </p>
 
@@ -1460,7 +1472,7 @@
                         <p class="phil-body" data-i18n="phil.ir.b">
                             UOps are interned, arena-allocated, and never
                             mutated. Every rewrite produces a new node.
-                            Structural equality is identity equality — no deep
+                            Structural equality is identity equality. No deep
                             comparisons in hot paths, no GC pressure from
                             temporary objects.
                         </p>
@@ -1495,7 +1507,7 @@
                         <p class="phil-body" data-i18n-html="phil.go.b">
                             Strict typing. <code>gofmt</code> clean. The WASM
                             build of the compiler frontend is the same binary as
-                            the CLI — so the visualizer and the trainer are
+                            the CLI, so the visualizer and the trainer are
                             always in sync, by construction.
                         </p>
                     </div>
@@ -1510,7 +1522,7 @@
                 <a
                     class="gb-link"
                     href="https://georgebuilds.github.io/"
-                    aria-label="georgebuilds — home"
+                    aria-label="georgebuilds: home"
                 >
                     <span class="gb-abbr">gb</span
                     ><span class="gb-full">georgebuilds</span>
@@ -1567,24 +1579,28 @@
                         "lang.label": "Switch to Spanish",
                         "theme.to-light": "Switch to light mode",
                         "theme.to-dark": "Switch to dark mode",
-                        "page.title": "anneal — autodiff is a compiler pass",
-                        "hero.tagline": "Autodiff is a compiler pass.",
-                        "hero.disambig": "a Go tensor compiler",
+                        "page.title": "anneal: a machine learning compiler in Go",
+                        "hero.headline":
+                            "Anneal is a machine learning compiler written in Go.",
+                        "hero.subhead":
+                            "It compiles neural networks into GPU code, with reverse-mode autodiff built in.",
+                        "hero.secondary":
+                            "Autodiff is a compiler pass over the same graph as the forward computation, so it fuses forward and backward work into the same GPU kernels.",
                         "install.copy": "copy",
                         "install.copied": "copied",
                         "arch.label": "how it works",
                         "arch.heading": "One graph, fully fused.",
                         "arch.body":
-                            "Autodiff and optimization are first-class compiler passes over one immutable UOp IR — not runtime hooks bolted onto a separate tape. Per-op gradient rules are dispatched through a drift-checked ruleset, producing a uniform, fusible backward graph. The scheduler sees the whole computation, forward and backward together, and fuses across that boundary as a natural consequence.",
+                            "Autodiff and optimization are first-class compiler passes over one immutable UOp IR, not runtime hooks bolted onto a separate tape. Per-op gradient rules are dispatched through a drift-checked ruleset, producing a uniform, fusible backward graph. The scheduler sees the whole computation, forward and backward together, and fuses across that boundary as a natural consequence.",
                         "leg.teal":
-                            "<strong>teal</strong> — forward pass (solid)",
+                            "<strong>teal</strong>:forward pass (solid)",
                         "leg.ember":
-                            "<strong>ember</strong> — backward pass (dashed)",
-                        "leg.gold": "<strong>gold</strong> — fused kernel",
+                            "<strong>ember</strong>:backward pass (dashed)",
+                        "leg.gold": "<strong>gold</strong>:fused kernel",
                         "card.fwd.tag": "forward pass",
                         "card.fwd.title": "An immutable UOp DAG",
                         "card.fwd.body":
-                            "Every operation is a node in a shared arena — interned, never mutated. Rewrites produce new nodes. Structural equality is identity equality; no deep comparisons in hot paths.",
+                            "Every operation is a node in a shared arena, interned, never mutated. Rewrites produce new nodes. Structural equality is identity equality; no deep comparisons in hot paths.",
                         "card.bwd.tag": "backward pass",
                         "card.bwd.title": "Autodiff as a compiler pass",
                         "card.bwd.body":
@@ -1592,7 +1608,7 @@
                         "card.fsd.tag": "fused kernel",
                         "card.fsd.title": "Fusion across the boundary",
                         "card.fsd.body":
-                            "The rangeify scheduler sees forward and backward together. It can fuse across that boundary — collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
+                            "The rangeify scheduler sees forward and backward together. It can fuse across that boundary, collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
                         "card.rt.tag": "runtime",
                         "card.rt.title":
                             "Symbolic shapes, JIT, f16/bf16 support",
@@ -1621,14 +1637,14 @@
                             "trace the rewrite rules that fire for one op",
                         "cli.doctor": "WebGPU / backend environment check",
                         "cli.interop":
-                            "The <code>tensor/npy</code> and <code>tensor/safetensors</code> packages load <code>.npy</code>/<code>.npz</code> arrays and read/write <code>.safetensors</code> checkpoints in pure Go — no Python dependency at runtime.",
+                            "The <code>tensor/npy</code> and <code>tensor/safetensors</code> packages load <code>.npy</code>/<code>.npz</code> arrays and read/write <code>.safetensors</code> checkpoints in pure Go. No Python dependency at runtime.",
                         "phil.label": "design",
                         "phil.heading": "No shortcuts.",
                         "phil.body":
-                            "The graph-rewrite approach to tensor compilation is proven. Anneal's contribution is rigor, ergonomics, and a visualizer that shows you what the compiler is actually doing — compiled to WASM, running in your browser, not a mock.",
+                            "The graph-rewrite approach to ML compilation is proven. Anneal's contribution is rigor, ergonomics, and a visualizer that shows you what the compiler is actually doing, compiled to WASM, running in your browser, not a mock.",
                         "phil.ir.h": "One immutable IR",
                         "phil.ir.b":
-                            "UOps are interned, arena-allocated, and never mutated. Every rewrite produces a new node. Structural equality is identity equality — no deep comparisons in hot paths, no GC pressure from temporary objects.",
+                            "UOps are interned, arena-allocated, and never mutated. Every rewrite produces a new node. Structural equality is identity equality. No deep comparisons in hot paths, no GC pressure from temporary objects.",
                         "phil.refl.h": "No reflection in the rewrite path",
                         "phil.refl.b":
                             "A hard invariant. Pattern matching against the IR uses typed accessors, not runtime introspection. The hot path stays predictable, verifiable, and fast.",
@@ -1637,7 +1653,7 @@
                             "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. JSON output carries per-node rule attribution. The marketing artifact and the integration test for the rewrite path are the same artifact.",
                         "phil.go.h": "Written in Go",
                         "phil.go.b":
-                            "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI — so the visualizer and the trainer are always in sync, by construction.",
+                            "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI, so the visualizer and the trainer are always in sync, by construction.",
                         "footer.v": "v0.1 · agpl-3.0",
                     },
                     es: {
@@ -1649,24 +1665,28 @@
                         "theme.to-light": "Cambiar a modo claro",
                         "theme.to-dark": "Cambiar a modo oscuro",
                         "page.title":
-                            "anneal — el autodiff es una pasada de compilador",
-                        "hero.tagline": "El autodiff es una pasada de compilador.",
-                        "hero.disambig": "un compilador de tensores en Go",
+                            "anneal: un compilador de machine learning en Go",
+                        "hero.headline":
+                            "Anneal es un compilador de machine learning escrito en Go.",
+                        "hero.subhead":
+                            "Compila redes neuronales a código GPU, con autodiff de modo inverso incorporado.",
+                        "hero.secondary":
+                            "El autodiff es una pasada de compilador sobre el mismo grafo que la computación directa, por lo que fusiona el trabajo directo e inverso en los mismos kernels GPU.",
                         "install.copy": "copiar",
                         "install.copied": "copiado",
                         "arch.label": "cómo funciona",
                         "arch.heading": "Un grafo, completamente fusionado.",
                         "arch.body":
-                            "El autodiff y la optimización son pasadas de compilador de primera clase sobre un IR UOp inmutable — no hooks en tiempo de ejecución sobre una cinta separada. Las reglas de gradiente se despachan a través de un ruleset con verificación de deriva, produciendo un grafo de retroceso uniforme y fusible. El planificador ve toda la computación, hacia adelante y hacia atrás juntas, y fusiona a través de ese límite de forma natural.",
+                            "El autodiff y la optimización son pasadas de compilador de primera clase sobre un IR UOp inmutable, no hooks en tiempo de ejecución sobre una cinta separada. Las reglas de gradiente se despachan a través de un ruleset con verificación de deriva, produciendo un grafo de retroceso uniforme y fusible. El planificador ve toda la computación, hacia adelante y hacia atrás juntas, y fusiona a través de ese límite de forma natural.",
                         "leg.teal":
-                            "<strong>teal</strong> — pasada hacia adelante (sólida)",
+                            "<strong>teal</strong>:pasada hacia adelante (sólida)",
                         "leg.ember":
-                            "<strong>ember</strong> — pasada hacia atrás (discontinua)",
-                        "leg.gold": "<strong>gold</strong> — kernel fusionado",
+                            "<strong>ember</strong>:pasada hacia atrás (discontinua)",
+                        "leg.gold": "<strong>gold</strong>:kernel fusionado",
                         "card.fwd.tag": "pasada hacia adelante",
                         "card.fwd.title": "Un DAG de UOps inmutable",
                         "card.fwd.body":
-                            "Cada operación es un nodo en una arena compartida — internado, nunca mutado. Las reescrituras producen nuevos nodos. La igualdad estructural es igualdad de identidad; sin comparaciones profundas en rutas críticas.",
+                            "Cada operación es un nodo en una arena compartida, internado, nunca mutado. Las reescrituras producen nuevos nodos. La igualdad estructural es igualdad de identidad; sin comparaciones profundas en rutas críticas.",
                         "card.bwd.tag": "pasada hacia atrás",
                         "card.bwd.title": "Autodiff como pasada de compilador",
                         "card.bwd.body":
@@ -1674,7 +1694,7 @@
                         "card.fsd.tag": "kernel fusionado",
                         "card.fsd.title": "Fusión a través del límite",
                         "card.fsd.body":
-                            "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite — colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
+                            "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite, colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
                         "card.rt.tag": "tiempo de ejecución",
                         "card.rt.title":
                             "Formas simbólicas, JIT, soporte f16/bf16",
@@ -1697,14 +1717,14 @@
                         "cli.doctor":
                             "verificación del entorno WebGPU / backend",
                         "cli.interop":
-                            "Los paquetes <code>tensor/npy</code> y <code>tensor/safetensors</code> cargan arrays <code>.npy</code>/<code>.npz</code> y leen/escriben checkpoints <code>.safetensors</code> en Go puro — sin dependencia de Python en tiempo de ejecución.",
+                            "Los paquetes <code>tensor/npy</code> y <code>tensor/safetensors</code> cargan arrays <code>.npy</code>/<code>.npz</code> y leen/escriben checkpoints <code>.safetensors</code> en Go puro. Sin dependencia de Python en tiempo de ejecución.",
                         "phil.label": "diseño",
                         "phil.heading": "Sin atajos.",
                         "phil.body":
-                            "El enfoque de reescritura de grafos para la compilación de tensores está probado. La contribución de Anneal es el rigor, la ergonomía y un visualizador que muestra exactamente lo que el compilador está haciendo — compilado a WASM, ejecutándose en tu navegador, sin maquetas.",
+                            "El enfoque de reescritura de grafos para la compilación de ML está probado. La contribución de Anneal es el rigor, la ergonomía y un visualizador que muestra exactamente lo que el compilador está haciendo, compilado a WASM, ejecutándose en tu navegador, sin maquetas.",
                         "phil.ir.h": "Un IR inmutable",
                         "phil.ir.b":
-                            "Los UOps están internados, asignados en arena, y nunca mutados. Cada reescritura produce un nuevo nodo. La igualdad estructural es igualdad de identidad — sin comparaciones profundas en rutas críticas, sin presión de GC por objetos temporales.",
+                            "Los UOps están internados, asignados en arena, y nunca mutados. Cada reescritura produce un nuevo nodo. La igualdad estructural es igualdad de identidad. Sin comparaciones profundas en rutas críticas, sin presión de GC por objetos temporales.",
                         "phil.refl.h":
                             "Sin reflexión en la ruta de reescritura",
                         "phil.refl.b":
@@ -1715,7 +1735,7 @@
                             "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. La salida JSON incluye atribución de reglas por nodo. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto.",
                         "phil.go.h": "Escrito en Go",
                         "phil.go.b":
-                            "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI — por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
+                            "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI, por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
                         "footer.v": "v0.1 · agpl-3.0",
                     },
                 };
@@ -1934,8 +1954,9 @@
 
                 [
                     "js-wordmark",
-                    "js-tagline",
-                    "js-disambig",
+                    "js-headline",
+                    "js-subhead",
+                    "js-secondary",
                     "js-install",
                 ].forEach(function (id) {
                     document.getElementById(id).classList.add("visible");
