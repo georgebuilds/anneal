@@ -1234,7 +1234,7 @@
                         </p>
                     </div>
                     <div class="arch-card">
-                        <div class="card-tag gold" data-i18n="card.rt.tag">
+                        <div class="card-tag" data-i18n="card.rt.tag">
                             runtime
                         </div>
                         <div class="card-title" data-i18n="card.rt.title">
@@ -1252,6 +1252,38 @@
                             BEAM search finds the best opt sequence per kernel
                             and caches results to disk (ANNEAL_BEAM=1 to
                             search; default is zero-overhead cache lookup).
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag" data-i18n="card.rwt.tag">
+                            rewrite engine
+                        </div>
+                        <div class="card-title" data-i18n="card.rwt.title">
+                            An iterative fixpoint driver
+                        </div>
+                        <p class="card-body" data-i18n="card.rwt.body">
+                            The rewrite engine runs to a fixpoint iteratively,
+                            not recursively, so deep graphs that exhaust the
+                            stack on the upstream recursive driver compile
+                            cleanly here. Rules are <code>.upat</code> patterns
+                            compiled to match functions at build time. No
+                            reflection on the hot path.
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag" data-i18n="card.iop.tag">
+                            interop
+                        </div>
+                        <div class="card-title" data-i18n="card.iop.title">
+                            Bring your own weights
+                        </div>
+                        <p class="card-body" data-i18n="card.iop.body">
+                            Read and write <code>safetensors</code> and
+                            <code>.npy</code>/<code>.npz</code> bidirectionally,
+                            in pure Go. Load a checkpoint, train or run it,
+                            export it back. The whole stack is zero-CGO: no C
+                            toolchain in the build, and it runs on Metal today
+                            through WebGPU.
                         </p>
                     </div>
                 </div>
@@ -1566,6 +1598,14 @@
                             "Symbolic shapes, JIT, f16/bf16 support",
                         "card.rt.body":
                             "Symbolic shapes: a kernel compiles once and runs at any batch size, and the seam extends to split/merge a symbolic axis, symbolic pad/shrink amounts, and multi-dim symbolic dispatch. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key. Kernel autotuning via BEAM search finds the best opt sequence per kernel and caches results to disk (ANNEAL_BEAM=1 to search; default is zero-overhead cache lookup).",
+                        "card.rwt.tag": "rewrite engine",
+                        "card.rwt.title": "An iterative fixpoint driver",
+                        "card.rwt.body":
+                            "The rewrite engine runs to a fixpoint iteratively, not recursively, so deep graphs that exhaust the stack on the upstream recursive driver compile cleanly here. Rules are .upat patterns compiled to match functions at build time. No reflection on the hot path.",
+                        "card.iop.tag": "interop",
+                        "card.iop.title": "Bring your own weights",
+                        "card.iop.body":
+                            "Read and write safetensors and .npy/.npz bidirectionally, in pure Go. Load a checkpoint, train or run it, export it back. The whole stack is zero-CGO: no C toolchain in the build, and it runs on Metal today through WebGPU.",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
