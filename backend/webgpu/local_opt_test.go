@@ -206,7 +206,7 @@ func TestB1_Timing_Matmul_Local(t *testing.T) {
 func uniformData(n int, seed float32) []float32 {
 	d := make([]float32, n)
 	for i := range d {
-		d[i] = float32(i) * 0.1 + seed
+		d[i] = float32(i)*0.1 + seed
 	}
 	return d
 }

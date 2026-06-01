@@ -501,10 +501,10 @@ func TestF16Conversion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := f.Write(raw); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	tensors, err := safetensors.LoadTensors(f.Name())
 	if err != nil {
@@ -560,11 +560,17 @@ func TestError_UnsupportedDtype(t *testing.T) {
 	}
 	copy(raw[8:], hdrB)
 
-	f, _ := os.CreateTemp(t.TempDir(), "f8_*.safetensors")
-	f.Write(raw)
-	f.Close()
+	f, err := os.CreateTemp(t.TempDir(), "f8_*.safetensors")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	_ = f.Close()
 
-	_, err := safetensors.LoadTensors(f.Name())
+	_, err = safetensors.LoadTensors(f.Name())
 	if err == nil {
 		t.Fatal("expected error for unsupported dtype F8_E4M3, got nil")
 	}
@@ -603,7 +609,9 @@ func TestError_MissingTensor(t *testing.T) {
 	w := nn.NewParameter(a, []int64{4}, uop.Dtypes.Float32, "cpu")
 
 	path := t.TempDir() + "/ckpt.safetensors"
-	safetensors.Save(path, map[string]*nn.Parameter{"w": w})
+	if err := safetensors.Save(path, map[string]*nn.Parameter{"w": w}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Load into a map containing a key not in the file.
 	a2 := newArena()
@@ -626,7 +634,9 @@ func TestSave_OutputAlwaysF32(t *testing.T) {
 	p.Value = []float32{1, 2, 3}
 
 	path := t.TempDir() + "/f32only.safetensors"
-	safetensors.Save(path, map[string]*nn.Parameter{"p": p})
+	if err := safetensors.Save(path, map[string]*nn.Parameter{"p": p}); err != nil {
+		t.Fatal(err)
+	}
 
 	tensors, _ := safetensors.LoadTensors(path)
 	// Raw file verification: parse header, check "dtype":"F32"

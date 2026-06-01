@@ -180,10 +180,10 @@ func (l *Linear) Params() []*Parameter {
 // Stride=1, dilation=1 only in v1 (strided sampling requires the Phase 7 pool
 // primitive for a non-materialized sliding-window view).
 type Conv2d struct {
-	Weight  *Parameter
-	Bias    *Parameter // nil if useBias=false
-	Stride  [2]int
-	Pad     [2]int
+	Weight *Parameter
+	Bias   *Parameter // nil if useBias=false
+	Stride [2]int
+	Pad    [2]int
 }
 
 // NewConv2d constructs a Conv2d layer.
@@ -242,8 +242,8 @@ func (c *Conv2d) Forward(x *tensor.Tensor) *tensor.Tensor {
 		padded = x
 	}
 
-	K := Cin * kH * kW   // total kernel elements; im2col column count
-	HoWo := Ho * Wo      // output spatial positions; im2col row count per sample
+	K := Cin * kH * kW // total kernel elements; im2col column count
+	HoWo := Ho * Wo    // output spatial positions; im2col row count per sample
 
 	// Assemble im2col [N, Ho*Wo, K] by placing each patch at its column via Pad.
 	// im2col[n, ho*Wo+wo, k] = padded[n, c_k, ho+kh, wo+kw]
@@ -317,14 +317,16 @@ func (c *Conv2d) Params() []*Parameter {
 // Output shape: [N, C, (H-kH)/sH+1, (W-kW)/sW+1].
 //
 // When kH ≤ sH AND kW ≤ sW (non-overlapping or stride ≥ kernel):
-//   Rangeify decomposition — shrink/reshape/permute/flatten the window then
-//   ReduceAxis(OpMax) over the window axis. Backward tie policy: split equally
-//   (each tied max position receives adj/tieCount), matching ReduceAxis(OpMax)
-//   and tinygrad — SPEC §10 canonical policy.
+//
+//	Rangeify decomposition — shrink/reshape/permute/flatten the window then
+//	ReduceAxis(OpMax) over the window axis. Backward tie policy: split equally
+//	(each tied max position receives adj/tieCount), matching ReduceAxis(OpMax)
+//	and tinygrad — SPEC §10 canonical policy.
 //
 // When kH > sH OR kW > sW (overlapping):
-//   Binary Maximum chain over kH×kW kernel offsets.
-//   Backward tie policy: winner-take-all (first position wins).
+//
+//	Binary Maximum chain over kH×kW kernel offsets.
+//	Backward tie policy: winner-take-all (first position wins).
 func MaxPool2D(x *tensor.Tensor, kH, kW, sH, sW int64) *tensor.Tensor {
 	if x.Rank() != 4 {
 		panic(fmt.Sprintf("MaxPool2D: input must be rank 4, got rank %d", x.Rank()))

@@ -109,7 +109,7 @@ func NewSymbolicBatchInput(a *uop.Arena, name string, min, max int64, innerShape
 	for i, s := range innerShape {
 		arg[i+1] = uop.ShapeDim{V: s}
 	}
-	node := a.New(uop.OpBuffer, dtype, []uop.UOp{defVar}, uop.ShapeSintArg(arg), nil)
+	node := a.New(uop.OpBuffer, dtype, []uop.UOp{defVar}, arg, nil)
 	sh := make([]shape.Sint, 1+len(innerShape))
 	sh[0] = shape.SymInt{Node: defVar}
 	for i, s := range innerShape {

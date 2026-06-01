@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples"
 	"github.com/georgebuilds/anneal/tensor"
@@ -18,6 +19,7 @@ func trainCmd(args []string) int {
 	return trainCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func trainCmdW(args []string, w io.Writer) int {
 	// Metal NSAutoreleasePool is thread-local; pin this goroutine to its OS
 	// thread so pool create and drain always happen on the same thread.

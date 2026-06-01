@@ -35,7 +35,6 @@ func TestFloat32ToFloat16_Adversarial(t *testing.T) {
 		{"just below subnormal threshold", 0x387fe000, 0x0400}, // 2^-14 - epsilon (exactly halfway, round to even)
 		{"underflow to zero", 0x33000000, 0x0000},
 
-
 		// 4. Overflow
 		{"above max finite (rounds up to Inf)", 0x477FF000, 0x7C00},
 		{"large overflow", 0x501502F9, 0x7C00},

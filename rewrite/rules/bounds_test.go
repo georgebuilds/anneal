@@ -384,8 +384,8 @@ func TestBoundsOfCastInvalid(t *testing.T) {
 func TestBoundsOfComposed(t *testing.T) {
 	// add(mul(DefineVar([1,1024]), 4), 3) → [7, 4099]
 	a := arena()
-	v := dv(a, 1, 1025)        // [1,1024]
-	m := mul(a, v, ci(a, 4))   // [4,4096]
+	v := dv(a, 1, 1025)           // [1,1024]
+	m := mul(a, v, ci(a, 4))      // [4,4096]
 	result := add(a, m, ci(a, 3)) // [7,4099]
 	checkBounds(t, rules.BoundsOf(result), true, 7, 4099)
 }
@@ -406,14 +406,14 @@ func TestBoundsOfFiveOps_Slice6(t *testing.T) {
 	}{
 		// Add(a, b): {a.min+b.min, a.max+b.max}.
 		{"Add bounded both", func(a *uop.Arena) uop.UOp {
-			x := dv(a, 0, 6)   // [0,5]
-			y := dv(a, 2, 11)  // [2,10]
+			x := dv(a, 0, 6)  // [0,5]
+			y := dv(a, 2, 11) // [2,10]
 			return add(a, x, y)
 		}, 2, 15},
 		// Sub(a, b): {a.min-b.max, a.max-b.min}.
 		{"Sub bounded both", func(a *uop.Arena) uop.UOp {
-			x := dv(a, 0, 11)  // [0,10]
-			y := dv(a, 2, 6)   // [2,5]
+			x := dv(a, 0, 11) // [0,10]
+			y := dv(a, 2, 6)  // [2,5]
 			return sub(a, x, y)
 		}, -5, 8},
 		// Mul(a, b) non-negative range matrix: 4-corner gives {min*min, max*max}.

@@ -234,8 +234,8 @@ func TestInterningChain(t *testing.T) {
 	if root1 != root2 {
 		t.Error("same chain built twice must be the same UOp")
 	}
-	if a.Len() != 4 { // c1, c2, c3, inner, root — wait, 5 unique nodes
-		// actually: c1, c2, inner, c3, root = 5
+	if a.Len() != 5 { // c1, c2, c3, inner, root: roots intern to one node
+		t.Errorf("arena Len = %d, want 5", a.Len())
 	}
 	_ = root1
 }
@@ -355,7 +355,7 @@ func TestArgTypesCover(t *testing.T) {
 
 	args := []any{
 		nil,
-		int64(0), int64(1), int64(-1), int64(1<<32), int64(-1 << 32),
+		int64(0), int64(1), int64(-1), int64(1 << 32), int64(-1 << 32),
 		float64(0.0), float64(1.5), float64(-1.5),
 		true, false,
 		"", "hello", "world",

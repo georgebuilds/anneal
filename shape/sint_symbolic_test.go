@@ -93,8 +93,8 @@ func TestSymbolicEqualsConcreteOracle(t *testing.T) {
 	// Each case: build the expression symbolically, evaluate at each binding,
 	// compare with the concrete expression evaluated directly.
 	cases := []struct {
-		name     string
-		buildSym func(a *uop.Arena, n uop.UOp) uop.UOp
+		name      string
+		buildSym  func(a *uop.Arena, n uop.UOp) uop.UOp
 		buildConc func(a *uop.Arena, val int64) uop.UOp
 	}{
 		{
@@ -306,10 +306,10 @@ func TestSymbolicBoundsContainment(t *testing.T) {
 	bindVals := []int64{1, 7, 8, 64, 1000}
 
 	type exprCase struct {
-		name    string
-		build   func() uop.UOp
-		expMin  int64
-		expMax  int64
+		name   string
+		build  func() uop.UOp
+		expMin int64
+		expMax int64
 	}
 
 	c4 := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(4), nil)
@@ -368,7 +368,7 @@ func TestSymbolicBoundsContainment(t *testing.T) {
 		}
 
 		// Verify containment: every concrete value falls within [b.Min, b.Max].
-		var obsMin, obsMax int64 = 1<<62, -1 << 62
+		var obsMin, obsMax int64 = 1 << 62, -1 << 62
 		for _, val := range bindVals {
 			folded := foldAt(expr, n, val)
 			conc, ok := constI64(folded)

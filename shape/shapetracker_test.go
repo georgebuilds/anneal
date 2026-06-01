@@ -58,9 +58,9 @@ func TestShapeTrackerViewStack(t *testing.T) {
 func TestShapeTrackerMovementChain(t *testing.T) {
 	// transpose → shrink → flip → check FlatIndex
 	st := NewShapeTracker([]int64{4, 6})
-	st = st.Permute([]int{1, 0})                     // (6,4)
-	st = st.Shrink([][2]int64{{1, 5}, {0, 4}})       // (4,4)
-	st = st.Flip([]bool{false, true})                // flip dim-1
+	st = st.Permute([]int{1, 0})               // (6,4)
+	st = st.Shrink([][2]int64{{1, 5}, {0, 4}}) // (4,4)
+	st = st.Flip([]bool{false, true})          // flip dim-1
 
 	v := st.ActiveView()
 	// Original layout: row-major 4×6 (strides 6,1).

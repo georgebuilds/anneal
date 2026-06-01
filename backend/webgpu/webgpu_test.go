@@ -234,7 +234,7 @@ func TestValueOracle_MatMul(t *testing.T) {
 	C := Aexp.Mul(Bexp).Sum([]int{1}, false) // [2,3,2] → [2,2]
 
 	items := makeSchedule(t, "webgpu", C)
-	Adata := []float32{1, 2, 3, 4, 5, 6}   // [[1,2,3],[4,5,6]]
+	Adata := []float32{1, 2, 3, 4, 5, 6}    // [[1,2,3],[4,5,6]]
 	Bdata := []float32{7, 8, 9, 10, 11, 12} // [[7,8],[9,10],[11,12]]
 	inputs := map[uint32][]float32{
 		A.Node().Index(): Adata,

@@ -1,0 +1,17 @@
+?   	github.com/georgebuilds/anneal/backend	[no test files]
+ok  	github.com/georgebuilds/anneal/backend/webgpu	116.830s
+ok  	github.com/georgebuilds/anneal/cmd/anneal	0.337s
+ok  	github.com/georgebuilds/anneal/codegen	0.587s
+?   	github.com/georgebuilds/anneal/examples	[no test files]
+ok  	github.com/georgebuilds/anneal/rewrite	(cached)
+?   	github.com/georgebuilds/anneal/rewrite/gen	[no test files]
+ok  	github.com/georgebuilds/anneal/rewrite/rules	0.401s
+ok  	github.com/georgebuilds/anneal/schedule	1.081s
+ok  	github.com/georgebuilds/anneal/shape	0.960s
+ok  	github.com/georgebuilds/anneal/tensor	57.572s
+ok  	github.com/georgebuilds/anneal/tensor/nn	160.348s
+ok  	github.com/georgebuilds/anneal/tensor/npy	1.167s
+ok  	github.com/georgebuilds/anneal/tensor/safetensors	1.323s
+ok  	github.com/georgebuilds/anneal/tui	1.312s
+ok  	github.com/georgebuilds/anneal/uop	1.122s
+ok  	github.com/georgebuilds/anneal/viz	1.219s

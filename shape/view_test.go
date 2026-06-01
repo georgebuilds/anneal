@@ -558,7 +558,7 @@ func TestComposedOpChain(t *testing.T) {
 
 	idxs := []struct {
 		i, j int64
-		want  int64
+		want int64
 	}{
 		{0, 0, 0},
 		{1, 0, 1},

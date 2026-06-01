@@ -19,7 +19,7 @@ import (
 // kernelEval holds per-evaluation state: current RANGE variable bindings and
 // the flat float32 data for every BUFFER in scope.
 type kernelEval struct {
-	rangeVal map[uint32]int64   // range node index → current iteration value
+	rangeVal map[uint32]int64 // range node index → current iteration value
 	bufData  map[uint32][]float32
 	bufShape map[uint32][]int64
 }
@@ -755,7 +755,7 @@ func TestKernel_ReduceOfPermuted(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{3, 4}, uop.Dtypes.Float32, "cpu")
 	y := x.Permute([]int{1, 0}) // [4, 3]
-	z := y.Sum([]int{0}, false)  // [3]
+	z := y.Sum([]int{0}, false) // [3]
 
 	sink := makeSink(a, z)
 	result := schedule.GetKernelGraph(sink, "cpu")
@@ -780,9 +780,10 @@ func TestKernel_ReduceOfPermuted(t *testing.T) {
 				continue
 			}
 			if ra, ok := r.Arg().(uop.RangeArg); ok {
-				if ra.Type == uop.AxisLoop {
+				switch ra.Type {
+				case uop.AxisLoop:
 					loopCount++
-				} else if ra.Type == uop.AxisReduce {
+				case uop.AxisReduce:
 					reduceCount++
 				}
 			}
@@ -1141,7 +1142,7 @@ func TestCreateSchedule_MemoryPlanner_NoOverlap(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "cpu")
 	// Chain of 3 reduces to force 3 kernels.
-	y := x.Sum([]int{0}, false)                            // scalar — kernel 0
+	y := x.Sum([]int{0}, false)                           // scalar — kernel 0
 	y2 := y.Reshape([]int64{1}).Expand([]int64{8}).Exp2() // [8] — fuses, 1 kernel
 	z := y2.Sum([]int{0}, false)                          // scalar — kernel 1
 

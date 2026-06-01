@@ -219,9 +219,9 @@ func SintMin(a, b Sint) Sint {
 
 // Sint comparisons — panic for symbolic operands (SPEC §6.4 fence).
 
-func Eq(a, b Sint) bool    { return cv(a) == cv(b) }
-func Lt(a, b Sint) bool    { return cv(a) < cv(b) }
-func Le(a, b Sint) bool    { return cv(a) <= cv(b) }
+func Eq(a, b Sint) bool        { return cv(a) == cv(b) }
+func Lt(a, b Sint) bool        { return cv(a) < cv(b) }
+func Le(a, b Sint) bool        { return cv(a) <= cv(b) }
 func EqI(a Sint, b int64) bool { return cv(a) == b }
 
 // ── Bounds predicates (Option B Slice 5) ──────────────────────────────────────

@@ -115,7 +115,7 @@ func TestCrossArenaStructuralKeyMulDistinct(t *testing.T) {
 
 	keys := uop.StructuralKeys(a)
 	if keys[sinkBare.Index()] == keys[sinkMul4.Index()] {
-		t.Fatalf("Mul=1 and Mul=4 produced identical structural keys — "+
+		t.Fatalf("Mul=1 and Mul=4 produced identical structural keys — " +
 			"multiplier dropped from the structural key")
 	}
 }

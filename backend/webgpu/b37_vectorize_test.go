@@ -14,8 +14,9 @@ import (
 // b37Opts returns the canonical B3.7 pipeline: OptLocal×2 + OptTile + OptUpcast×2 + OptVectorize.
 // axis=1 targets N_loc (the innermost N-local axis, stride-1 in B and C).
 // After the two OptUpcasts, the eligible non-reduce, non-upcast-partnered ranges are:
-//   idx=0: M_loc (AxisLocal, M direction)
-//   idx=1: N_loc (AxisLocal, N direction ← stride-1 ✓)
+//
+//	idx=0: M_loc (AxisLocal, M direction)
+//	idx=1: N_loc (AxisLocal, N direction ← stride-1 ✓)
 func b37Opts(TS, MR, NR, W int) []codegen.Opt {
 	return append(b3Opts(TS, MR, NR),
 		codegen.Opt{Kind: codegen.OptVectorize, Axis: 1, Arg: W})

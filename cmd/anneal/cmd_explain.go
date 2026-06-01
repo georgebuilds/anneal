@@ -11,6 +11,7 @@ func explainCmd(args []string) int {
 	return explainCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func explainCmdW(args []string, w io.Writer) int {
 	_, rest, err := parseFlags("explain", args)
 	if err != nil {

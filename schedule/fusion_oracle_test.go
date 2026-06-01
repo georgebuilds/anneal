@@ -22,7 +22,7 @@ func TestFusionOracle(t *testing.T) {
 	tensor.DefaultExecutor = dev
 
 	cases := []struct {
-		name string
+		name  string
 		build func(a *uop.Arena) *tensor.Tensor
 	}{
 		{
@@ -168,7 +168,7 @@ func TestFusionOracleGradients(t *testing.T) {
 	fillParam(mOff.l1.Bias, 43)
 	fillParam(mOff.l2.Weight, 44)
 	fillParam(mOff.l2.Bias, 45)
-	
+
 	gradsOff := getMLPGradients(t, aOff, mOff, xData, yData)
 
 	// 2. Run with fusion ON
@@ -179,7 +179,7 @@ func TestFusionOracleGradients(t *testing.T) {
 	fillParam(mOn.l1.Bias, 43)
 	fillParam(mOn.l2.Weight, 44)
 	fillParam(mOn.l2.Bias, 45)
-	
+
 	gradsOn := getMLPGradients(t, aOn, mOn, xData, yData)
 
 	// 3. Compare

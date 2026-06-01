@@ -121,7 +121,7 @@ func (t *Tensor) Matmul(other *Tensor) *Tensor {
 	if len(bSints) == 1 {
 		bv, ok := bSints[0].ConstValue()
 		if !ok || bv != Kv {
-			panic(fmt.Sprintf("tensor: Matmul: vector dim mismatch"))
+			panic("tensor: Matmul: vector dim mismatch")
 		}
 		b := BroadcastToSints(other, aSints)
 		prod := t.Mul(b)
@@ -137,7 +137,7 @@ func (t *Tensor) Matmul(other *Tensor) *Tensor {
 	kDimS := bSints[len(bSints)-2]
 	kDimV, ok := kDimS.ConstValue()
 	if !ok || kDimV != Kv {
-		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch"))
+		panic("tensor: Matmul: inner dim mismatch")
 	}
 
 	// Unsqueeze A: [..., M, K] → [..., M, K, 1]

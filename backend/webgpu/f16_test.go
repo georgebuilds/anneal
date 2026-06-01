@@ -70,7 +70,7 @@ func f16RoundTrip(v float32) float32 {
 	case 31:
 		bits32 = sign32 | 0x7F800000 | (frac16 << 13)
 	default:
-		bits32 = sign32 | ((exp16+112)<<23) | (frac16 << 13)
+		bits32 = sign32 | ((exp16 + 112) << 23) | (frac16 << 13)
 	}
 	return math.Float32frombits(bits32)
 }

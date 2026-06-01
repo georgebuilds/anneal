@@ -155,8 +155,9 @@ func jitRunStep(
 
 // TestJITReplayMatchesNonJIT runs an MLP training loop for 10 steps.
 // Each step computes the same gradient via two paths:
-//   (a) JIT path (one JIT handle per parameter gradient)
-//   (b) Normal tensor.Realize path
+//
+//	(a) JIT path (one JIT handle per parameter gradient)
+//	(b) Normal tensor.Realize path
 //
 // Both models start from identical weights.  After each step the gradient data
 // from both paths must be bit-identical (max-abs-diff == 0).  Identical
@@ -302,9 +303,10 @@ func sumJITStats(jits []*tensor.JIT) (caps, reps int64) {
 
 // TestJITConvergence trains a 2→8→1 MLP on y=x₁²+x₂² for 2000 SGD steps via
 // the JIT path (one JIT per parameter gradient) and verifies:
-//   (a) loss ratio < 0.03 (same threshold as TestMLPConvergence)
-//   (b) Pearson r(pred, true) > 0.97
-//   (c) total captures == nParams (one capture per param); all other calls replay
+//
+//	(a) loss ratio < 0.03 (same threshold as TestMLPConvergence)
+//	(b) Pearson r(pred, true) > 0.97
+//	(c) total captures == nParams (one capture per param); all other calls replay
 //
 // These metrics confirm that JIT replay correctly picks up weight updates at
 // every step — a silent stale-weight bug would prevent convergence.
@@ -451,7 +453,11 @@ func pearsonJIT(x, y []float32) float32 {
 	n := float32(len(x))
 	var sx, sy, sxx, syy, sxy float32
 	for i := range x {
-		sx += x[i]; sy += y[i]; sxx += x[i] * x[i]; syy += y[i] * y[i]; sxy += x[i] * y[i]
+		sx += x[i]
+		sy += y[i]
+		sxx += x[i] * x[i]
+		syy += y[i] * y[i]
+		sxy += x[i] * y[i]
 	}
 	num := sxy - sx*sy/n
 	den := float32(math.Sqrt(float64((sxx - sx*sx/n) * (syy - sy*sy/n))))

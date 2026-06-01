@@ -12,11 +12,11 @@ type Op int
 const (
 	// ── 1  defines / special ─────────────────────────────────────────────────
 
-	OpDefineVar  Op = iota // pointer to an external (symbolic) variable
-	OpBind                 // binds a DefineVar to a concrete value
-	OpSpecial              // GPU dimension range (akin to a symbolic shape, but not exactly)
-	OpDefineLocal          // threadgroup-local allocation
-	OpDefineReg            // register-level allocation
+	OpDefineVar   Op = iota // pointer to an external (symbolic) variable
+	OpBind                  // binds a DefineVar to a concrete value
+	OpSpecial               // GPU dimension range (akin to a symbolic shape, but not exactly)
+	OpDefineLocal           // threadgroup-local allocation
+	OpDefineReg             // register-level allocation
 
 	// ── 2  non-renderable bookkeeping ────────────────────────────────────────
 
@@ -334,14 +334,14 @@ var (
 		OpCmpLt, OpCmpNe, OpCmpEq,
 		OpXor, OpOr, OpAnd, OpThreeFry, OpSub, OpFDiv, OpPow,
 	)
-	GroupTernary    = newOpSet(OpWhere, OpMulAcc)
-	GroupALU        = unionOpSets(GroupUnary, GroupBinary, GroupTernary)
+	GroupTernary     = newOpSet(OpWhere, OpMulAcc)
+	GroupALU         = unionOpSets(GroupUnary, GroupBinary, GroupTernary)
 	GroupElementwise = unionOpSets(GroupALU, newOpSet(OpCast, OpBitcast))
 
-	GroupDefines    = newOpSet(OpParam, OpDefineLocal, OpDefineReg)
+	GroupDefines     = newOpSet(OpParam, OpDefineLocal, OpDefineReg)
 	GroupIrreducible = newOpSet(OpConst, OpDefineVar, OpSpecial, OpRange)
-	GroupMovement   = newOpSet(OpReshape, OpExpand, OpPermute, OpPad, OpShrink, OpFlip)
-	GroupBuffer     = newOpSet(OpLoad, OpStore, OpConst, OpDefineVar)
+	GroupMovement    = newOpSet(OpReshape, OpExpand, OpPermute, OpPad, OpShrink, OpFlip)
+	GroupBuffer      = newOpSet(OpLoad, OpStore, OpConst, OpDefineVar)
 
 	// Algebraic properties used by symbolic simplification rules.
 	GroupCommutative = newOpSet(OpAdd, OpMul, OpMax, OpCmpNe, OpCmpEq, OpXor, OpAnd, OpOr)

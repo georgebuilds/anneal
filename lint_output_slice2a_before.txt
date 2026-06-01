@@ -1,0 +1,205 @@
+cmd/anneal/cmd_doctor.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_doctor.go:29:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, doctorFailureMsg())
+		          ^
+cmd/anneal/cmd_doctor.go:41:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: %s\n", name)
+	           ^
+cmd/anneal/cmd_doctor.go:42:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "backend: %s\n", backend)
+	           ^
+cmd/anneal/cmd_doctor.go:43:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "shader-f16: %s\n", shaderF16)
+	           ^
+cmd/anneal/cmd_doctor.go:44:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "status: %s\n", bold("ready"))
+	           ^
+cmd/anneal/cmd_explain.go:17:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_explain.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal explain <op>")
+		            ^
+cmd/anneal/cmd_explain.go:23:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "examples: anneal explain add, anneal explain matmul.backward, anneal explain symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:32:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, symbolicOverview())
+		          ^
+cmd/anneal/cmd_explain.go:38:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, matmulExplain())
+		          ^
+cmd/anneal/cmd_explain.go:54:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "op %q not found — try 'anneal explain symbolic' to list all rule groups\n", rest[0])
+		           ^
+cmd/anneal/cmd_explain.go:55:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:56:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "known ops: add, sub, mul, fdiv, neg, exp2, log2, sin, sqrt, reciprocal,")
+		            ^
+cmd/anneal/cmd_explain.go:57:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           where, cast, reduceaxis, reshape, expand, permute, pad, shrink,")
+		            ^
+cmd/anneal/cmd_explain.go:58:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           flip, max, matmul, matmul.backward, symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:78:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "op: %s\n", displayName)
+	           ^
+cmd/anneal/cmd_explain.go:80:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "sources: %s\n", strings.Join(sources, ", "))
+		           ^
+cmd/anneal/cmd_explain.go:82:14: Error return value of `fmt.Fprintln` is not checked (errcheck)
+	fmt.Fprintln(w)
+	            ^
+cmd/anneal/cmd_explain.go:85:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "symbolic rules:")
+		            ^
+cmd/anneal/cmd_explain.go:87:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:89:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_explain.go:93:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "gradient rules:")
+		            ^
+cmd/anneal/cmd_explain.go:95:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:97:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_graph.go:19:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_graph.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal graph <model>")
+		            ^
+cmd/anneal/cmd_graph.go:25:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_graph.go:26:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "available models:")
+		            ^
+cmd/anneal/cmd_graph.go:28:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+			           ^
+cmd/anneal/cmd_graph.go:36:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, formatError(err.Error()))
+		            ^
+cmd/anneal/cmd_graph.go:42:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "build error: %v\n", err)
+		           ^
+cmd/anneal/cmd_graph.go:49:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "graph: %s — %s\n", ex.Name, ex.Summary)
+	           ^
+cmd/anneal/cmd_graph.go:50:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: webgpu\n")
+	           ^
+cmd/anneal/cmd_graph.go:51:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "UOp nodes: %d\n", len(nodes))
+	           ^
+cmd/anneal/cmd_graph.go:52:14: Error return value of `fmt.Fprintln` is not checked (errcheck)
+	fmt.Fprintln(w)
+	            ^
+cmd/anneal/cmd_graph.go:105:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, line)
+		            ^
+cmd/anneal/cmd_kernels.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_kernels.go:27:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal kernels <model>")
+		            ^
+cmd/anneal/cmd_kernels.go:28:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_kernels.go:29:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "available models:")
+		            ^
+cmd/anneal/cmd_kernels.go:31:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+			           ^
+cmd/anneal/cmd_kernels.go:39:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, formatError(err.Error()))
+		            ^
+cmd/anneal/cmd_kernels.go:45:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "build error: %v\n", err)
+		           ^
+cmd/anneal/cmd_kernels.go:54:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "kernels: %s — %s\n", ex.Name, ex.Summary)
+	           ^
+cmd/anneal/cmd_kernels.go:55:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: webgpu\n")
+	           ^
+cmd/anneal/cmd_kernels.go:56:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "kernels: %d\n", len(items))
+	           ^
+tensor/npy/npy.go:56:15: Error return value of `r.Close` is not checked (errcheck)
+	defer r.Close()
+	             ^
+tensor/npy/npy.go:66:11: Error return value of `rc.Close` is not checked (errcheck)
+		rc.Close()
+		        ^
+backend/webgpu/benchmark.go:46:3: ineffectual assignment to ws (ineffassign)
+		ws = item.LocalSize
+		^
+backend/webgpu/symbolic_reshape_test.go:205:4: ineffectual assignment to found (ineffassign)
+			found = true
+			^
+backend/webgpu/benchmark.go:65:3: SA9003: empty branch (staticcheck)
+		if i == 0 {
+		^
+backend/webgpu/executor.go:446:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: %w", werr)
+		            ^
+backend/webgpu/executor.go:449:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: pending map did not resolve after PollWait")
+		            ^
+codegen/lower.go:953:2: QF1002: could use tagged switch on nDims (staticcheck)
+	switch {
+	^
+codegen/opt.go:384:2: SA9003: empty branch (staticcheck)
+	if S%F != 0 {
+	^
+rewrite/gen/main.go:208:3: QF1003: could use tagged switch on ch (staticcheck)
+		if ch == '(' {
+		^
+schedule/index.go:401:10: ST1023: should omit type shape.Sint from declaration; it will be inferred from the right-hand side (staticcheck)
+	var acc shape.Sint = shape.Const(1)
+	        ^
+schedule/schedule_test.go:783:5: QF1003: could use tagged switch on ra.Type (staticcheck)
+				if ra.Type == uop.AxisLoop {
+				^
+shape/view.go:336:2: S1031: unnecessary nil check around range (staticcheck)
+	if mask64 != nil {
+	^
+shape/view.go:341:2: S1031: unnecessary nil check around range (staticcheck)
+	if newMask64 != nil {
+	^
+tensor/reduce.go:124:10: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+			panic(fmt.Sprintf("tensor: Matmul: vector dim mismatch"))
+			      ^
+tensor/reduce.go:140:9: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch"))
+		      ^
+uop/dtype.go:236:9: S1016: should convert d (type DType) to dtypeKey instead of using struct literal (staticcheck)
+	key := dtypeKey{
+	       ^
+uop/dtype.go:605:3: S1011: should replace loop with queue = append(queue, promoLattice[cur]...) (staticcheck)
+		for _, parent := range promoLattice[cur] {
+		^
+uop/uop_test.go:237:2: SA9003: empty branch (staticcheck)
+	if a.Len() != 4 { // c1, c2, c3, inner, root — wait, 5 unique nodes
+	^
+67 issues:
+* errcheck: 50
+* ineffassign: 2
+* staticcheck: 15

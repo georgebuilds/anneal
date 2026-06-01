@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/georgebuilds/anneal/schedule"
 )
 
@@ -58,9 +59,9 @@ const maxSparkHistory = 40
 // New returns an initialized dashboard model.
 func New(cfg Config) Model {
 	return Model{
-		cfg:   cfg,
-		theme: newTheme(),
-		width: 80,
+		cfg:    cfg,
+		theme:  newTheme(),
+		width:  80,
 		height: 24,
 	}
 }
@@ -314,4 +315,3 @@ func sparkline(values []float32, width int) string {
 	}
 	return sb.String()
 }
-

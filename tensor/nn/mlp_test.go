@@ -242,9 +242,10 @@ func TestMLPGradientCheck(t *testing.T) {
 
 // TestMLPConvergence trains a 2→8→1 MLP on y = x1²+x2² for 2000 SGD steps on
 // the Metal device, verifying:
-//   (a) loss reaches a plateau (< 3 % of initial, trajectory logged every 100 steps)
-//   (b) per-input predictions track the true function on 4 training inputs and
-//       2 held-out inputs (Pearson r > 0.97, table printed)
+//
+//	(a) loss reaches a plateau (< 3 % of initial, trajectory logged every 100 steps)
+//	(b) per-input predictions track the true function on 4 training inputs and
+//	    2 held-out inputs (Pearson r > 0.97, table printed)
 //
 // Reference baseline for 9c conv-net training: lr=0.05, nSteps=2000, He init,
 // MSE-mean loss (1/N·Σ(pred−tgt)²), effective per-sample step = lr/N = 0.003125.
@@ -292,8 +293,8 @@ func TestMLPConvergence(t *testing.T) {
 
 	// ── Per-input output table ─────────────────────────────────────────────────
 	type probe struct {
-		x1, x2  float32
-		label   string
+		x1, x2 float32
+		label  string
 	}
 	probes := []probe{
 		{-0.75, -0.75, "train"},

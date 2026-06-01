@@ -115,7 +115,11 @@ func TestC1Elementwise(t *testing.T) {
 	dev := requireDevice(t)
 
 	cases := []struct{ n, m int64 }{{3, 5}, {5, 3}, {7, 11}}
-	type result struct{ n, m int64; maxErr float64; bound string }
+	type result struct {
+		n, m   int64
+		maxErr float64
+		bound  string
+	}
 	var results []result
 
 	for _, c := range cases {
@@ -222,7 +226,12 @@ func TestC2ElementwiseSymInner(t *testing.T) {
 	dev := requireDevice(t)
 
 	cases := []int64{3, 5, 7, 11}
-	type result struct{ n int64; maxErr float64; bound string; rows [][]float32 }
+	type result struct {
+		n      int64
+		maxErr float64
+		bound  string
+		rows   [][]float32
+	}
 	var results []result
 
 	for _, n := range cases {
@@ -391,7 +400,11 @@ func TestC3PadInner(t *testing.T) {
 	dev := requireDevice(t)
 
 	cases := []struct{ n, k int64 }{{3, 2}, {5, 1}, {8, 4}}
-	type result struct{ n, k int64; maxErr float64; bound string }
+	type result struct {
+		n, k   int64
+		maxErr float64
+		bound  string
+	}
 	var results []result
 
 	for _, c := range cases {
@@ -419,7 +432,7 @@ func TestC3PadInner(t *testing.T) {
 		}
 
 		maxErr := 0.0
-		W := int64(4 + c.k)
+		W := 4 + c.k
 		for i := int64(0); i < c.n; i++ {
 			for j := int64(0); j < W; j++ {
 				var want float32
@@ -465,11 +478,12 @@ func TestC3PadInner(t *testing.T) {
 //
 // The permute lands a's symbolic dim non-outermost in the output addressing.
 // loopRanges = [r_4 concrete, rN sym] (output dim order). Per-thread:
-//   r_4 = i, rN = j
-//   load a at a-flat = i + j*4    (i.e. a[j, i] = a[j*4 + i] but the load uses
-//                                   j as inner and i as outer for the source)
-//   load b at b-flat = i*n + j
-//   store at out-flat = i*n + j   (same as b's layout)
+//
+//	r_4 = i, rN = j
+//	load a at a-flat = i + j*4    (i.e. a[j, i] = a[j*4 + i] but the load uses
+//	                                j as inner and i as outer for the source)
+//	load b at b-flat = i*n + j
+//	store at out-flat = i*n + j   (same as b's layout)
 func buildC4Kernel(a *uop.Arena, varN string) schedule.ExecItem {
 	defN := a.DefineVar(varN, 1, 100)
 	r_4 := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{constU(a, 4)}, uop.RangeArg{ID: 0, Type: uop.AxisLoop}, nil)

@@ -205,12 +205,9 @@ func TestReshapeSymbolicWGSLSpotCheck(t *testing.T) {
 			found = true
 			break
 		}
-		if !found {
-			sym = item
-		}
 	}
-	if !sym.Ast.Valid() && sym.WGSL == "" {
-		t.Fatal("no symbolic kernel found")
+	if !found {
+		t.Fatal("no symbolic kernel with SymDimMul[0] != 1 produced (merged-output kernel missing)")
 	}
 
 	wgsl := sym.WGSL

@@ -190,4 +190,3 @@ func hBindFold(c map[string]uop.UOp, _ any) (uop.UOp, bool) {
 	}
 	return node.Arena().New(uop.OpConst, node.DType(), nil, val, nil), true
 }
-

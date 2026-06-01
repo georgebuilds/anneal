@@ -21,6 +21,7 @@ package codegen
 
 import (
 	"fmt"
+
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -380,6 +381,7 @@ func applyUpcast(sink uop.UOp, axisIdx int, factor int) uop.UOp {
 	}
 	F := int64(factor)
 	S := uop.RangeSize(targetRange)
+	//nolint:staticcheck // SA9003: masking stub. Non-matmul AxisUpcast lowering is unimplemented (AxisUpcast outside emitTiledReduce gets exprOf="0", see SPEC carried-boundary and backend/webgpu/diag_test.go); matmul masking is handled per-(mr,nr) in emitTiledReduce.
 	if S%F != 0 {
 		// Padded outer would be ceil(Size/F). Boundary masking on store is
 		// the user's responsibility; for now allow but report once.

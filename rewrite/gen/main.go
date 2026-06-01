@@ -83,7 +83,7 @@ func parseUPat(path string) ([]rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var rules []rule
 	scanner := bufio.NewScanner(f)
@@ -205,9 +205,10 @@ func splitOpsAttrsFromSrcs(inner string) (opsAttrs, rest string, err error) {
 			// Start of first src pattern — everything before is opsAttrs.
 			break
 		}
-		if ch == '(' {
+		switch ch {
+		case '(':
 			depth++
-		} else if ch == ')' {
+		case ')':
 			depth--
 		}
 		i++

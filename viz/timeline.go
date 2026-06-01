@@ -64,9 +64,9 @@ type NodeOverride struct {
 
 // TimelineData is the serialisable payload for the scrub-timeline UI.
 type TimelineData struct {
-	Name   string     `json:"name"`
-	Nodes  []NodeData `json:"nodes"` // union across all stages
-	Edges  []EdgeData `json:"edges"` // union across all stages
+	Name   string      `json:"name"`
+	Nodes  []NodeData  `json:"nodes"` // union across all stages
+	Edges  []EdgeData  `json:"edges"` // union across all stages
 	Stages []StageData `json:"stages"`
 }
 

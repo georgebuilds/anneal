@@ -33,9 +33,9 @@ func bop(a *uop.Arena, op uop.Op, dtype *uop.DType, x, y uop.UOp) uop.UOp {
 	return a.New(op, dtype, []uop.UOp{x, y}, nil, nil)
 }
 
-func add(a *uop.Arena, x, y uop.UOp) uop.UOp { return bop(a, uop.OpAdd, uop.Dtypes.Int32, x, y) }
-func mul(a *uop.Arena, x, y uop.UOp) uop.UOp { return bop(a, uop.OpMul, uop.Dtypes.Int32, x, y) }
-func sub(a *uop.Arena, x, y uop.UOp) uop.UOp { return bop(a, uop.OpSub, uop.Dtypes.Int32, x, y) }
+func add(a *uop.Arena, x, y uop.UOp) uop.UOp  { return bop(a, uop.OpAdd, uop.Dtypes.Int32, x, y) }
+func mul(a *uop.Arena, x, y uop.UOp) uop.UOp  { return bop(a, uop.OpMul, uop.Dtypes.Int32, x, y) }
+func sub(a *uop.Arena, x, y uop.UOp) uop.UOp  { return bop(a, uop.OpSub, uop.Dtypes.Int32, x, y) }
 func idiv(a *uop.Arena, x, y uop.UOp) uop.UOp { return bop(a, uop.OpIDiv, uop.Dtypes.Int32, x, y) }
 func mod(a *uop.Arena, x, y uop.UOp) uop.UOp  { return bop(a, uop.OpMod, uop.Dtypes.Int32, x, y) }
 func xor(a *uop.Arena, x, y uop.UOp) uop.UOp  { return bop(a, uop.OpXor, uop.Dtypes.Int32, x, y) }
@@ -541,7 +541,7 @@ func TestFixpointMultiRule(t *testing.T) {
 	a := arena()
 	x := a.New(uop.OpDefineVar, uop.Dtypes.Int32, nil, "x", nil)
 	// Build ((0+x)*1)
-	inner := add(a, ci(a, 0), x) // 0+x
+	inner := add(a, ci(a, 0), x)     // 0+x
 	outer := mul(a, inner, ci(a, 1)) // (0+x)*1
 	result := sym(outer)
 	if result != x {

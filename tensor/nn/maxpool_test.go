@@ -99,8 +99,8 @@ func TestMaxPool2DForward(t *testing.T) {
 				}
 			}
 
-			oH := (c.H - c.kH) / c.sH + 1
-			oW := (c.W - c.kW) / c.sW + 1
+			oH := (c.H-c.kH)/c.sH + 1
+			oW := (c.W-c.kW)/c.sW + 1
 			t.Logf("shape [%d,%d,%d,%d] k=%dx%d s=%dx%d → [%d,%d,%d,%d] maxAbsDiff=%.2e",
 				c.N, c.C, c.H, c.W, c.kH, c.kW, c.sH, c.sW, c.N, c.C, oH, oW, maxDiff)
 
@@ -132,10 +132,10 @@ func TestMaxPool2DBackward(t *testing.T) {
 	requireGPU(t)
 
 	type tc struct {
-		name         string
-		N, C, H, W   int64
-		kH, kW       int64
-		sH, sW       int64
+		name       string
+		N, C, H, W int64
+		kH, kW     int64
+		sH, sW     int64
 	}
 	cases := []tc{
 		{"k2s2 [1,1,4,4]", 1, 1, 4, 4, 2, 2, 2, 2},
@@ -229,7 +229,7 @@ func TestMaxPool2DTieCoverage(t *testing.T) {
 		x.SetData(data)
 
 		out := nn.MaxPool2D(x, 2, 2, 2, 2) // [1,1,1,1], value=3
-		loss := out.Sum(nil, false)          // adj into pool = 1
+		loss := out.Sum(nil, false)        // adj into pool = 1
 
 		grads := tensor.Backward(loss, []*tensor.Tensor{x})
 		gTensor, ok := grads[x]
@@ -272,7 +272,7 @@ func TestMaxPool2DTieCoverage(t *testing.T) {
 		x.SetData(data)
 
 		out := nn.MaxPool2D(x, 1, 9, 1, 9) // [1,1,1,1], value=5
-		loss := out.Sum(nil, false)          // adj into pool = 1
+		loss := out.Sum(nil, false)        // adj into pool = 1
 
 		grads := tensor.Backward(loss, []*tensor.Tensor{x})
 		gTensor, ok := grads[x]

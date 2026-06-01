@@ -14,9 +14,9 @@ func TestB2_ValueOracle_TiledMatmul(t *testing.T) {
 	dev := requireDevice(t)
 
 	tests := []struct {
-		name string
+		name    string
 		M, N, K int64
-		TS int
+		TS      int
 	}{
 		{"matmul_16x16x16_TS8", 16, 16, 16, 8},
 		{"matmul_16x16x16_TS16", 16, 16, 16, 16},
@@ -48,7 +48,7 @@ func TestB2_ValueOracle_TiledMatmul(t *testing.T) {
 			A2.SetData(uniformData(int(tc.M*tc.K), 1))
 			B2.SetData(uniformData(int(tc.K*tc.N), 2))
 			out2 := A2.Matmul(B2)
-			
+
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
 				// Matmul kernel is usually the one with the Reduce
@@ -109,7 +109,7 @@ func TestB2_Timing_Matmul_Tiled(t *testing.T) {
 		} else {
 			fmt.Printf("No speedup. (Opt: %0.2f GFLOP/s, Def: %0.2f GFLOP/s)\n", gflopsOpt, gflopsDef)
 		}
-		
+
 		if N == 512 {
 			fmt.Printf("WGSL for Tiled Matmul:\n%s\n", codegen.RenderWGSL(itemOpt).WGSL)
 		}

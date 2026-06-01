@@ -83,12 +83,12 @@ func TestSGDQuadratic_Trajectory(t *testing.T) {
 	requireGPU(t)
 
 	const (
-		lr       = float32(0.1)
-		nElems   = 4
-		nSteps   = 4
-		p0Val    = float32(3.0)
-		tgtVal   = float32(1.0)
-		tol      = float32(1e-4)
+		lr     = float32(0.1)
+		nElems = 4
+		nSteps = 4
+		p0Val  = float32(3.0)
+		tgtVal = float32(1.0)
+		tol    = float32(1e-4)
 	)
 
 	// Allocate parameter. The seed arena is ephemeral; only p.Value persists.
@@ -154,7 +154,7 @@ func TestCrossResetPersistence(t *testing.T) {
 	requireGPU(t)
 
 	const (
-		lr    = float32(0.1)
+		lr     = float32(0.1)
 		nElems = int64(4)
 	)
 

@@ -9,6 +9,7 @@ package schedule
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sort"
 
@@ -28,7 +29,9 @@ func DebugBufRangesFlush(path string) {
 	for _, s := range DebugBufRanges {
 		out += s + "\n"
 	}
-	os.WriteFile(path, []byte(out), 0644)
+	if err := os.WriteFile(path, []byte(out), 0644); err != nil {
+		log.Printf("schedule: debug write failed: %v", err)
+	}
 	DebugBufRanges = nil
 }
 
@@ -36,9 +39,10 @@ func DebugBufRangesFlush(path string) {
 //
 // Input:  SINK-rooted tensor-level UOp graph as produced by tensor.Realize.
 // Output: Kernel-segmented graph where each realized buffer is represented by
-//         BUFFER(LUNIQUE, DEVICE).after(END(STORE(INDEX(buf,*out), body), *out, *red)).
-//         The body contains INDEX(BUFFER, *arithmetic_indices) at every leaf
-//         access with all movement ops dissolved into range arithmetic.
+//
+//	BUFFER(LUNIQUE, DEVICE).after(END(STORE(INDEX(buf,*out), body), *out, *red)).
+//	The body contains INDEX(BUFFER, *arithmetic_indices) at every leaf
+//	access with all movement ops dissolved into range arithmetic.
 //
 // device is the target device string (e.g. "cpu", "webgpu").
 func GetKernelGraph(sink uop.UOp, device string) uop.UOp {
@@ -256,7 +260,7 @@ func removeBufferize(sink uop.UOp) uop.UOp {
 		if u.Op() == uop.OpBufferize {
 			newBody := fr.getFusedBody(u.Index())
 			newRanges := fr.getFusedRanges(u.Index())
-			
+
 			bfzSrcs := make([]uop.UOp, 1+len(newRanges))
 			bfzSrcs[0] = newBody
 			copy(bfzSrcs[1:], newRanges)
@@ -302,7 +306,7 @@ func (fr *fusedRebuilder) getFusedBody(bfzIdx uint32) uop.UOp {
 	}
 	bfz := fr.a.At(bfzIdx)
 	body := bfz.Src(0)
-	
+
 	topo := kernelTopoSort(body)
 	localRebuild := make(map[uint32]uint32)
 
@@ -312,7 +316,7 @@ func (fr *fusedRebuilder) getFusedBody(bfzIdx uint32) uop.UOp {
 			if _, ok := fr.fusedInto[prodIdx]; ok {
 				// Producer is fused into this consumer.
 				prod := fr.a.At(prodIdx)
-				
+
 				// Recursively get the producer's already-fused body.
 				prodBody := fr.getFusedBody(prodIdx)
 				// And its original ranges (for substitution mapping).
@@ -322,7 +326,7 @@ func (fr *fusedRebuilder) getFusedBody(bfzIdx uint32) uop.UOp {
 				for i := 0; i < numProdRanges; i++ {
 					prodRanges[i] = prod.Src(i + 1)
 				}
-				
+
 				// Substitute AxisLoop ranges.
 				// Now that runRangeify includes all dimensions (including OpConst(0))
 				// in the BUFFERIZE range list, positional mapping is robust.
@@ -331,17 +335,17 @@ func (fr *fusedRebuilder) getFusedBody(bfzIdx uint32) uop.UOp {
 				for i := 0; i < numLoopRanges; i++ {
 					prodRange := prodRanges[i]
 					if prodRange.Op() == uop.OpRange {
-						idx := u.Src(i+1).Index()
+						idx := u.Src(i + 1).Index()
 						if remapped, ok := localRebuild[idx]; ok {
 							subs[prodRange.Index()] = fr.a.At(remapped)
 						} else if remapped, ok := fr.externalRebuild[idx]; ok {
 							subs[prodRange.Index()] = fr.a.At(remapped)
 						} else {
-							subs[prodRange.Index()] = u.Src(i+1)
+							subs[prodRange.Index()] = u.Src(i + 1)
 						}
 					}
 				}
-				
+
 				// Perform substitution.
 				fused := fr.substituteRanges(prodBody, subs)
 				localRebuild[u.Index()] = fused.Index()
@@ -384,7 +388,7 @@ func (fr *fusedRebuilder) getFusedRanges(bfzIdx uint32) []uop.UOp {
 		return r
 	}
 	bfz := fr.a.At(bfzIdx)
-	
+
 	rangeMap := make(map[uint32]uop.UOp)
 	for i := 1; i < bfz.NSrc(); i++ {
 		rangeMap[bfz.Src(i).Index()] = bfz.Src(i)

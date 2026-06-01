@@ -15,6 +15,7 @@ func runCmd(args []string) int {
 	return runCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func runCmdW(args []string, w io.Writer) int {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

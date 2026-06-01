@@ -16,6 +16,7 @@ func kernelsCmd(args []string) int {
 	return kernelsCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func kernelsCmdW(args []string, w io.Writer) int {
 	_, rest, err := parseFlags("kernels", args)
 	if err != nil {

@@ -481,8 +481,8 @@ func memoryPlan(items []ExecItem) []ExecItem {
 
 	// Sort intermediate buffers by firstWrite, break ties by UOpIdx.
 	type bufEntry struct {
-		id  uint32
-		lt  *lifetime
+		id uint32
+		lt *lifetime
 	}
 	intermediates := make([]bufEntry, 0, len(lts))
 	for id, lt := range lts {

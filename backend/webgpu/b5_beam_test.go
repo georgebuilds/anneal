@@ -113,7 +113,7 @@ func TestB5_DefaultModeNoOverhead(t *testing.T) {
 	defer func() { tensor.DefaultExecutor = nil }()
 
 	codegen.BeamDiskCacheReset()
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 
 	a := uop.NewArena(65536)
 	A := tensor.NewLeaf(a, []int64{64, 64}, uop.Dtypes.Float32, "webgpu")
@@ -163,14 +163,14 @@ func TestB5_CacheHitBitIdentical(t *testing.T) {
 
 	// Condition 1: identity baseline.
 	codegen.BeamDiskCacheReset()
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 	ref := make([]float32, len(runMatmul()))
 	copy(ref, runMatmul())
 
 	// Condition 2: search populates disk cache.
-	os.Setenv("ANNEAL_BEAM", "1")
+	_ = os.Setenv("ANNEAL_BEAM", "1")
 	runMatmul()
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 
 	// Condition 3: cache-hit must produce bit-identical output.
 	got := runMatmul()
@@ -250,18 +250,18 @@ func TestB5_StepLevelBenchmark(t *testing.T) {
 
 	// Condition 1 — identity (no cache, no search).
 	codegen.BeamDiskCacheReset()
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 	warm()
 	t1 := measure("Cond1-ID")
 
 	// Condition 2 — search mode (populates disk cache; first several iters include search latency).
 	codegen.BeamDiskCacheReset()
-	os.Setenv("ANNEAL_BEAM", "1")
+	_ = os.Setenv("ANNEAL_BEAM", "1")
 	searchStart := time.Now()
 	warm()
 	t2 := measure("Cond2-Search")
 	searchCost := time.Since(searchStart)
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 	t.Logf("One-time search cost (warmup+iters): %v", searchCost)
 
 	// Condition 3 — cache-hit (disk cache warm from Cond2, ANNEAL_BEAM unset).

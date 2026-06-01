@@ -53,7 +53,7 @@ func LoadNPZ(a *uop.Arena, path string, device string) (map[string]*tensor.Tenso
 	if err != nil {
 		return nil, fmt.Errorf("npy: open npz %q: %w", path, err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	out := make(map[string]*tensor.Tensor, len(r.File))
 	for _, f := range r.File {
@@ -63,7 +63,7 @@ func LoadNPZ(a *uop.Arena, path string, device string) (map[string]*tensor.Tenso
 			return nil, fmt.Errorf("npy: open npz entry %q: %w", f.Name, err)
 		}
 		data, readErr := io.ReadAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("npy: read npz entry %q: %w", f.Name, readErr)
 		}

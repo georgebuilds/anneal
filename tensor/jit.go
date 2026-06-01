@@ -49,13 +49,13 @@ type JIT struct {
 	symbolic bool // true when capture used RealizeWithBinding
 
 	// Frozen plan — no arena references (Ast zeroed, UOpIdxs are plain uint32).
-	items        []schedule.ExecItem
-	capLeaves    []capturedLeaf   // leaves in DFS-visit order from capture arena
-	capOuts      []capturedOutput // final-output UOpIdx → tensors-slice position
-	device       string
-	leafCount    int
-	leafSizes    []int   // element counts in DFS order; checked only when !symbolic
-	capSK        uint64  // structural key of captured output expression(s)
+	items     []schedule.ExecItem
+	capLeaves []capturedLeaf   // leaves in DFS-visit order from capture arena
+	capOuts   []capturedOutput // final-output UOpIdx → tensors-slice position
+	device    string
+	leafCount int
+	leafSizes []int  // element counts in DFS order; checked only when !symbolic
+	capSK     uint64 // structural key of captured output expression(s)
 
 	nCaptures atomic.Int64
 	nReplays  atomic.Int64

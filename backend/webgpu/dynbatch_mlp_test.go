@@ -39,10 +39,10 @@ func TestDynBatchMLP(t *testing.T) {
 		return s
 	}
 
-	w1Data := randSlice(8 * 4)  // Linear1 weight: [8, 4]
-	b1Data := randSlice(8)      // Linear1 bias:   [8]
-	w2Data := randSlice(2 * 8)  // Linear2 weight: [2, 8]
-	b2Data := randSlice(2)      // Linear2 bias:   [2]
+	w1Data := randSlice(8 * 4) // Linear1 weight: [8, 4]
+	b1Data := randSlice(8)     // Linear1 bias:   [8]
+	w2Data := randSlice(2 * 8) // Linear2 weight: [2, 8]
+	b2Data := randSlice(2)     // Linear2 bias:   [2]
 
 	// ── CPU reference forward pass ─────────────────────────────────────────
 	// y1[b, o] = ReLU( sum_i(x[b, i] * w1[o, i]) + b1[o] )

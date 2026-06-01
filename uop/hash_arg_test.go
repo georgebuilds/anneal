@@ -50,7 +50,7 @@ func TestEqualArgBufferizeRemovableDistinct(t *testing.T) {
 		uop.BufferizeArg{Removable: true},
 	)
 	if same {
-		t.Fatal("BufferizeArg{Removable:false} and {Removable:true} interned to the same node — "+
+		t.Fatal("BufferizeArg{Removable:false} and {Removable:true} interned to the same node — " +
 			"this would collapse hard and soft bufferize boundaries in the schedule/BEAM cache")
 	}
 	if a.Len() != 2 {
@@ -188,7 +188,7 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "m", Mul: 1}
 		same, _ := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different VarName on symbolic dim interned together — "+
+			t.Error("ShapeSintArg with different VarName on symbolic dim interned together — " +
 				"two different DefineVars would alias in the reshape arg")
 		}
 	})
@@ -200,7 +200,7 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "n", Mul: 4}
 		same, _ := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different Mul on symbolic dim interned together — "+
+			t.Error("ShapeSintArg with different Mul on symbolic dim interned together — " +
 				"multiplier dropped from the intern key")
 		}
 	})
@@ -237,8 +237,8 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		mut[0] = uop.ShapeDim{V: 999, Sym: true, VarName: "n", Mul: 1}
 		same, a := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different V on Sym=true dim aliased — "+
-				"equalArg used to distinguish them; if you intended to ignore V on Sym, "+
+			t.Error("ShapeSintArg with different V on Sym=true dim aliased — " +
+				"equalArg used to distinguish them; if you intended to ignore V on Sym, " +
 				"update both hashArg and equalArg together AND revisit SPEC §10 invariant")
 		}
 		if a.Len() != 2 {

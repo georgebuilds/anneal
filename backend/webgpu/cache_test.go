@@ -214,8 +214,8 @@ func TestScheduleCache_TrainingLoopHits(t *testing.T) {
 		lastOut = z.Data()
 
 		hits, misses := schedule.ScheduleCacheStats()
-		wantHits := int64(step)   // step 0 → 0 hits; step 1 → 1 hit; ...
-		wantMisses := int64(1)    // always exactly 1 miss (step 0)
+		wantHits := int64(step) // step 0 → 0 hits; step 1 → 1 hit; ...
+		wantMisses := int64(1)  // always exactly 1 miss (step 0)
 		if step == 0 {
 			wantHits = 0
 			wantMisses = 1

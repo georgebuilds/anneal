@@ -143,8 +143,8 @@ func TestSameNameCapture(t *testing.T) {
 		},
 	})
 
-	sameArgs := addN(a, x, x)   // Add(x, x) — should fire
-	diffArgs := addN(a, x, y)   // Add(x, y) — should NOT fire
+	sameArgs := addN(a, x, x) // Add(x, x) — should fire
+	diffArgs := addN(a, x, y) // Add(x, y) — should NOT fire
 
 	if result := rewrite.GraphRewrite(sameArgs, pm); result != x {
 		t.Errorf("Add(x,x): expected x (%d), got %d", x.Index(), result.Index())
@@ -194,7 +194,7 @@ func TestEarlyReject(t *testing.T) {
 	a := newArena()
 	x := constN(a, 5)
 	y := constN(a, 6)
-	sumXY := addN(a, x, y)         // Add(Const, Const) — Const IS in src ops
+	sumXY := addN(a, x, y)             // Add(Const, Const) — Const IS in src ops
 	sumXX := addN(a, x, addN(a, x, x)) // Add(Const, Add) — Mul is NOT in src ops
 
 	callCount := 0

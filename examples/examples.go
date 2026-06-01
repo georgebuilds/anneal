@@ -14,7 +14,7 @@ import (
 // BuildResult is the output of an example's Build function.
 type BuildResult struct {
 	Arena  *uop.Arena
-	Output *tensor.Tensor   // unrealized forward graph root
+	Output *tensor.Tensor // unrealized forward graph root
 	Device string
 	Leaves []*tensor.Tensor // leaf parameter tensors for the backward pass; nil = not set
 }

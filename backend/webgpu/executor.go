@@ -6,15 +6,16 @@ import (
 	"math"
 	"unsafe"
 
+	"github.com/gogpu/gputypes"
+	"github.com/gogpu/wgpu"
+
 	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
-	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 )
 
 const (
-	// Metadata for symbolic dispatch
+// Metadata for symbolic dispatch
 )
 
 // Run executes a compiled schedule on this device.
@@ -442,10 +443,10 @@ func (d *Device) readBuffer(buf *wgpu.Buffer, nElems int64, dtype *uop.DType) ([
 		ready, werr = pending.Status()
 	}
 	if werr != nil {
-		return nil, fmt.Errorf("Map: %w", werr)
+		return nil, fmt.Errorf("map: %w", werr)
 	}
 	if !ready {
-		return nil, fmt.Errorf("Map: pending map did not resolve after PollWait")
+		return nil, fmt.Errorf("map: pending map did not resolve after PollWait")
 	}
 	rng, err := staging.MappedRange(0, byteSize)
 	if err != nil {

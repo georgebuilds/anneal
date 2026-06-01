@@ -1,0 +1,46 @@
+=== RUN   TestConvNetGradientCheck
+    conv_test.go:296: Conv-layer weight FD gradient check  (tol=5e-03, h=1e-03):
+    conv_test.go:297:   GPU analytic vs finite differences on conv.Weight[0..3]
+    conv_test.go:307:   conv.Weight[0]: analytic=+0.162401  fd=+0.162244  diff=1.57e-04  ✓
+    conv_test.go:307:   conv.Weight[1]: analytic=+0.124467  fd=+0.124335  diff=1.32e-04  ✓
+    conv_test.go:307:   conv.Weight[2]: analytic=+0.146589  fd=+0.146270  diff=3.19e-04  ✓
+    conv_test.go:307:   conv.Weight[3]: analytic=-0.852830  fd=-0.852823  diff=6.74e-06  ✓
+    conv_test.go:317: Conv-layer FD gradient check PASSED ✓  (4 elements, tol=5e-03)
+    conv_test.go:318: MaxPool2D confirmed differentiable: rangeify decomposition + ReduceAxis(OpMax) backward traversed in FD path.
+--- PASS: TestConvNetGradientCheck (0.58s)
+=== RUN   TestMLPConvergence
+    mlp_test.go:272: step     0: MSE-sum=6.065053
+    mlp_test.go:279: step   100: MSE-sum=1.032093
+    mlp_test.go:279: step   200: MSE-sum=0.716433
+    mlp_test.go:279: step   300: MSE-sum=0.424567
+    mlp_test.go:279: step   400: MSE-sum=0.293837
+    mlp_test.go:279: step   500: MSE-sum=0.208360
+    mlp_test.go:279: step   600: MSE-sum=0.146688
+    mlp_test.go:279: step   700: MSE-sum=0.107279
+    mlp_test.go:279: step   800: MSE-sum=0.080153
+    mlp_test.go:279: step   900: MSE-sum=0.060877
+    mlp_test.go:279: step  1000: MSE-sum=0.047007
+    mlp_test.go:279: step  1100: MSE-sum=0.036892
+    mlp_test.go:279: step  1200: MSE-sum=0.029386
+    mlp_test.go:279: step  1300: MSE-sum=0.023712
+    mlp_test.go:279: step  1400: MSE-sum=0.019337
+    mlp_test.go:279: step  1500: MSE-sum=0.015906
+    mlp_test.go:279: step  1600: MSE-sum=0.013174
+    mlp_test.go:279: step  1700: MSE-sum=0.010972
+    mlp_test.go:279: step  1800: MSE-sum=0.009184
+    mlp_test.go:279: step  1900: MSE-sum=0.007725
+    mlp_test.go:279: step  2000: MSE-sum=0.006527
+    mlp_test.go:287: convergence: initial=6.065053  final=0.006527  ratio=0.0011
+    mlp_test.go:292: loss plateau reached ✓ (0.11% of initial)
+    mlp_test.go:316: input (type)               true     pred    |err|  mean|err|
+    mlp_test.go:318: (-0.75,-0.75) train      1.1250   1.1171   0.0079   0.5000
+    mlp_test.go:318: (-0.25,-0.25) train      0.1250   0.1455   0.0205   0.5000
+    mlp_test.go:318: (+0.75,+0.75) train      1.1250   1.1185   0.0065   0.5000
+    mlp_test.go:318: (+0.25,+0.75) train      0.6250   0.6401   0.0151   0.0000
+    mlp_test.go:318: (+0.50,+0.50) held-out   0.5000   0.6086   0.1086   0.1250
+    mlp_test.go:318: (+0.00,+0.00) held-out   0.0000  -0.3084   0.3084   0.6250
+    mlp_test.go:324: Pearson r(pred, true) = 0.9735
+    mlp_test.go:328: function fit confirmed ✓  (Pearson r=0.9735, predictions track y=x1²+x2²)
+--- PASS: TestMLPConvergence (12.27s)
+PASS
+ok  	github.com/georgebuilds/anneal/tensor/nn	13.086s

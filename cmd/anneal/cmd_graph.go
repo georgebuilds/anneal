@@ -13,6 +13,7 @@ func graphCmd(args []string) int {
 	return graphCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func graphCmdW(args []string, w io.Writer) int {
 	_, rest, err := parseFlags("graph", args)
 	if err != nil {
@@ -57,6 +58,8 @@ func graphCmdW(args []string, w io.Writer) int {
 
 // dumpDAG prints all UOp nodes reachable from root in topological order.
 // Format: index (4 chars), op (12 chars), dtype (8 chars), then args/shape info.
+//
+//nolint:errcheck // best-effort write to stdout/stderr
 func dumpDAG(w io.Writer, root uop.UOp) {
 	nodes := topoSortNodes(root)
 	for _, u := range nodes {

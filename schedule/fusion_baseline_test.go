@@ -12,7 +12,7 @@ import (
 
 func TestFusionBaselineReport(t *testing.T) {
 	cases := []struct {
-		name string
+		name  string
 		build func(a *uop.Arena) []*tensor.Tensor
 	}{
 		{
@@ -66,7 +66,7 @@ func TestFusionBaselineReport(t *testing.T) {
 				l1.Bias.Load(a)
 				l2.Weight.Load(a)
 				l2.Bias.Load(a)
-				
+
 				h := nn.ReLU(l1.Forward(x))
 				out := l2.Forward(h)
 				return []*tensor.Tensor{out}
@@ -83,16 +83,16 @@ func TestFusionBaselineReport(t *testing.T) {
 				l1.Bias.Load(a)
 				l2.Weight.Load(a)
 				l2.Bias.Load(a)
-				
+
 				h := nn.ReLU(l1.Forward(x))
 				out := l2.Forward(h)
-				
+
 				diff := out.Sub(tgt)
 				loss := diff.Mul(diff).Sum(nil, false)
-				
+
 				leaves := []*tensor.Tensor{l1.Weight.T, l1.Bias.T, l2.Weight.T, l2.Bias.T}
 				grads := tensor.Backward(loss, leaves)
-				
+
 				results := []*tensor.Tensor{loss}
 				for _, l := range leaves {
 					if g, ok := grads[l]; ok {
@@ -121,25 +121,25 @@ func TestFusionBaselineReport(t *testing.T) {
 	for _, tc := range cases {
 		a := uop.NewArena(1024 * 1024)
 		tensors := tc.build(a)
-		
+
 		sinkNodes := make([]uop.UOp, len(tensors))
 		for i, t := range tensors {
 			sinkNodes[i] = t.Node()
 		}
 		sink := a.New(uop.OpSink, uop.Dtypes.Void, sinkNodes, nil, nil)
-		
+
 		items := schedule.CreateSchedule(sink, "cpu")
-		
+
 		fmt.Printf("\nGraph: %s\n", tc.name)
 		fmt.Printf("  Total Kernel Count: %d\n", len(items))
-		
+
 		maxBufs := 0
 		for i, item := range items {
 			nBufs := len(item.Bufs)
 			if nBufs > maxBufs {
 				maxBufs = nBufs
 			}
-			
+
 			// Analyze the kernel to see if it's a reduce or elementwise or other.
 			isReduce := false
 			isOther := false
@@ -163,14 +163,14 @@ func TestFusionBaselineReport(t *testing.T) {
 				}
 			}
 			walk(item.Ast)
-			
+
 			prodOp := "elementwise"
 			if isReduce {
 				prodOp = "reduce"
 			} else if isOther {
 				prodOp = "other"
 			}
-			
+
 			// In v1, all BUFFERIZE are forced (Removable=false).
 			// We report it as forced.
 			fmt.Printf("  Kernel %d: producer=%s, bufs=%d, removable=false\n", i, prodOp, nBufs)

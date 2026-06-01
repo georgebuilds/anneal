@@ -4,9 +4,9 @@ import "github.com/georgebuilds/anneal/uop"
 
 // Buffer identifies one global materialized buffer in the schedule.
 type Buffer struct {
-	UOpIdx uint32     // arena index of the BUFFER uop — unique within this schedule
-	Size   int64      // number of elements
-	Shape  []int64    // per-dimension sizes; product == Size; 0 marks a symbolic dim
+	UOpIdx uint32  // arena index of the BUFFER uop — unique within this schedule
+	Size   int64   // number of elements
+	Shape  []int64 // per-dimension sizes; product == Size; 0 marks a symbolic dim
 	DType  *uop.DType
 	Slot   int // slot assigned by memory_planner; -1 = not aliased (leaf/output)
 

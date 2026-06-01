@@ -272,9 +272,9 @@ func TestIsBool(t *testing.T) {
 
 func TestLeastUpperDType(t *testing.T) {
 	tests := []struct {
-		name    string
-		inputs  []*uop.DType
-		want    *uop.DType
+		name   string
+		inputs []*uop.DType
+		want   *uop.DType
 	}{
 		{"same", []*uop.DType{uop.Dtypes.Float32, uop.Dtypes.Float32}, uop.Dtypes.Float32},
 		{"bool+int8→int8", []*uop.DType{uop.Dtypes.Bool, uop.Dtypes.Int8}, uop.Dtypes.Int8},

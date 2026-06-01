@@ -233,7 +233,7 @@ var (
 // internDType returns the canonical pointer for d.
 // Concurrent calls with an identical key return the same pointer.
 func internDType(d DType) *DType {
-	key := dtypeKey{
+	key := dtypeKey{ //nolint:staticcheck // S1016: explicit field list intentional, dtype interning key composition stays visible at call site
 		d.priority, d.bitsize, d.name, d.fmt, d.count,
 		d.scalar, d.isPtr, d.base, d.addrSpace, d.ptrVec, d.ptrSize,
 	}
@@ -419,7 +419,7 @@ func Float32ToFloat16(f float32) uint16 {
 		m := frac | 0x800000
 		shift := uint32(-1 - exp) // 14 for e=-15, 23 for e=-24
 		m_round := m >> (shift - 1)
-		if (m_round&1 != 0) && (m_round&2 != 0 || (m&( (1<<(shift-1)) - 1) != 0)) {
+		if (m_round&1 != 0) && (m_round&2 != 0 || (m&((1<<(shift-1))-1) != 0)) {
 			m_round += 2
 		}
 		return (sign << 15) | uint16(m_round>>1)
@@ -602,9 +602,7 @@ func ancestors(d *DType) map[*DType]struct{} {
 			continue
 		}
 		result[cur] = struct{}{}
-		for _, parent := range promoLattice[cur] {
-			queue = append(queue, parent)
-		}
+		queue = append(queue, promoLattice[cur]...)
 	}
 	return result
 }

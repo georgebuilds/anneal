@@ -201,9 +201,9 @@ type lowerer struct {
 	upcastNLocID     int                     // RangeID of N-Local
 
 	// B3.7 OptVectorize state: set by emitTiledReduce, consumed by lowerSink store section.
-	vecTileActive bool
-	vecW          int   // vector width (4 for vec4<f32>)
-	vecNLocOuterID int  // RangeID of N_loc_outer (lid.x ranges over TS/W)
+	vecTileActive  bool
+	vecW           int // vector width (4 for vec4<f32>)
+	vecNLocOuterID int // RangeID of N_loc_outer (lid.x ranges over TS/W)
 	vecNReal       int64
 }
 
@@ -950,10 +950,10 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 
 	nDims := u.NSrc() - 1
 	var flatExpr string
-	switch {
-	case nDims == 0:
+	switch nDims {
+	case 0:
 		flatExpr = "0u"
-	case nDims == 1:
+	case 1:
 		flatExpr = l.emitExpr(u.Src(1))
 	default:
 		// Slice 7d: stride accumulation widened from int64 to strideAcc so a
@@ -1031,7 +1031,9 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 	if tag := u.Tag(); tag != nil {
 		if s, ok := tag.(string); ok && strings.HasPrefix(s, "tile:") {
 			var ts int
-			fmt.Sscanf(s, "tile:%d", &ts)
+			if _, err := fmt.Sscanf(s, "tile:%d", &ts); err != nil {
+				panic(fmt.Sprintf("lower: malformed tile tag %q: %v", s, err))
+			}
 			return l.emitTiledReduce(u, ts)
 		}
 	}
@@ -1147,7 +1149,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	if idxB.NSrc() == 2 {
 		oldExpr := l.exprOf[rk_inner.Index()]
 		l.exprOf[rk_inner.Index()] = "0"
-		l.emitExpr(idxB.Src(idxB.NSrc()-1))
+		l.emitExpr(idxB.Src(idxB.NSrc() - 1))
 		l.exprOf[rk_inner.Index()] = oldExpr
 	}
 

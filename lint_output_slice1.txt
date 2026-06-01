@@ -1,0 +1,596 @@
+===== BEFORE AUTO-FIX =====
+Date: 2026-06-01T00:07:24Z
+Command: golangci-lint run ./...
+
+backend/webgpu/b5_beam_test.go:116:13: Error return value of `os.Unsetenv` is not checked (errcheck)
+	os.Unsetenv("ANNEAL_BEAM")
+	           ^
+backend/webgpu/b5_beam_test.go:166:13: Error return value of `os.Unsetenv` is not checked (errcheck)
+	os.Unsetenv("ANNEAL_BEAM")
+	           ^
+backend/webgpu/b5_beam_test.go:171:11: Error return value of `os.Setenv` is not checked (errcheck)
+	os.Setenv("ANNEAL_BEAM", "1")
+	         ^
+backend/webgpu/b5_beam_test.go:173:13: Error return value of `os.Unsetenv` is not checked (errcheck)
+	os.Unsetenv("ANNEAL_BEAM")
+	           ^
+backend/webgpu/b5_beam_test.go:253:13: Error return value of `os.Unsetenv` is not checked (errcheck)
+	os.Unsetenv("ANNEAL_BEAM")
+	           ^
+backend/webgpu/b5_beam_test.go:259:11: Error return value of `os.Setenv` is not checked (errcheck)
+	os.Setenv("ANNEAL_BEAM", "1")
+	         ^
+backend/webgpu/b5_beam_test.go:264:13: Error return value of `os.Unsetenv` is not checked (errcheck)
+	os.Unsetenv("ANNEAL_BEAM")
+	           ^
+cmd/anneal/cmd_doctor.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_doctor.go:29:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, doctorFailureMsg())
+		          ^
+cmd/anneal/cmd_doctor.go:41:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: %s\n", name)
+	           ^
+cmd/anneal/cmd_doctor.go:42:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "backend: %s\n", backend)
+	           ^
+cmd/anneal/cmd_doctor.go:43:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "shader-f16: %s\n", shaderF16)
+	           ^
+cmd/anneal/cmd_doctor.go:44:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "status: %s\n", bold("ready"))
+	           ^
+cmd/anneal/cmd_explain.go:17:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_explain.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal explain <op>")
+		            ^
+cmd/anneal/cmd_explain.go:23:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "examples: anneal explain add, anneal explain matmul.backward, anneal explain symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:32:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, symbolicOverview())
+		          ^
+cmd/anneal/cmd_explain.go:38:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, matmulExplain())
+		          ^
+cmd/anneal/cmd_explain.go:54:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "op %q not found — try 'anneal explain symbolic' to list all rule groups\n", rest[0])
+		           ^
+cmd/anneal/cmd_explain.go:55:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:56:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "known ops: add, sub, mul, fdiv, neg, exp2, log2, sin, sqrt, reciprocal,")
+		            ^
+cmd/anneal/cmd_explain.go:57:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           where, cast, reduceaxis, reshape, expand, permute, pad, shrink,")
+		            ^
+cmd/anneal/cmd_explain.go:58:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           flip, max, matmul, matmul.backward, symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:78:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "op: %s\n", displayName)
+	           ^
+cmd/anneal/cmd_explain.go:80:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "sources: %s\n", strings.Join(sources, ", "))
+		           ^
+cmd/anneal/cmd_explain.go:82:14: Error return value of `fmt.Fprintln` is not checked (errcheck)
+	fmt.Fprintln(w)
+	            ^
+cmd/anneal/cmd_explain.go:85:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "symbolic rules:")
+		            ^
+cmd/anneal/cmd_explain.go:87:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:89:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_explain.go:93:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "gradient rules:")
+		            ^
+cmd/anneal/cmd_explain.go:95:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:97:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_graph.go:19:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_graph.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal graph <model>")
+		            ^
+cmd/anneal/cmd_graph.go:25:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_graph.go:26:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "available models:")
+		            ^
+cmd/anneal/cmd_graph.go:28:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+			           ^
+cmd/anneal/cmd_graph.go:36:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, formatError(err.Error()))
+		            ^
+codegen/lower.go:1034:14: Error return value of `fmt.Sscanf` is not checked (errcheck)
+			fmt.Sscanf(s, "tile:%d", &ts)
+			          ^
+rewrite/gen/main.go:86:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tensor/nn/grad_check_cast_test.go:107:16: Error return value of `tensor.Realize` is not checked (errcheck)
+	tensor.Realize(g2)
+	              ^
+tensor/safetensors/safetensors.go:134:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tensor/safetensors/safetensors.go:186:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tensor/safetensors/safetensors_test.go:504:10: Error return value of `f.Close` is not checked (errcheck)
+		f.Close()
+		       ^
+tensor/safetensors/safetensors_test.go:507:9: Error return value of `f.Close` is not checked (errcheck)
+	f.Close()
+	       ^
+tensor/safetensors/safetensors_test.go:564:9: Error return value of `f.Write` is not checked (errcheck)
+	f.Write(raw)
+	       ^
+tensor/safetensors/safetensors_test.go:565:9: Error return value of `f.Close` is not checked (errcheck)
+	f.Close()
+	       ^
+tensor/safetensors/safetensors_test.go:606:18: Error return value of `safetensors.Save` is not checked (errcheck)
+	safetensors.Save(path, map[string]*nn.Parameter{"w": w})
+	                ^
+tensor/safetensors/safetensors_test.go:629:18: Error return value of `safetensors.Save` is not checked (errcheck)
+	safetensors.Save(path, map[string]*nn.Parameter{"p": p})
+	                ^
+backend/webgpu/b37_vectorize_test.go:17:1: File is not properly formatted (goimports)
+//   idx=0: M_loc (AxisLocal, M direction)
+^
+backend/webgpu/benchmark.go:8:1: File is not properly formatted (goimports)
+
+^
+backend/webgpu/cache_test.go:217:1: File is not properly formatted (goimports)
+		wantHits := int64(step)   // step 0 → 0 hits; step 1 → 1 hit; ...
+^
+backend/webgpu/dynbatch_mlp_test.go:42:1: File is not properly formatted (goimports)
+	w1Data := randSlice(8 * 4)  // Linear1 weight: [8, 4]
+^
+backend/webgpu/executor.go:8:1: File is not properly formatted (goimports)
+
+^
+backend/webgpu/f16_test.go:73:1: File is not properly formatted (goimports)
+		bits32 = sign32 | ((exp16+112)<<23) | (frac16 << 13)
+^
+backend/webgpu/local_opt_test.go:209:1: File is not properly formatted (goimports)
+		d[i] = float32(i) * 0.1 + seed
+^
+backend/webgpu/slice7b_ccase_test.go:118:1: File is not properly formatted (goimports)
+	type result struct{ n, m int64; maxErr float64; bound string }
+^
+backend/webgpu/tiled_matmul_test.go:17:1: File is not properly formatted (goimports)
+		name string
+^
+backend/webgpu/webgpu_test.go:237:1: File is not properly formatted (goimports)
+	Adata := []float32{1, 2, 3, 4, 5, 6}   // [[1,2,3],[4,5,6]]
+^
+cmd/anneal/cmd_train.go:10:1: File is not properly formatted (goimports)
+	tea "github.com/charmbracelet/bubbletea"
+^
+codegen/lower.go:204:1: File is not properly formatted (goimports)
+	vecTileActive bool
+^
+codegen/opt.go:23:1: File is not properly formatted (goimports)
+	"fmt"
+^
+examples/examples.go:17:1: File is not properly formatted (goimports)
+	Output *tensor.Tensor   // unrealized forward graph root
+^
+rewrite/rewrite_test.go:146:1: File is not properly formatted (goimports)
+	sameArgs := addN(a, x, x)   // Add(x, x) — should fire
+^
+rewrite/rules/bounds_test.go:387:1: File is not properly formatted (goimports)
+	v := dv(a, 1, 1025)        // [1,1024]
+^
+rewrite/rules/symbolic.go:29:1: File is not properly formatted (goimports)
+//  9. Double-XOR / modulo idempotent — (x^y)^y→x, (x%y)%y→x%y.
+^
+rewrite/rules/symbolic_handlers.go:193:1: File is not properly formatted (goimports)
+
+^
+rewrite/rules/symbolic_test.go:36:1: File is not properly formatted (goimports)
+func add(a *uop.Arena, x, y uop.UOp) uop.UOp { return bop(a, uop.OpAdd, uop.Dtypes.Int32, x, y) }
+^
+schedule/exec.go:7:1: File is not properly formatted (goimports)
+	UOpIdx uint32     // arena index of the BUFFER uop — unique within this schedule
+^
+schedule/fusion_baseline_test.go:15:1: File is not properly formatted (goimports)
+		name string
+^
+schedule/fusion_oracle_test.go:25:1: File is not properly formatted (goimports)
+		name string
+^
+schedule/index.go:568:1: File is not properly formatted (goimports)
+
+^
+schedule/kernels.go:484:1: File is not properly formatted (goimports)
+		id  uint32
+^
+schedule/schedule.go:39:1: File is not properly formatted (goimports)
+//         BUFFER(LUNIQUE, DEVICE).after(END(STORE(INDEX(buf,*out), body), *out, *red)).
+^
+schedule/schedule_test.go:22:1: File is not properly formatted (goimports)
+	rangeVal map[uint32]int64   // range node index → current iteration value
+^
+shape/shapetracker_test.go:61:1: File is not properly formatted (goimports)
+	st = st.Permute([]int{1, 0})                     // (6,4)
+^
+shape/sint.go:222:1: File is not properly formatted (goimports)
+func Eq(a, b Sint) bool    { return cv(a) == cv(b) }
+^
+shape/sint_symbolic_test.go:96:1: File is not properly formatted (goimports)
+		name     string
+^
+shape/view_test.go:561:1: File is not properly formatted (goimports)
+		want  int64
+^
+tensor/jit.go:52:1: File is not properly formatted (goimports)
+	items        []schedule.ExecItem
+^
+tensor/jit_test.go:158:1: File is not properly formatted (goimports)
+//   (a) JIT path (one JIT handle per parameter gradient)
+^
+tensor/nn/bench_test.go:38:1: File is not properly formatted (goimports)
+		
+^
+tensor/nn/conv_test.go:54:1: File is not properly formatted (goimports)
+	convBatch   = int64(8) // training batch size
+^
+tensor/nn/grad_check_cast_test.go:30:1: File is not properly formatted (goimports)
+	
+^
+tensor/nn/maxpool_test.go:102:1: File is not properly formatted (goimports)
+			oH := (c.H - c.kH) / c.sH + 1
+^
+tensor/nn/mlp_test.go:245:1: File is not properly formatted (goimports)
+//   (a) loss reaches a plateau (< 3 % of initial, trajectory logged every 100 steps)
+^
+tensor/nn/nn.go:183:1: File is not properly formatted (goimports)
+	Weight  *Parameter
+^
+tensor/nn/train_test.go:86:1: File is not properly formatted (goimports)
+		lr       = float32(0.1)
+^
+tui/dashboard.go:7:1: File is not properly formatted (goimports)
+	tea "github.com/charmbracelet/bubbletea"
+^
+tui/dashboard_test.go:7:1: File is not properly formatted (goimports)
+	tea "github.com/charmbracelet/bubbletea"
+^
+uop/cross_arena_key_test.go:118:1: File is not properly formatted (goimports)
+		t.Fatalf("Mul=1 and Mul=4 produced identical structural keys — "+
+^
+uop/dtype.go:422:1: File is not properly formatted (goimports)
+		if (m_round&1 != 0) && (m_round&2 != 0 || (m&( (1<<(shift-1)) - 1) != 0)) {
+^
+uop/dtype_conversion_test.go:38:1: File is not properly formatted (goimports)
+
+^
+uop/dtype_test.go:275:1: File is not properly formatted (goimports)
+		name    string
+^
+uop/hash_arg_test.go:53:1: File is not properly formatted (goimports)
+		t.Fatal("BufferizeArg{Removable:false} and {Removable:true} interned to the same node — "+
+^
+uop/ops.go:15:1: File is not properly formatted (goimports)
+	OpDefineVar  Op = iota // pointer to an external (symbolic) variable
+^
+uop/uop_test.go:358:1: File is not properly formatted (goimports)
+		int64(0), int64(1), int64(-1), int64(1<<32), int64(-1 << 32),
+^
+viz/timeline.go:67:1: File is not properly formatted (goimports)
+	Name   string     `json:"name"`
+^
+backend/webgpu/benchmark.go:45:3: ineffectual assignment to ws (ineffassign)
+		ws = item.LocalSize
+		^
+backend/webgpu/symbolic_reshape_test.go:205:4: ineffectual assignment to found (ineffassign)
+			found = true
+			^
+backend/webgpu/benchmark.go:64:3: SA9003: empty branch (staticcheck)
+		if i == 0 {
+		^
+backend/webgpu/executor.go:445:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: %w", werr)
+		            ^
+backend/webgpu/executor.go:448:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: pending map did not resolve after PollWait")
+		            ^
+codegen/lower.go:953:2: QF1002: could use tagged switch on nDims (staticcheck)
+	switch {
+	^
+codegen/opt.go:383:2: SA9003: empty branch (staticcheck)
+	if S%F != 0 {
+	^
+rewrite/gen/main.go:208:3: QF1003: could use tagged switch on ch (staticcheck)
+		if ch == '(' {
+		^
+schedule/index.go:401:10: ST1023: should omit type shape.Sint from declaration; it will be inferred from the right-hand side (staticcheck)
+	var acc shape.Sint = shape.Const(1)
+	        ^
+schedule/schedule_test.go:783:5: QF1003: could use tagged switch on ra.Type (staticcheck)
+				if ra.Type == uop.AxisLoop {
+				^
+shape/view.go:336:2: S1031: unnecessary nil check around range (staticcheck)
+	if mask64 != nil {
+	^
+shape/view.go:341:2: S1031: unnecessary nil check around range (staticcheck)
+	if newMask64 != nil {
+	^
+tensor/reduce.go:124:10: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+			panic(fmt.Sprintf("tensor: Matmul: vector dim mismatch"))
+			      ^
+tensor/reduce.go:140:9: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch"))
+		      ^
+uop/dtype.go:236:9: S1016: should convert d (type DType) to dtypeKey instead of using struct literal (staticcheck)
+	key := dtypeKey{
+	       ^
+uop/dtype.go:605:3: S1011: should replace loop with queue = append(queue, promoLattice[cur]...) (staticcheck)
+		for _, parent := range promoLattice[cur] {
+		^
+uop/uop_test.go:237:2: SA9003: empty branch (staticcheck)
+	if a.Len() != 4 { // c1, c2, c3, inner, root — wait, 5 unique nodes
+	^
+backend/webgpu/slice7b_ccase_test.go:422:13: unnecessary conversion (unconvert)
+		W := int64(4 + c.k)
+		          ^
+shape/view.go:57:13: unnecessary conversion (unconvert)
+	acc := Sint(Const(1))
+	           ^
+tensor/movement.go:23:74: unnecessary conversion (unconvert)
+	node := t.arena().New(uop.OpReshape, t.dtype, []uop.UOp{t.node}, []int64(arg), nil)
+	                                                                        ^
+tensor/movement.go:35:73: unnecessary conversion (unconvert)
+	node := t.arena().New(uop.OpExpand, t.dtype, []uop.UOp{t.node}, []int64(arg), nil)
+	                                                                       ^
+tensor/movement.go:68:73: unnecessary conversion (unconvert)
+	node := t.arena().New(uop.OpPad, t.dtype, []uop.UOp{t.node}, [][2]int64(arg), nil)
+	                                                                       ^
+tensor/movement.go:86:76: unnecessary conversion (unconvert)
+	node := t.arena().New(uop.OpShrink, t.dtype, []uop.UOp{t.node}, [][2]int64(arg), nil)
+	                                                                          ^
+tensor/tensor.go:112:72: unnecessary conversion (unconvert)
+	node := a.New(uop.OpBuffer, dtype, []uop.UOp{defVar}, uop.ShapeSintArg(arg), nil)
+	                                                                      ^
+123 issues:
+* errcheck: 50
+* goimports: 49
+* ineffassign: 2
+* staticcheck: 15
+* unconvert: 7
+
+Exit: 0
+
+===== AFTER AUTO-FIX =====
+Date: 2026-06-01T00:11:10Z
+Actions applied:
+  - golangci-lint fmt ./...        (goimports formatter, fixed 49 files)
+  - unconvert -apply ./...         (standalone tool; --fix in golangci-lint also rewrites staticcheck so was avoided)
+Command: golangci-lint run ./...
+
+cmd/anneal/cmd_doctor.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_doctor.go:29:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, doctorFailureMsg())
+		          ^
+cmd/anneal/cmd_doctor.go:41:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: %s\n", name)
+	           ^
+cmd/anneal/cmd_doctor.go:42:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "backend: %s\n", backend)
+	           ^
+cmd/anneal/cmd_doctor.go:43:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "shader-f16: %s\n", shaderF16)
+	           ^
+cmd/anneal/cmd_doctor.go:44:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "status: %s\n", bold("ready"))
+	           ^
+cmd/anneal/cmd_explain.go:17:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_explain.go:22:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal explain <op>")
+		            ^
+cmd/anneal/cmd_explain.go:23:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "examples: anneal explain add, anneal explain matmul.backward, anneal explain symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:32:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, symbolicOverview())
+		          ^
+cmd/anneal/cmd_explain.go:38:13: Error return value of `fmt.Fprint` is not checked (errcheck)
+		fmt.Fprint(w, matmulExplain())
+		          ^
+cmd/anneal/cmd_explain.go:54:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "op %q not found — try 'anneal explain symbolic' to list all rule groups\n", rest[0])
+		           ^
+cmd/anneal/cmd_explain.go:55:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_explain.go:56:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "known ops: add, sub, mul, fdiv, neg, exp2, log2, sin, sqrt, reciprocal,")
+		            ^
+cmd/anneal/cmd_explain.go:57:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           where, cast, reduceaxis, reshape, expand, permute, pad, shrink,")
+		            ^
+cmd/anneal/cmd_explain.go:58:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "           flip, max, matmul, matmul.backward, symbolic")
+		            ^
+cmd/anneal/cmd_explain.go:78:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "op: %s\n", displayName)
+	           ^
+cmd/anneal/cmd_explain.go:80:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "sources: %s\n", strings.Join(sources, ", "))
+		           ^
+cmd/anneal/cmd_explain.go:82:14: Error return value of `fmt.Fprintln` is not checked (errcheck)
+	fmt.Fprintln(w)
+	            ^
+cmd/anneal/cmd_explain.go:85:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "symbolic rules:")
+		            ^
+cmd/anneal/cmd_explain.go:87:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:89:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_explain.go:93:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "gradient rules:")
+		            ^
+cmd/anneal/cmd_explain.go:95:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-40s %s\n", r.pattern, r.description)
+			           ^
+cmd/anneal/cmd_explain.go:97:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w)
+		            ^
+cmd/anneal/cmd_graph.go:19:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, err)
+		            ^
+cmd/anneal/cmd_graph.go:24:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "usage: anneal graph <model>")
+		            ^
+cmd/anneal/cmd_graph.go:25:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "")
+		            ^
+cmd/anneal/cmd_graph.go:26:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, "available models:")
+		            ^
+cmd/anneal/cmd_graph.go:28:15: Error return value of `fmt.Fprintf` is not checked (errcheck)
+			fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+			           ^
+cmd/anneal/cmd_graph.go:36:15: Error return value of `fmt.Fprintln` is not checked (errcheck)
+		fmt.Fprintln(w, formatError(err.Error()))
+		            ^
+cmd/anneal/cmd_graph.go:42:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(w, "build error: %v\n", err)
+		           ^
+cmd/anneal/cmd_graph.go:49:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "graph: %s — %s\n", ex.Name, ex.Summary)
+	           ^
+cmd/anneal/cmd_graph.go:50:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "device: webgpu\n")
+	           ^
+cmd/anneal/cmd_graph.go:51:13: Error return value of `fmt.Fprintf` is not checked (errcheck)
+	fmt.Fprintf(w, "UOp nodes: %d\n", len(nodes))
+	           ^
+codegen/lower.go:1034:14: Error return value of `fmt.Sscanf` is not checked (errcheck)
+			fmt.Sscanf(s, "tile:%d", &ts)
+			          ^
+rewrite/gen/main.go:86:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+schedule/schedule.go:31:14: Error return value of `os.WriteFile` is not checked (errcheck)
+	os.WriteFile(path, []byte(out), 0644)
+	            ^
+tensor/nn/grad_check_cast_test.go:107:16: Error return value of `tensor.Realize` is not checked (errcheck)
+	tensor.Realize(g2)
+	              ^
+tensor/npy/npy.go:56:15: Error return value of `r.Close` is not checked (errcheck)
+	defer r.Close()
+	             ^
+tensor/npy/npy.go:66:11: Error return value of `rc.Close` is not checked (errcheck)
+		rc.Close()
+		        ^
+tensor/safetensors/safetensors.go:134:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tensor/safetensors/safetensors.go:186:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tensor/safetensors/safetensors_test.go:504:10: Error return value of `f.Close` is not checked (errcheck)
+		f.Close()
+		       ^
+tensor/safetensors/safetensors_test.go:507:9: Error return value of `f.Close` is not checked (errcheck)
+	f.Close()
+	       ^
+tensor/safetensors/safetensors_test.go:564:9: Error return value of `f.Write` is not checked (errcheck)
+	f.Write(raw)
+	       ^
+tensor/safetensors/safetensors_test.go:565:9: Error return value of `f.Close` is not checked (errcheck)
+	f.Close()
+	       ^
+tensor/safetensors/safetensors_test.go:606:18: Error return value of `safetensors.Save` is not checked (errcheck)
+	safetensors.Save(path, map[string]*nn.Parameter{"w": w})
+	                ^
+tensor/safetensors/safetensors_test.go:629:18: Error return value of `safetensors.Save` is not checked (errcheck)
+	safetensors.Save(path, map[string]*nn.Parameter{"p": p})
+	                ^
+backend/webgpu/benchmark.go:46:3: ineffectual assignment to ws (ineffassign)
+		ws = item.LocalSize
+		^
+backend/webgpu/symbolic_reshape_test.go:205:4: ineffectual assignment to found (ineffassign)
+			found = true
+			^
+backend/webgpu/benchmark.go:65:3: SA9003: empty branch (staticcheck)
+		if i == 0 {
+		^
+backend/webgpu/executor.go:446:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: %w", werr)
+		            ^
+backend/webgpu/executor.go:449:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, fmt.Errorf("Map: pending map did not resolve after PollWait")
+		            ^
+codegen/lower.go:953:2: QF1002: could use tagged switch on nDims (staticcheck)
+	switch {
+	^
+codegen/opt.go:384:2: SA9003: empty branch (staticcheck)
+	if S%F != 0 {
+	^
+rewrite/gen/main.go:208:3: QF1003: could use tagged switch on ch (staticcheck)
+		if ch == '(' {
+		^
+schedule/index.go:401:10: ST1023: should omit type shape.Sint from declaration; it will be inferred from the right-hand side (staticcheck)
+	var acc shape.Sint = shape.Const(1)
+	        ^
+schedule/schedule_test.go:783:5: QF1003: could use tagged switch on ra.Type (staticcheck)
+				if ra.Type == uop.AxisLoop {
+				^
+shape/view.go:336:2: S1031: unnecessary nil check around range (staticcheck)
+	if mask64 != nil {
+	^
+shape/view.go:341:2: S1031: unnecessary nil check around range (staticcheck)
+	if newMask64 != nil {
+	^
+tensor/reduce.go:124:10: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+			panic(fmt.Sprintf("tensor: Matmul: vector dim mismatch"))
+			      ^
+tensor/reduce.go:140:9: S1039: unnecessary use of fmt.Sprintf (staticcheck)
+		panic(fmt.Sprintf("tensor: Matmul: inner dim mismatch"))
+		      ^
+uop/dtype.go:236:9: S1016: should convert d (type DType) to dtypeKey instead of using struct literal (staticcheck)
+	key := dtypeKey{
+	       ^
+uop/dtype.go:605:3: S1011: should replace loop with queue = append(queue, promoLattice[cur]...) (staticcheck)
+		for _, parent := range promoLattice[cur] {
+		^
+uop/uop_test.go:237:2: SA9003: empty branch (staticcheck)
+	if a.Len() != 4 { // c1, c2, c3, inner, root — wait, 5 unique nodes
+	^
+67 issues:
+* errcheck: 50
+* ineffassign: 2
+* staticcheck: 15
+
+Exit: 0

@@ -398,7 +398,7 @@ func unflatIndex(a *uop.Arena, flat uop.UOp, shape []int64) []uop.UOp {
 func sintStrides(sh []shape.Sint) []shape.Sint {
 	n := len(sh)
 	strides := make([]shape.Sint, n)
-	var acc shape.Sint = shape.Const(1)
+	acc := shape.Const(1)
 	for i := n - 1; i >= 0; i-- {
 		strides[i] = acc
 		acc = shape.Mul(acc, sh[i])
@@ -565,4 +565,3 @@ func identityConst(a *uop.Arena, reduceOp uop.Op, dtype *uop.DType) uop.UOp {
 	}
 	return a.New(uop.OpConst, dtype, nil, arg, nil)
 }
-

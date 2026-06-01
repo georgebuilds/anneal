@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/tui"
 )

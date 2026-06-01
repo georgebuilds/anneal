@@ -54,7 +54,7 @@ func stridesForShape(shape []Sint) []Sint {
 		return []Sint{}
 	}
 	st := make([]Sint, n)
-	acc := Sint(Const(1))
+	acc := Const(1)
 	for i := n - 1; i >= 0; i-- {
 		sv, isConcrete := shape[i].ConstValue()
 		if isConcrete && sv == 1 {
@@ -333,15 +333,11 @@ func (v View) Reshape(newShape []Sint) (View, bool) {
 	}
 
 	extraOffset := int64(0)
-	if mask64 != nil {
-		for i, m := range mask64 {
-			extraOffset += m[0] * strides64[i]
-		}
+	for i, m := range mask64 {
+		extraOffset += m[0] * strides64[i]
 	}
-	if newMask64 != nil {
-		for i, m := range newMask64 {
-			extraOffset -= m[0] * newStrides64[i]
-		}
+	for i, m := range newMask64 {
+		extraOffset -= m[0] * newStrides64[i]
 	}
 
 	return NewView(newShape, AsSints(newStrides64), Add(v.Offset, Const(extraOffset)), AsMaskSint(newMask64)), true

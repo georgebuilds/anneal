@@ -6,12 +6,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gogpu/gputypes"
+	"github.com/gogpu/wgpu"
+
 	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
-	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 )
 
 // Benchmark implements backend.Benchmarker.
@@ -42,7 +43,6 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 		item.LocalSize = ws
 		item.WorkgroupCount = wc
 	} else {
-		ws = item.LocalSize
 		wc = item.WorkgroupCount
 	}
 
@@ -61,10 +61,6 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 	gpuBufs := make([]*wgpu.Buffer, len(item.Bufs))
 	for i, buf := range item.Bufs {
 		usage := gputypes.BufferUsageStorage
-		if i == 0 {
-			// Output buffer might need CopySrc if we ever want to read it back,
-			// but for timing just Storage is enough.
-		}
 		gb, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
 			Label: fmt.Sprintf("bench_buf_%d", i),
 			Usage: usage,

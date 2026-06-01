@@ -131,7 +131,7 @@ func Save(path string, params map[string]*nn.Parameter) error {
 	if err != nil {
 		return fmt.Errorf("safetensors: create %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := binary.Write(f, binary.LittleEndian, uint64(len(hdrJSON))); err != nil {
 		return fmt.Errorf("safetensors: write header length: %w", err)
@@ -183,7 +183,7 @@ func LoadTensors(path string) (map[string]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("safetensors: open %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// 8-byte little-endian u64: header byte length.
 	var hLen uint64

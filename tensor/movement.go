@@ -20,7 +20,7 @@ func (t *Tensor) Reshape(newShape []int64) *Tensor {
 	}
 	newST := t.st.Reshape(newShape)
 	arg := cloneShape(newShape)
-	node := t.arena().New(uop.OpReshape, t.dtype, []uop.UOp{t.node}, []int64(arg), nil)
+	node := t.arena().New(uop.OpReshape, t.dtype, []uop.UOp{t.node}, arg, nil)
 	return fromNode(node, newST, t.dtype, t.device)
 }
 
@@ -32,7 +32,7 @@ func (t *Tensor) Expand(newShape []int64) *Tensor {
 	}
 	newST := t.st.Expand(newShape)
 	arg := cloneShape(newShape)
-	node := t.arena().New(uop.OpExpand, t.dtype, []uop.UOp{t.node}, []int64(arg), nil)
+	node := t.arena().New(uop.OpExpand, t.dtype, []uop.UOp{t.node}, arg, nil)
 	return fromNode(node, newST, t.dtype, t.device)
 }
 
@@ -65,7 +65,7 @@ func (t *Tensor) Pad(arg [][2]int64) *Tensor {
 		return t
 	}
 	newST := t.st.Pad(arg)
-	node := t.arena().New(uop.OpPad, t.dtype, []uop.UOp{t.node}, [][2]int64(arg), nil)
+	node := t.arena().New(uop.OpPad, t.dtype, []uop.UOp{t.node}, arg, nil)
 	return fromNode(node, newST, t.dtype, t.device)
 }
 
@@ -83,7 +83,7 @@ func (t *Tensor) Shrink(arg [][2]int64) *Tensor {
 		return t
 	}
 	newST := t.st.Shrink(arg)
-	node := t.arena().New(uop.OpShrink, t.dtype, []uop.UOp{t.node}, [][2]int64(arg), nil)
+	node := t.arena().New(uop.OpShrink, t.dtype, []uop.UOp{t.node}, arg, nil)
 	return fromNode(node, newST, t.dtype, t.device)
 }
 

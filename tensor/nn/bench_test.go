@@ -35,7 +35,7 @@ func TestFusionBenchmark(t *testing.T) {
 		schedule.FusionEnabled = true
 		lOn := wl.run(t, 1, 42)
 		schedule.FusionEnabled = false // reset
-		
+
 		if absF32(lOn-lOff) > 1e-4 {
 			t.Fatalf("Sanity check failed: Fusion ON/OFF mismatch: ON=%.6f OFF=%.6f", lOn, lOff)
 		}
@@ -50,30 +50,30 @@ func TestFusionBenchmark(t *testing.T) {
 
 		for _, fusion := range []bool{false, true} {
 			schedule.FusionEnabled = fusion
-			
+
 			// Warmup: 5 steps to prime caches and allocators.
 			wl.run(t, 5, 42)
 
 			const nIter = 10
 			times := make([]time.Duration, nIter)
 			var lastKernels int
-			
+
 			for i := 0; i < nIter; i++ {
 				var stepKernels int
 				schedule.StatsHook = func(s schedule.CompilerStats) {
 					stepKernels += s.Kernels
 				}
-				
+
 				start := time.Now()
 				wl.run(t, 1, int64(i+100))
 				times[i] = time.Since(start)
-				
+
 				schedule.StatsHook = nil
 				lastKernels = stepKernels
 			}
 
 			sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
-			
+
 			results[fusion] = struct {
 				median  time.Duration
 				min     time.Duration
@@ -91,17 +91,17 @@ func TestFusionBenchmark(t *testing.T) {
 		on := results[true]
 
 		diff := float64(on.median-off.median) / float64(off.median) * 100
-		
+
 		t.Logf("Fusion OFF: Kernels=%d, Median=%v, Min=%v, Max=%v", off.kernels, off.median, off.min, off.max)
 		t.Logf("Fusion ON : Kernels=%d, Median=%v, Min=%v, Max=%v", on.kernels, on.median, on.min, on.max)
-		
+
 		verdict := "no change"
 		if diff < -5 {
 			verdict = "FASTER"
 		} else if diff > 5 {
 			verdict = "SLOWER"
 		}
-		
+
 		t.Logf("Verdict: %s (%.2f%% change)", verdict, diff)
 		t.Logf("--------------------------------------------------")
 	}
@@ -153,7 +153,7 @@ func runMLPBenchmark(t *testing.T, nSteps int, seed int64) float32 {
 
 	a0 := uop.NewArena(1024)
 	model := newMLPBench(a0, inSize, hiddenSize, outSize, nHidden)
-	
+
 	rng := rand.New(rand.NewSource(seed))
 	for _, p := range model.Params() {
 		for i := range p.Value {
@@ -204,7 +204,7 @@ func runMLPBenchmark(t *testing.T, nSteps int, seed int64) float32 {
 		}
 
 		opt.Step(grads)
-		
+
 		if step == nSteps-1 {
 			if err := tensor.Realize(loss); err != nil {
 				t.Fatalf("Realize loss: %v", err)
@@ -228,7 +228,7 @@ func runConvBenchmark(t *testing.T, nSteps int, seed int64) float32 {
 
 	a0 := uop.NewArena(1024)
 	model := nn.NewConv2d(a0, cin, cout, [2]int64{3, 3}, [2]int{1, 1}, [2]int{0, 0}, true, uop.Dtypes.Float32, "webgpu")
-	
+
 	rng := rand.New(rand.NewSource(seed))
 	for _, p := range model.Params() {
 		for i := range p.Value {
@@ -282,7 +282,7 @@ func runConvBenchmark(t *testing.T, nSteps int, seed int64) float32 {
 		}
 
 		opt.Step(grads)
-		
+
 		if step == nSteps-1 {
 			if err := tensor.Realize(loss); err != nil {
 				t.Fatalf("Realize loss: %v", err)
@@ -292,4 +292,3 @@ func runConvBenchmark(t *testing.T, nSteps int, seed int64) float32 {
 	}
 	return lastLoss
 }
-

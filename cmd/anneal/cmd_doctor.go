@@ -13,6 +13,7 @@ func doctorCmd(args []string) int {
 	return doctorCmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort write to stdout/stderr
 func doctorCmdW(args []string, w io.Writer) int {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

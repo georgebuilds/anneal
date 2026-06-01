@@ -1,0 +1,16 @@
+codegen/lower.go:1034:14: Error return value of `fmt.Sscanf` is not checked (errcheck)
+			fmt.Sscanf(s, "tile:%d", &ts)
+			          ^
+backend/webgpu/symbolic_reshape_test.go:205:4: ineffectual assignment to found (ineffassign)
+			found = true
+			^
+codegen/opt.go:384:2: SA9003: empty branch (staticcheck)
+	if S%F != 0 {
+	^
+uop/uop_test.go:237:2: SA9003: empty branch (staticcheck)
+	if a.Len() != 4 { // c1, c2, c3, inner, root — wait, 5 unique nodes
+	^
+4 issues:
+* errcheck: 1
+* ineffassign: 1
+* staticcheck: 2
