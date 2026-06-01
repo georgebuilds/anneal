@@ -73,6 +73,7 @@ func TestB2_ValueOracle_TiledMatmul(t *testing.T) {
 
 func TestB2_Timing_Matmul_Tiled(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	for _, N := range []int64{512, 1024} {
 		TS := 16

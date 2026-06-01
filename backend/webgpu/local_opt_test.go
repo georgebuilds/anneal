@@ -120,6 +120,7 @@ func TestB1_ValueOracle_LocalOpt(t *testing.T) {
 // limit (due to large output) now runs correctly via dimension spreading.
 func TestB1_Scalability_LargeGrid(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	// Workgroup size is 64 by default.
 	// 65536 workgroups * 64 threads = 4,194,304 elements.
@@ -172,6 +173,7 @@ func TestB1_Scalability_LargeGrid(t *testing.T) {
 // TestB1_Timing_Matmul_Local verifies timing for a compute-dominated matmul.
 func TestB1_Timing_Matmul_Local(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	// Acceptance requirement: >= 512^3 matmul
 	N := int64(512)

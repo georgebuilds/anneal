@@ -14,6 +14,7 @@ import (
 
 func TestFusionBenchmark(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	// Workloads
 	type workload struct {

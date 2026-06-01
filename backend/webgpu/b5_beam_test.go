@@ -137,6 +137,7 @@ func TestB5_DefaultModeNoOverhead(t *testing.T) {
 
 func TestB5_CacheHitBitIdentical(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	tensor.DefaultExecutor = dev
 	defer func() { tensor.DefaultExecutor = nil }()
 
@@ -201,6 +202,7 @@ func TestB5_CacheHitBitIdentical(t *testing.T) {
 // beam modes and logs the results that feed test_output_b5.txt.
 func TestB5_StepLevelBenchmark(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	tensor.DefaultExecutor = dev
 	defer func() { tensor.DefaultExecutor = nil }()
 

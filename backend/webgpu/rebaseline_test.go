@@ -30,6 +30,7 @@ func rebaselineGFLOPS(N int64, minMicros float64) float64 {
 // TestRebaseline_LargeMatmul measures 4 opt configs × 5 sizes.
 func TestRebaseline_LargeMatmul(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	const (
 		warmup = 2

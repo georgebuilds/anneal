@@ -225,6 +225,7 @@ func TestB3_ScheduleCache_HitCorrect(t *testing.T) {
 // (OptTile+OptUpcast) at 512³ and 1024³. Honest acceptance: ≥2× at 1024³.
 func TestB3_Timing_Matmul_Upcast(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	for _, N := range []int64{512, 1024} {
 		a := uop.NewArena(65536)

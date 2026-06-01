@@ -224,6 +224,7 @@ func TestB37_ScheduleCache_HitCorrect(t *testing.T) {
 // finding that we are at the scalar-WGSL throughput ceiling; not a retune target.
 func TestB37_Timing_Matmul_Vectorize(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	const (
 		warmup = 2

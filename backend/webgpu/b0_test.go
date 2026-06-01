@@ -1,6 +1,7 @@
 package webgpu_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/georgebuilds/anneal/codegen"
@@ -8,6 +9,15 @@ import (
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// isSoftwareAdapter reports whether the GPU we got is a software rasterizer
+// (e.g. Mesa llvmpipe in CI). The M3-calibrated timing floor and large bench
+// sizes are not meaningful on such adapters and take orders of magnitude longer.
+func isSoftwareAdapter(name string) bool {
+	n := strings.ToLower(name)
+	return strings.Contains(n, "llvmpipe") || strings.Contains(n, "swiftshader") ||
+		strings.Contains(n, "software") || strings.Contains(n, "cpu")
+}
 
 func TestB0_ApplyOpt_Identity_ValueOracle(t *testing.T) {
 	dev := requireDevice(t)
@@ -90,6 +100,10 @@ const CONFIG_REFERENCE_MIN_MICROS_512 = 3400.0
 
 func TestB0_TimingHarness_Stability(t *testing.T) {
 	dev := requireDevice(t)
+	software := isSoftwareAdapter(dev.AdapterName())
+	if software {
+		t.Logf("software adapter detected (%s) — skipping 512³/1024³ benches and floor check", dev.AdapterName())
+	}
 
 	runBench := func(M, K, N int64) {
 		a := uop.NewArena(1024 * 1024)
@@ -112,7 +126,7 @@ func TestB0_TimingHarness_Stability(t *testing.T) {
 				M, K, N, res.CV, res.MaxMicros/res.MinMicros)
 		}
 
-		if M == 512 {
+		if M == 512 && !software {
 			limit := CONFIG_REFERENCE_MIN_MICROS_512 * 1.5
 			if res.MinMicros > limit {
 				t.Errorf("Matmul %dx%dx%d: min=%.2fµs exceeds reference floor %.0fµs * 1.5 = %.0fµs — genuine kernel regression (recalibrate CONFIG_REFERENCE_MIN_MICROS_512 if on a different machine)",
@@ -122,6 +136,8 @@ func TestB0_TimingHarness_Stability(t *testing.T) {
 	}
 
 	runBench(64, 64, 64)
-	runBench(512, 512, 512)
-	runBench(1024, 1024, 1024)
+	if !software {
+		runBench(512, 512, 512)
+		runBench(1024, 1024, 1024)
+	}
 }

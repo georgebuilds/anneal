@@ -41,6 +41,7 @@ func diagGFLOPS(N int64, minMicros float64) float64 {
 // occupancy / wavefront count is the performance lever.
 func TestDiag_WorkgroupSweep(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	const N = int64(1024)
 
 	resBase, err := dev.Benchmark(diagItem(), 2, 5)
@@ -75,6 +76,7 @@ func TestDiag_WorkgroupSweep(t *testing.T) {
 // Total FLOPs ≈ 4 × 256 × 2 × 256×4096 = 2,147,483,648 (matches 2*1024³ matmul).
 func TestDiag_FMAProbe(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 
 	const probeWGSL = `
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
@@ -128,6 +130,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // OptUpcast). TS∈{8,16,32}. Isolates smem-tiling benefit from register blocking.
 func TestDiag_TileNoUpcast(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	const N = int64(1024)
 
 	resBase, err := dev.Benchmark(diagItem(), 2, 5)
@@ -167,6 +170,7 @@ func TestDiag_TileNoUpcast(t *testing.T) {
 // occupancy / workgroup-count tradeoff scales with the upcast factor.
 func TestDiag_UpcastFactorSweep(t *testing.T) {
 	dev := requireDevice(t)
+	skipIfSoftwareGPU(t, dev)
 	const (
 		N  = int64(1024)
 		TS = 16
