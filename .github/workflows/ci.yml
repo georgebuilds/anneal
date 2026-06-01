@@ -28,6 +28,8 @@ jobs:
 
       - name: Test
         run: go test ./...
+        env:
+          GOTRACEBACK: crash
 
       - name: Vet
         run: go vet ./...
