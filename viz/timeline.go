@@ -131,10 +131,15 @@ func BuildTimeline(name string) (*TimelineData, error) {
 		grads, trace = tensor.BackwardWithTrace(loss, result.Leaves)
 	}
 
-	gradRoots := make([]uop.UOp, 0, 1+len(grads))
+	// Walk leaves in their declared order so root append order is
+	// deterministic; iterating the grads map directly produces a different
+	// topo (and therefore a different JSON byte sequence) per run.
+	gradRoots := make([]uop.UOp, 0, 1+len(result.Leaves))
 	gradRoots = append(gradRoots, loss.Node())
-	for _, g := range grads {
-		gradRoots = append(gradRoots, g.Node())
+	for _, l := range result.Leaves {
+		if g, ok := grads[l]; ok {
+			gradRoots = append(gradRoots, g.Node())
+		}
 	}
 	gradTopo := topoSortMultiRoot(gradRoots)
 
@@ -253,7 +258,7 @@ func buildForwardStage(forwardTopo []uop.UOp, forwardSet map[uint32]bool, a *uop
 	return StageData{
 		ID:          "forward",
 		Label:       "forward",
-		Description: "forward construction — loss expression, no gradients yet",
+		Description: "forward construction: loss expression, no gradients yet",
 		Stats:       StageStats{FwdNodes: len(forwardTopo)},
 		Overrides:   overrides,
 	}
@@ -284,7 +289,7 @@ func buildGradientStage(gradTopo []uop.UOp, forwardSet map[uint32]bool, a *uop.A
 	return StageData{
 		ID:          "gradient",
 		Label:       "gradient",
-		Description: "after BackwardWithTrace — adjoint rules wove the backward subgraph",
+		Description: "after BackwardWithTrace: adjoint rules wove the backward subgraph",
 		Stats:       StageStats{FwdNodes: fwd, BwdNodes: bwd},
 		Overrides:   overrides,
 	}
@@ -318,7 +323,7 @@ func buildScheduledStage(gradTopo []uop.UOp, forwardSet map[uint32]bool, a *uop.
 	return StageData{
 		ID:          "scheduled",
 		Label:       "scheduled",
-		Description: "rangeify identified kernel boundaries — reduce nodes materialise to gold buffers",
+		Description: "rangeify identified kernel boundaries: reduce nodes materialise to gold buffers",
 		Stats:       StageStats{FwdNodes: fwd, BwdNodes: bwd, Kernels: fusedKernels, Fused: fused},
 		Overrides:   overrides,
 	}
