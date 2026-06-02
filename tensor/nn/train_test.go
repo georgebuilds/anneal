@@ -55,6 +55,24 @@ func skipIfSoftwareGPU(t *testing.T) {
 	}
 }
 
+// skipIfGPT2EmbeddingTooLarge skips when the active executor cannot bind a
+// V*D float32 buffer in a single storage binding. Mesa llvmpipe in CI only
+// exposes the WebGPU minimum of 128 MiB, so GPT-2 scale embeddings (V=50257,
+// D=768, roughly 147 MiB) fail at CreateBindGroup. Must be called after
+// requireGPU has set tensor.DefaultExecutor.
+func skipIfGPT2EmbeddingTooLarge(t *testing.T, V, D int) {
+	t.Helper()
+	dev, ok := tensor.DefaultExecutor.(*webgpu.Device)
+	if !ok {
+		return
+	}
+	needed := uint64(V) * uint64(D) * 4
+	if lim := dev.MaxStorageBufferBindingSize(); lim < needed {
+		t.Skipf("device max storage buffer binding %d B < %d B needed for V=%d D=%d float32",
+			lim, needed, V, D)
+	}
+}
+
 // runStep builds a fresh graph, runs backward on loss = sum((pLeaf-target)²),
 // realizes the gradient on the GPU, applies one SGD step, and returns the
 // realized gradient values.

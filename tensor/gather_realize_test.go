@@ -43,6 +43,24 @@ func requireGPUGather(t *testing.T) {
 	tensor.DefaultExecutor = dev
 }
 
+// skipIfGPT2EmbeddingTooLarge skips the calling test when the active executor
+// cannot bind a V*D float32 buffer in a single storage binding. Mesa llvmpipe
+// in CI only exposes the WebGPU minimum of 128 MiB, so GPT-2 scale embeddings
+// (V=50257, D=768, roughly 147 MiB) fail at CreateBindGroup. Must be called
+// after requireGPUGather has set tensor.DefaultExecutor.
+func skipIfGPT2EmbeddingTooLarge(t *testing.T, V, D int) {
+	t.Helper()
+	dev, ok := tensor.DefaultExecutor.(*webgpu.Device)
+	if !ok {
+		return
+	}
+	needed := uint64(V) * uint64(D) * 4
+	if lim := dev.MaxStorageBufferBindingSize(); lim < needed {
+		t.Skipf("device max storage buffer binding %d B < %d B needed for V=%d D=%d float32",
+			lim, needed, V, D)
+	}
+}
+
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
 // i32sAsF32Bits packs int32 values as float32 bit patterns. Tensor.SetData
@@ -195,6 +213,7 @@ func TestGatherRealize_Fixture2_Axis1_MultiDimIndex(t *testing.T) {
 // [0, 50257), axis=0. Direct-slice oracle only.
 func TestGatherRealize_Fixture3_GPT2EmbeddingDirect(t *testing.T) {
 	requireGPUGather(t)
+	skipIfGPT2EmbeddingTooLarge(t, 50257, 768)
 
 	const V, D = 50257, 768
 	const B = 16
@@ -232,6 +251,7 @@ func TestGatherRealize_Fixture3_GPT2EmbeddingDirect(t *testing.T) {
 // symbolic. Bind n=16, share idx values with fixture 3, require exact match.
 func TestGatherRealize_Fixture4_SymbolicBatch(t *testing.T) {
 	requireGPUGather(t)
+	skipIfGPT2EmbeddingTooLarge(t, 50257, 768)
 
 	const V, D = 50257, 768
 	const symVar = "n"

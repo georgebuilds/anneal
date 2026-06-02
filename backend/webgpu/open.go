@@ -183,3 +183,17 @@ func (d *Device) AdapterName() string {
 	}
 	return d.adapter.Info().Name
 }
+
+// MaxStorageBufferBindingSize returns the device's maximum size in bytes for a
+// single storage buffer binding. The WebGPU spec minimum is 128 MiB. Real
+// hardware typically exposes much more (M3 reports several GiB); software
+// adapters (Mesa llvmpipe in CI) tend to honour only the spec minimum. Tests
+// that need a single buffer larger than 128 MiB (e.g. GPT-2 scale embeddings,
+// roughly 147 MiB) should consult this and skip when the limit is too low,
+// otherwise CreateBindGroup fails at realize time.
+func (d *Device) MaxStorageBufferBindingSize() uint64 {
+	if d.device == nil {
+		return 0
+	}
+	return d.device.Limits().MaxStorageBufferBindingSize
+}

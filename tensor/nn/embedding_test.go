@@ -63,6 +63,7 @@ func maxAbsDiffF32(a, b []float32) float32 {
 // be exactly 0 (integer indexing, no float rounding).
 func TestEmbedding_ForwardGPT2Shape(t *testing.T) {
 	requireGPU(t)
+	skipIfGPT2EmbeddingTooLarge(t, 50257, 768)
 
 	const (
 		V = int64(50257)
