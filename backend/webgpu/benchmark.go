@@ -10,9 +10,7 @@ import (
 	"github.com/gogpu/wgpu"
 
 	"github.com/georgebuilds/anneal/backend"
-	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
-	"github.com/georgebuilds/anneal/uop"
 )
 
 // Benchmark implements backend.Benchmarker.
@@ -32,42 +30,37 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 	}
 
 	// ── Render WGSL ───────────────────────────────────────────────────────
-	var ws, wc [3]int
+	var wc [3]int
 	wgsl := item.WGSL
 	if wgsl == "" {
-		res := codegen.RenderWGSL(item)
+		res := d.renderer.Render(item)
 		wgsl = res.WGSL
-		ws = res.LocalSize
 		wc = res.WorkgroupCount
 		item.WGSL = wgsl
-		item.LocalSize = ws
+		item.LocalSize = res.LocalSize
 		item.WorkgroupCount = wc
 	} else {
 		wc = item.WorkgroupCount
 	}
 
-	// ── Get or compile pipeline ───────────────────────────────────────────
-	pipe, ok := d.pipelineCache[wgsl]
-	if !ok {
-		var err error
-		pipe, err = d.compilePipelineLocked(item, wgsl)
-		if err != nil {
-			return backend.BenchmarkResult{}, err
-		}
-		d.pipelineCache[wgsl] = pipe
+	// ── Get or compile pipeline (compiler caches by WGSL) ────────────────
+	prog, err := d.compiler.Compile(wgsl, backend.KernelMeta{NumStorageBuffers: kernelNumParams(item)})
+	if err != nil {
+		return backend.BenchmarkResult{}, err
 	}
+	pipe := prog.(*program)
 
-	// ── Allocate temporary buffers ────────────────────────────────────────
+	// ── Allocate temporary buffers (storage-only, no upload) ────────────
+	// Benchmark intentionally skips the CopyDst/CopySrc flags to model the
+	// kernel cost without any host-side transfer overhead.
 	gpuBufs := make([]*wgpu.Buffer, len(item.Bufs))
 	for i, buf := range item.Bufs {
-		usage := gputypes.BufferUsageStorage
 		gb, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
 			Label: fmt.Sprintf("bench_buf_%d", i),
-			Usage: usage,
+			Usage: gputypes.BufferUsageStorage,
 			Size:  uint64(buf.Size) * elemBytes(buf.DType),
 		})
 		if err != nil {
-			// Cleanup previously allocated buffers
 			for j := 0; j < i; j++ {
 				gpuBufs[j].Release()
 			}
@@ -200,67 +193,5 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 		MeanMicros:   mean,
 		StdDevMicros: stdDev,
 		CV:           cv,
-	}, nil
-}
-
-func (d *Device) compilePipelineLocked(item schedule.ExecItem, wgsl string) (*kernelPipeline, error) {
-	var nParams int
-	if item.Ast.Valid() {
-		nParams = item.Ast.Arg().(uop.KernelInfo).NumParams
-	} else {
-		nParams = len(item.Bufs)
-	}
-
-	shader, err := d.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{WGSL: wgsl})
-	if err != nil {
-		return nil, fmt.Errorf("benchmark: CreateShaderModule: %w", err)
-	}
-
-	layoutEntries := make([]gputypes.BindGroupLayoutEntry, nParams)
-	for i := range layoutEntries {
-		bt := gputypes.BufferBindingTypeReadOnlyStorage
-		if i == 0 {
-			bt = gputypes.BufferBindingTypeStorage
-		}
-		layoutEntries[i] = gputypes.BindGroupLayoutEntry{
-			Binding:    uint32(i),
-			Visibility: gputypes.ShaderStageCompute,
-			Buffer:     &gputypes.BufferBindingLayout{Type: bt},
-		}
-	}
-	bgLayout, err := d.device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
-		Entries: layoutEntries,
-	})
-	if err != nil {
-		shader.Release()
-		return nil, fmt.Errorf("benchmark: CreateBindGroupLayout: %w", err)
-	}
-
-	pipelineLayout, err := d.device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
-		BindGroupLayouts: []*wgpu.BindGroupLayout{bgLayout},
-	})
-	if err != nil {
-		bgLayout.Release()
-		shader.Release()
-		return nil, fmt.Errorf("benchmark: CreatePipelineLayout: %w", err)
-	}
-
-	pipeline, err := d.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Layout:     pipelineLayout,
-		Module:     shader,
-		EntryPoint: "main",
-	})
-	if err != nil {
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return nil, fmt.Errorf("benchmark: CreateComputePipeline: %w", err)
-	}
-
-	return &kernelPipeline{
-		shader:         shader,
-		bgLayout:       bgLayout,
-		pipelineLayout: pipelineLayout,
-		pipeline:       pipeline,
 	}, nil
 }

@@ -6,7 +6,7 @@ No item here is a bug. Each is either a deliberate scope cut, a platform ceiling
 
 ## Platform: WebGPU
 
-anneal's only shipped backend is WebGPU (native via wgpu, browser via WASM). Several v1 limits are downstream of that choice, not of anneal's code.
+The shipped backend remains WebGPU (native via wgpu, browser via WASM). The `Renderer`, `Compiler`, `Allocator`, `Program`, and `DeviceBuffer` interfaces in `backend/` define the contract a CUDA or Metal-direct backend would satisfy; none has shipped yet, so every v1 limit below is the WebGPU shape of the world.
 
 ### Single adapter per device
 

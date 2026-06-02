@@ -344,7 +344,9 @@ Opts compose via `ApplyOpts(item, []Opt{...})`. BEAM (§7.7c) finds the best seq
 
 **As built:** the WebGPU backend uses `github.com/gogpu/wgpu`, `github.com/gogpu/naga`, `github.com/gogpu/gputypes`, `github.com/go-webgpu/webgpu`, and `github.com/go-webgpu/goffi`. The zero-CGO dynamic-linking strategy is confirmed for WebGPU.
 
-**Metal threading discipline (load-bearing).** A single permanently-`runtime.LockOSThread`'d **GPU-owner goroutine** owns all Metal entry points. Every public call (`Run`, `RunSymbolic`, `DispatchSymKernel`, `CompileSymKernel`, `Open`, `Close`) funnels through it via `onGPU`; `*Locked` helpers assume they're already on the owner thread.
+**Abstraction split (post-v1 refactor).** The driver-boundary contract is now five interfaces in `backend/`: `Renderer`, `Compiler`, `Allocator`, `Program`, `DeviceBuffer`. WebGPU implements them in `backend/webgpu/{renderer,compiler,allocator,program,buffer,sym_handle}.go`; `executor.go` is the orchestrator that composes them. The `Compiler` owns the pipeline cache (a static sub-cache and a symbolic sub-cache, both keyed by the normalized WGSL text); this is the layer BEAM's WGSL-stability contract pins. A CUDA backend lands by satisfying the same five interfaces, reusing the orchestrator pattern. External API (Executor / Benchmarker / SymbolicExecutor, Device exported surface, SymKernelHandle) is unchanged by the refactor.
+
+**Metal threading discipline (load-bearing).** A single permanently-`runtime.LockOSThread`'d **GPU-owner goroutine** owns all Metal entry points. Every public call (`Run`, `RunSymbolic`, `DispatchSymKernel`, `CompileSymKernel`, `Open`, `Close`) funnels through it via `onGPU`; `*Locked` helpers assume they're already on the owner thread. The `onGPU` funnel and the locked owner-goroutine live in the orchestrator (`backend/webgpu/open.go` and `executor.go`), not in the abstraction interfaces; a CUDA backend whose driver has no thread-affine state can omit this layer.
 
 `readBuffer` does NOT use `wgpu.Buffer.Map` (which internally spawns an unpinned goroutine whose blocking `waitUntilCompleted` lets Go migrate it off the OS thread that created the `NSAutoreleasePool` → SIGSEGV in pool drain). Instead it uses `MapAsync` + an explicit `Poll(PollWait)` driven *on* the owner thread, so the library never spawns its internal goroutine and every pool create/drain pair shares one OS thread. This eliminated a ~70% crash rate under load.
 
@@ -373,9 +375,10 @@ schedule/           rangeify, realize-map, bufferize, kernel split, toposort,
 codegen/            lower.go (→ []Instr linearisation), wgsl.go (WGSL renderer),
                       opt.go (Opt seam — four composable kernel transforms),
                       beam.go (BEAM search + persistent disk cache)
-backend/            device abstraction
-  webgpu/           open.go (locked GPU-owner goroutine), executor.go,
-                      symbolic dispatch path (RunSymbolic + compile-once cache)
+backend/            Renderer / Compiler / Allocator / Program / DeviceBuffer interfaces
+  webgpu/           open.go (locked GPU-owner goroutine), executor.go (orchestrator),
+                      renderer.go, compiler.go, allocator.go, program.go, buffer.go,
+                      sym_handle.go (RunSymbolic + compile-once cache)
 tensor/             Tensor API, ops, movement, gradient, realize, jit
   nn/               Linear, Conv2d, activations, SGD, Parameter
   npy/              .npy/.npz ingestion (pure Go)

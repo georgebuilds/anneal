@@ -3,25 +3,31 @@ package webgpu
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
-	"unsafe"
 
-	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
-
+	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
 )
 
-const (
-// Metadata for symbolic dispatch
-)
+// executor.go is the slim WebGPU orchestrator. It composes Renderer, Compiler,
+// Allocator, Program and Buffer collaborators (see renderer.go / compiler.go /
+// allocator.go / program.go / buffer.go) into the Run / RunSymbolic / Benchmark
+// public methods, and funnels every native call through Device.onGPU.
+//
+// Top-level data flow for one Run:
+//
+//	render-all  → compile-all  → allocate-all  → upload-inputs
+//	            → dispatch-each → readback-outputs → release-buffers
+//
+// Each step delegates to the relevant collaborator; the orchestrator only
+// handles classification (which buffer is a leaf input vs intermediate vs
+// final output) and the slot-shared allocation maximum-element calculation.
 
 // Run executes a compiled schedule on this device.
 // inputs maps Buffer.UOpIdx → flat float32 data for leaf (external-input) buffers.
-// Returns output data keyed by Buffer.UOpIdx for final output buffers (not read by
-// any subsequent kernel in the schedule).
+// Returns output data keyed by Buffer.UOpIdx for final output buffers (not read
+// by any subsequent kernel in the schedule).
 //
 // All Metal work funnels onto the GPU-owner goroutine (see open.go threading model).
 func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (map[uint32][]float32, error) {
@@ -37,26 +43,20 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 	return outputs, err
 }
 
-// runLocked is Run's body; it assumes it is already executing on the GPU-owner
+// runLocked is Run's body; assumes it is already executing on the GPU-owner
 // goroutine and must not call onGPU.
 func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float32) (map[uint32][]float32, error) {
-	if !d.HasShaderF16 {
-		for _, item := range items {
-			for _, buf := range item.Bufs {
-				if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
-					return nil, fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
-				}
-			}
-		}
+	if err := requireShaderF16(d, items); err != nil {
+		return nil, err
 	}
 
-	// ── Render all WGSL shaders before touching the GPU ───────────────────
+	// ── Render all WGSL shaders before touching the GPU ─────────────────
 	wgsls := make([]string, len(items))
 	for i := range items {
 		if items[i].WGSL != "" {
 			wgsls[i] = items[i].WGSL // pre-rendered by cache; Ast may be zeroed
 		} else {
-			res := codegen.RenderWGSL(items[i])
+			res := d.renderer.Render(items[i])
 			wgsls[i] = res.WGSL
 			items[i].WGSL = res.WGSL
 			items[i].LocalSize = res.LocalSize
@@ -64,64 +64,280 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 		}
 	}
 
-	// ── Classify buffers ──────────────────────────────────────────────────
-	// writtenBy: output buffer UOpIdx → kernel index that writes it
+	// ── Compile all programs (cached by WGSL source) ────────────────────
+	progs := make([]backend.Program, len(items))
+	for i, item := range items {
+		nParams := kernelNumParams(item)
+		p, err := d.compiler.Compile(wgsls[i], backend.KernelMeta{NumStorageBuffers: nParams})
+		if err != nil {
+			return nil, fmt.Errorf("webgpu: compile kernel %d: %w", i, err)
+		}
+		progs[i] = p
+	}
+
+	// ── Allocate GPU buffers ─────────────────────────────────────────────
+	alloc := newAllocator(d)
+	defer alloc.Reset() // dedup'd batch release after final readback
+
+	gpuBufs, err := d.allocateBuffers(items, alloc, staticElems{}, "")
+	if err != nil {
+		return nil, err
+	}
+
+	// ── Upload leaf input data ───────────────────────────────────────────
+	bufDType := buildBufDTypeMap(items)
+	if err := uploadInputs(gpuBufs, inputs, bufDType); err != nil {
+		return nil, err
+	}
+
+	// ── Execute kernels in schedule order ───────────────────────────────
+	for i, item := range items {
+		args, derr := buildDispatchArgs(item, item.WorkgroupCount, gpuBufs, nil)
+		if derr != nil {
+			return nil, fmt.Errorf("webgpu: kernel %d: %w", i, derr)
+		}
+		if err := progs[i].Dispatch(args); err != nil {
+			return nil, fmt.Errorf("webgpu: kernel %d: %w", i, err)
+		}
+	}
+
+	// ── Read back final outputs (implicit GPU sync) ─────────────────────
+	outputs, err := readbackOutputs(items, gpuBufs, staticElems{})
+	if err != nil {
+		return nil, err
+	}
+	return outputs, nil
+}
+
+// RunSymbolic executes a schedule that may contain symbolic kernels.
+// binding maps DefineVar name → concrete int64 value for this dispatch.
+// Symbolic kernels are compiled once (keyed by WGSL source) and reused across
+// calls with the same kernel structure but different binding values.
+// Schedules may contain a mix of symbolic and fully-concrete kernels.
+func (d *Device) RunSymbolic(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	var outputs map[uint32][]float32
+	err := d.onGPU(func() error {
+		var rerr error
+		outputs, rerr = d.runSymbolicLocked(items, inputs, binding)
+		return rerr
+	})
+	return outputs, err
+}
+
+// runSymbolicLocked is RunSymbolic's body; assumes it is already executing on
+// the GPU-owner goroutine and must not call onGPU.
+func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error) {
+	if err := requireShaderF16(d, items); err != nil {
+		return nil, err
+	}
+
+	// ── Render + compile all kernels (cached by WGSL source) ────────────
+	wgsls := make([]string, len(items))
+	progs := make([]backend.Program, len(items))
+	isSym := make([]bool, len(items))
+	for i := range items {
+		if items[i].WGSL != "" {
+			wgsls[i] = items[i].WGSL // pre-rendered by cache; Ast may be zeroed
+		} else {
+			res := d.renderer.Render(items[i])
+			wgsls[i] = res.WGSL
+			items[i].WGSL = res.WGSL
+			items[i].LocalSize = res.LocalSize
+			items[i].WorkgroupCount = res.WorkgroupCount
+			items[i].SymDispatch = res.SymDispatch
+		}
+		nParams := kernelNumParams(items[i])
+		hasSym := len(items[i].SymVars) > 0
+		isSym[i] = hasSym
+		p, err := d.compiler.Compile(wgsls[i], backend.KernelMeta{
+			NumStorageBuffers: nParams,
+			HasParamsUniform:  hasSym,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("webgpu: RunSymbolic compile kernel %d: %w", i, err)
+		}
+		progs[i] = p
+	}
+
+	// ── Allocate GPU buffers ─────────────────────────────────────────────
+	alloc := newAllocator(d)
+	defer alloc.Reset()
+
+	elems := symElems{binding: binding, items: items}
+	gpuBufs, err := d.allocateBuffers(items, alloc, elems, "sym")
+	if err != nil {
+		return nil, err
+	}
+
+	// ── Upload leaf input data ───────────────────────────────────────────
+	bufDType := buildBufDTypeMap(items)
+	if err := uploadInputs(gpuBufs, inputs, bufDType); err != nil {
+		return nil, err
+	}
+
+	// ── Execute kernels in schedule order ───────────────────────────────
+	for i, item := range items {
+		var params []byte
+		wc := item.WorkgroupCount
+		if isSym[i] {
+			pb, perr := buildParamsBytes(item.SymVars, binding)
+			if perr != nil {
+				return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, perr)
+			}
+			params = pb
+			// Compute per-dim workgroup count from binding + SymDispatch.
+			wcEval, werr := computeSymDispatchWCFromItem(item, binding)
+			if werr != nil {
+				return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, werr)
+			}
+			wc = wcEval
+		}
+		args, derr := buildDispatchArgs(item, wc, gpuBufs, params)
+		if derr != nil {
+			return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, derr)
+		}
+		if err := progs[i].Dispatch(args); err != nil {
+			return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, err)
+		}
+	}
+
+	// ── Read back final outputs ─────────────────────────────────────────
+	outputs, err := readbackOutputs(items, gpuBufs, elems)
+	if err != nil {
+		return nil, err
+	}
+	return outputs, nil
+}
+
+// SymCompiledCount returns the number of distinct symbolic-WGSL programs
+// compiled and cached by RunSymbolic / CompileSymKernel. A value of 1 after
+// multiple dispatches of the same kernel structure proves compile-once
+// behaviour. Static (non-symbolic) kernels do not contribute.
+func (d *Device) SymCompiledCount() int { return d.compiler.SymbolicCount() }
+
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+// requireShaderF16 fails closed if any kernel in items needs f16 but the
+// device does not have shader-f16 enabled.
+func requireShaderF16(d *Device, items []schedule.ExecItem) error {
+	if d.HasShaderF16 {
+		return nil
+	}
+	for _, item := range items {
+		for _, buf := range item.Bufs {
+			if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
+				return fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
+			}
+		}
+	}
+	return nil
+}
+
+// kernelNumParams returns the storage-buffer count for a kernel: either from
+// the AST's KernelInfo.NumParams or, if the AST has been zeroed by the cache,
+// from len(Bufs) (which equals NumParams by schedule invariant).
+func kernelNumParams(item schedule.ExecItem) int {
+	if item.Ast.Valid() {
+		return item.Ast.Arg().(uop.KernelInfo).NumParams
+	}
+	return len(item.Bufs)
+}
+
+// buildBufDTypeMap collects a UOpIdx → dtype lookup over every buffer in the
+// schedule. Used by uploadInputs to encode host float32 data into the right
+// per-element layout (f16, bf16, f32).
+func buildBufDTypeMap(items []schedule.ExecItem) map[uint32]*uop.DType {
+	m := make(map[uint32]*uop.DType, len(items)*4)
+	for _, item := range items {
+		for _, buf := range item.Bufs {
+			m[buf.UOpIdx] = buf.DType
+		}
+	}
+	return m
+}
+
+// elemCounter abstracts how an output / leaf buffer's element count is
+// determined. The static path uses schedule.Buffer.Size directly; the
+// symbolic path evaluates binding × per-dim multipliers via symElemCount.
+type elemCounter interface {
+	elems(buf schedule.Buffer, item schedule.ExecItem) int64
+}
+
+// staticElems is the elemCounter used by Run: returns buf.Size unchanged.
+type staticElems struct{}
+
+func (staticElems) elems(buf schedule.Buffer, _ schedule.ExecItem) int64 { return buf.Size }
+
+// symElems is the elemCounter used by RunSymbolic: evaluates each symbolic
+// dim against the binding (delegating to symElemCount).
+type symElems struct {
+	binding map[string]int64
+	items   []schedule.ExecItem
+}
+
+func (s symElems) elems(buf schedule.Buffer, item schedule.ExecItem) int64 {
+	return symElemCount(buf, s.binding, item.SymVars)
+}
+
+// allocateBuffers performs the three-phase allocation pattern used by both
+// runLocked and runSymbolicLocked:
+//
+//	Phase A: slot-shared intermediate buffers (Slot >= 0), one allocation per
+//	         slot sized to the max consumer.
+//	Phase B: dedicated final-output buffers (Slot == -1, written by a kernel).
+//	Phase C: leaf input buffers (read by some kernel, written by none).
+//
+// labelPrefix is prepended to the per-buffer debug label (e.g. "sym" makes
+// labels read "symslot0", "symout42", "symleaf17"); empty string yields the
+// static-path labels ("slot0", "out42", "leaf17").
+func (d *Device) allocateBuffers(items []schedule.ExecItem, alloc *allocator, ec elemCounter, labelPrefix string) (map[uint32]backend.DeviceBuffer, error) {
 	writtenBy := make(map[uint32]int, len(items))
 	for i, item := range items {
 		writtenBy[item.Bufs[0].UOpIdx] = i
 	}
-	// readByAny: buffer UOpIdx → true if any kernel reads it as input
-	readByAny := make(map[uint32]bool)
-	for _, item := range items {
-		for _, buf := range item.Bufs[1:] {
-			readByAny[buf.UOpIdx] = true
-		}
-	}
 
-	// ── Allocate GPU buffers ──────────────────────────────────────────────
-	gpuBufs := make(map[uint32]*wgpu.Buffer, len(items)*2)
+	gpuBufs := make(map[uint32]backend.DeviceBuffer, len(items)*2)
 
-	// Phase A: slot-shared intermediate buffers (Slot >= 0 on Bufs[0]).
-	// Find the maximum element count for each slot so one allocation covers all.
+	// Phase A: slot-shared intermediates.
 	slotMaxElems := make(map[int]int64)
 	for _, item := range items {
 		out := item.Bufs[0]
 		if out.Slot >= 0 {
-			if out.Size > slotMaxElems[out.Slot] {
-				slotMaxElems[out.Slot] = out.Size
+			if n := ec.elems(out, item); n > slotMaxElems[out.Slot] {
+				slotMaxElems[out.Slot] = n
 			}
 		}
 	}
-	slotGPUBuf := make(map[int]*wgpu.Buffer, len(slotMaxElems))
 	for slot, maxElems := range slotMaxElems {
-		buf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-			Label: fmt.Sprintf("slot%d", slot),
-			Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-			Size:  uint64(maxElems) * 4,
-		})
+		label := fmt.Sprintf("%sslot%d", labelPrefix, slot)
+		buf, err := alloc.AllocSlot(slot, maxElems, nil, label)
 		if err != nil {
 			return nil, fmt.Errorf("webgpu: alloc slot %d: %w", slot, err)
 		}
-		slotGPUBuf[slot] = buf
+		_ = buf
 	}
-	// Map output buffer UOpIdx → GPU buffer via slot.
 	for _, item := range items {
 		out := item.Bufs[0]
 		if out.Slot >= 0 {
-			gpuBufs[out.UOpIdx] = slotGPUBuf[out.Slot]
+			buf, err := alloc.AllocSlot(out.Slot, 0, nil, "")
+			if err != nil {
+				return nil, fmt.Errorf("webgpu: lookup slot %d: %w", out.Slot, err)
+			}
+			gpuBufs[out.UOpIdx] = buf
 		}
 	}
 
-	// Phase B: dedicated output buffers (Slot == -1, i.e. final outputs).
+	// Phase B: dedicated final outputs.
 	for _, item := range items {
 		out := item.Bufs[0]
 		if out.Slot < 0 {
 			if _, ok := gpuBufs[out.UOpIdx]; !ok {
-				buf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-					Label: fmt.Sprintf("out%d", out.UOpIdx),
-					Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-					Size:  uint64(out.Size) * elemBytes(out.DType),
-				})
+				label := fmt.Sprintf("%sout%d", labelPrefix, out.UOpIdx)
+				n := ec.elems(out, item)
+				buf, err := alloc.Alloc(n, out.DType, backend.BufferUsageIO, label)
 				if err != nil {
 					return nil, fmt.Errorf("webgpu: alloc output buf %d: %w", out.UOpIdx, err)
 				}
@@ -130,406 +346,112 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 		}
 	}
 
-	// Phase C: leaf input buffers (appear in Bufs[1..] but never in any Bufs[0]).
+	// Phase C: leaf inputs (never written by any kernel in this schedule).
 	for _, item := range items {
 		for _, buf := range item.Bufs[1:] {
 			if _, written := writtenBy[buf.UOpIdx]; written {
-				continue // produced by an upstream kernel, already allocated
+				continue
 			}
 			if _, ok := gpuBufs[buf.UOpIdx]; ok {
-				continue // already allocated
+				continue
 			}
-			gpuBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-				Label: fmt.Sprintf("leaf%d", buf.UOpIdx),
-				Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst,
-				Size:  uint64(buf.Size) * elemBytes(buf.DType),
-			})
+			label := fmt.Sprintf("%sleaf%d", labelPrefix, buf.UOpIdx)
+			n := ec.elems(buf, item)
+			if n == 0 {
+				n = 1 // preserve the symbolic-path "actualElems==0 → 1" floor
+			}
+			db, err := alloc.Alloc(n, buf.DType, backend.BufferUsageLeafInput, label)
 			if err != nil {
 				return nil, fmt.Errorf("webgpu: alloc leaf buf %d: %w", buf.UOpIdx, err)
 			}
-			gpuBufs[buf.UOpIdx] = gpuBuf
+			gpuBufs[buf.UOpIdx] = db
 		}
 	}
+	return gpuBufs, nil
+}
 
-	// ── Upload leaf input data ────────────────────────────────────────────
-	// Build a lookup from UOpIdx → dtype so we can encode f16 inputs correctly.
-	bufDType := make(map[uint32]*uop.DType, len(items)*4)
-	for _, item := range items {
-		for _, buf := range item.Bufs {
-			bufDType[buf.UOpIdx] = buf.DType
-		}
-	}
+// uploadInputs writes leaf input data to GPU buffers, encoding host float32
+// data into the per-dtype layout (f16 / bf16 / f32) via EncodeFloat32Input.
+// Inputs for UOpIdx values not present in gpuBufs (e.g. for buffers not in
+// this schedule) are silently skipped — same as the original behaviour.
+func uploadInputs(gpuBufs map[uint32]backend.DeviceBuffer, inputs map[uint32][]float32, bufDType map[uint32]*uop.DType) error {
 	for uopIdx, data := range inputs {
-		gpuBuf, ok := gpuBufs[uopIdx]
+		db, ok := gpuBufs[uopIdx]
 		if !ok {
-			continue // caller provided data for a buffer not in this schedule — skip
+			continue
 		}
-		var raw []byte
-		dt := bufDType[uopIdx]
-		switch {
-		case dt != nil && dt.Scalar() == uop.Dtypes.Float16:
-			raw = float32sToF16Bytes(data)
-		case dt != nil && dt.Scalar() == uop.Dtypes.BFloat16:
-			raw = float32sToBF16U32Bytes(data)
-		default:
-			raw = float32sToBytes(data)
-		}
-		if err := d.queue.WriteBuffer(gpuBuf, 0, raw); err != nil {
-			return nil, fmt.Errorf("webgpu: upload buf %d: %w", uopIdx, err)
+		raw := EncodeFloat32Input(data, bufDType[uopIdx])
+		if err := db.Write(raw); err != nil {
+			return fmt.Errorf("webgpu: upload buf %d: %w", uopIdx, err)
 		}
 	}
+	return nil
+}
 
-	// ── Execute kernels in schedule order ─────────────────────────────────
-	// kernelRes holds per-kernel GPU objects that must outlive dispatch.
-	// Released after GPU sync (after readbacks) to cancel GC finalizers and
-	// prevent finalizer-goroutine Metal calls from racing with future dispatches.
-	type kernelRes struct {
-		shader         *wgpu.ShaderModule
-		bgLayout       *wgpu.BindGroupLayout
-		pipelineLayout *wgpu.PipelineLayout
-		pipeline       *wgpu.ComputePipeline
-		bg             *wgpu.BindGroup
-	}
-	kernelRess := make([]kernelRes, 0, len(items))
-
-	for i, item := range items {
-		res, err := d.runKernel(item, wgsls[i], gpuBufs)
-		if err != nil {
-			return nil, fmt.Errorf("webgpu: kernel %d: %w", i, err)
+// buildDispatchArgs assembles the DispatchArgs for one kernel: it resolves
+// each schedule.Buffer to its DeviceBuffer in gpuBufs, in PARAM-index order.
+// params is non-nil for symbolic kernels and is forwarded verbatim.
+func buildDispatchArgs(item schedule.ExecItem, wc [3]int, gpuBufs map[uint32]backend.DeviceBuffer, params []byte) (backend.DispatchArgs, error) {
+	bufs := make([]backend.DeviceBuffer, len(item.Bufs))
+	for i, buf := range item.Bufs {
+		db, ok := gpuBufs[buf.UOpIdx]
+		if !ok {
+			return backend.DispatchArgs{}, fmt.Errorf("missing GPU buffer for UOpIdx %d (param %d)", buf.UOpIdx, i)
 		}
-		kernelRess = append(kernelRess, kernelRes(res))
+		bufs[i] = db
 	}
+	return backend.DispatchArgs{WorkgroupCount: wc, Buffers: bufs, Params: params}, nil
+}
 
-	// ── Read back final outputs ───────────────────────────────────────────
-	// readBuffer blocks until the GPU has completed all prior work, so after
-	// all readbacks the GPU is fully idle and we can safely release resources.
+// readbackOutputs reads back every buffer that is written by some kernel and
+// read by no kernel (i.e. final outputs) and decodes its bytes to float32 via
+// DecodeBytesToFloat32. Implicit GPU sync happens here (readBuffer issues a
+// full barrier via Poll(PollWait) inside the MapAsync path).
+func readbackOutputs(items []schedule.ExecItem, gpuBufs map[uint32]backend.DeviceBuffer, ec elemCounter) (map[uint32][]float32, error) {
+	readByAny := make(map[uint32]bool)
+	for _, item := range items {
+		for _, buf := range item.Bufs[1:] {
+			readByAny[buf.UOpIdx] = true
+		}
+	}
 	outputs := make(map[uint32][]float32)
 	for _, item := range items {
 		out := item.Bufs[0]
 		if readByAny[out.UOpIdx] {
-			continue // consumed by a downstream kernel — not a final output
+			continue
 		}
-		data, err := d.readBuffer(gpuBufs[out.UOpIdx], out.Size, out.DType)
+		db := gpuBufs[out.UOpIdx]
+		raw, err := db.Read()
 		if err != nil {
 			return nil, fmt.Errorf("webgpu: readback buf %d: %w", out.UOpIdx, err)
 		}
-		outputs[out.UOpIdx] = data
+		outputs[out.UOpIdx] = DecodeBytesToFloat32(raw, ec.elems(out, item), out.DType)
 	}
-
-	// GPU is now idle. Release all Metal resources synchronously so that GC
-	// finalizers for these objects become no-ops, preventing finalizer-goroutine
-	// Metal API calls from racing with Metal calls in subsequent Realize rounds.
-	for i := len(kernelRess) - 1; i >= 0; i-- {
-		r := kernelRess[i]
-		r.bg.Release()
-		r.pipeline.Release()
-		r.pipelineLayout.Release()
-		r.bgLayout.Release()
-		r.shader.Release()
-	}
-	// Slot-shared intermediate buffers appear under multiple UOpIdx keys in gpuBufs.
-	// Deduplicate before releasing to prevent double-free → Metal autorelease corruption.
-	releasedBufs := make(map[*wgpu.Buffer]bool, len(gpuBufs))
-	for _, buf := range gpuBufs {
-		if !releasedBufs[buf] {
-			releasedBufs[buf] = true
-			buf.Release()
-		}
-	}
-
 	return outputs, nil
 }
 
-// runKernelRes holds GPU objects created per kernel. Callers must release them
-// after GPU completion (after all readbacks) to prevent GC finalizer races.
-type runKernelRes struct {
-	shader         *wgpu.ShaderModule
-	bgLayout       *wgpu.BindGroupLayout
-	pipelineLayout *wgpu.PipelineLayout
-	pipeline       *wgpu.ComputePipeline
-	bg             *wgpu.BindGroup
-}
-
-// runKernel compiles and dispatches one kernel. It returns the GPU objects
-// allocated for this kernel; the caller must release them after GPU completion.
-func (d *Device) runKernel(item schedule.ExecItem, wgsl string, gpuBufs map[uint32]*wgpu.Buffer) (runKernelRes, error) {
-	var nParams int
-	if item.Ast.Valid() {
-		nParams = item.Ast.Arg().(uop.KernelInfo).NumParams
-	} else {
-		nParams = len(item.Bufs) // Ast zeroed by cache; NumParams == len(Bufs) invariant
+// buildParamsBytes packs the binding values for item.SymVars into the WGSL
+// params_n uniform buffer layout: one u32 per var in slot order, padded up to
+// a multiple of 16 bytes (codegen rounds the ParamsN field count up to a
+// multiple of 4 to match WGSL's uniform-struct alignment rule).
+func buildParamsBytes(symVars []string, binding map[string]int64) ([]byte, error) {
+	nVars := len(symVars)
+	n := (nVars*4 + 15) &^ 15
+	if n < 16 {
+		n = 16
 	}
-
-	// ── Compile shader ────────────────────────────────────────────────────
-	shader, err := d.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{WGSL: wgsl})
-	if err != nil {
-		return runKernelRes{}, fmt.Errorf("CreateShaderModule: %w\n--- WGSL ---\n%s", err, wgsl)
-	}
-
-	// ── Bind group layout ─────────────────────────────────────────────────
-	layoutEntries := make([]gputypes.BindGroupLayoutEntry, nParams)
-	for i := range layoutEntries {
-		bt := gputypes.BufferBindingTypeReadOnlyStorage
-		if i == 0 {
-			bt = gputypes.BufferBindingTypeStorage // read_write for output
+	out := make([]byte, n)
+	for i, name := range symVars {
+		bv, ok := binding[name]
+		if !ok {
+			return nil, fmt.Errorf("symbolic kernel missing binding for DefineVar %q (expected in binding map)", name)
 		}
-		layoutEntries[i] = gputypes.BindGroupLayoutEntry{
-			Binding:    uint32(i),
-			Visibility: gputypes.ShaderStageCompute,
-			Buffer:     &gputypes.BufferBindingLayout{Type: bt},
-		}
+		binary.LittleEndian.PutUint32(out[i*4:], uint32(bv))
 	}
-	bgLayout, err := d.device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
-		Entries: layoutEntries,
-	})
-	if err != nil {
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CreateBindGroupLayout: %w", err)
-	}
-
-	// ── Pipeline layout + compute pipeline ───────────────────────────────
-	pipelineLayout, err := d.device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
-		BindGroupLayouts: []*wgpu.BindGroupLayout{bgLayout},
-	})
-	if err != nil {
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CreatePipelineLayout: %w", err)
-	}
-
-	pipeline, err := d.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Layout:     pipelineLayout,
-		Module:     shader,
-		EntryPoint: "main",
-	})
-	if err != nil {
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CreateComputePipeline: %w\n--- WGSL ---\n%s", err, wgsl)
-	}
-
-	// ── Bind group ────────────────────────────────────────────────────────
-	entries := make([]wgpu.BindGroupEntry, nParams)
-	for i, buf := range item.Bufs {
-		gpuBuf := gpuBufs[buf.UOpIdx]
-		if gpuBuf == nil {
-			pipeline.Release()
-			pipelineLayout.Release()
-			bgLayout.Release()
-			shader.Release()
-			return runKernelRes{}, fmt.Errorf("missing GPU buffer for UOpIdx %d (param %d)", buf.UOpIdx, i)
-		}
-		entries[i] = wgpu.BindGroupEntry{
-			Binding: uint32(i),
-			Buffer:  gpuBuf,
-			Size:    uint64(buf.Size) * elemBytes(buf.DType),
-		}
-	}
-	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Layout:  bgLayout,
-		Entries: entries,
-	})
-	if err != nil {
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CreateBindGroup: %w", err)
-	}
-
-	// ── Dispatch ──────────────────────────────────────────────────────────
-	wc := item.WorkgroupCount
-	if wc[0] == 0 {
-		wc = [3]int{1, 1, 1}
-	}
-
-	enc, err := d.device.CreateCommandEncoder(nil)
-	if err != nil {
-		bg.Release()
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CreateCommandEncoder: %w", err)
-	}
-	pass, err := enc.BeginComputePass(nil)
-	if err != nil {
-		bg.Release()
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("BeginComputePass: %w", err)
-	}
-	pass.SetPipeline(pipeline)
-	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
-	if err := pass.End(); err != nil {
-		bg.Release()
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("ComputePass.End: %w", err)
-	}
-	cmd, err := enc.Finish()
-	if err != nil {
-		bg.Release()
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("CommandEncoder.Finish: %w", err)
-	}
-	if _, err := d.queue.Submit(cmd); err != nil {
-		bg.Release()
-		pipeline.Release()
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return runKernelRes{}, fmt.Errorf("Queue.Submit: %w", err)
-	}
-	return runKernelRes{shader: shader, bgLayout: bgLayout, pipelineLayout: pipelineLayout, pipeline: pipeline, bg: bg}, nil
+	return out, nil
 }
 
-// readBuffer maps a GPU storage buffer and returns its contents as float32.
-// For non-f32 dtypes the raw bytes are reinterpreted (int32/uint32 → float32 bitcast).
-func (d *Device) readBuffer(buf *wgpu.Buffer, nElems int64, dtype *uop.DType) ([]float32, error) {
-	byteSize := uint64(nElems) * elemBytes(dtype)
-
-	staging, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Usage: gputypes.BufferUsageCopyDst | gputypes.BufferUsageMapRead,
-		Size:  byteSize,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("alloc staging: %w", err)
-	}
-	defer func() {
-		staging.Unmap() //nolint:errcheck
-		staging.Release()
-	}()
-
-	enc, err := d.device.CreateCommandEncoder(nil)
-	if err != nil {
-		return nil, fmt.Errorf("CreateCommandEncoder: %w", err)
-	}
-	enc.CopyBufferToBuffer(buf, 0, staging, 0, byteSize)
-	cmd, err := enc.Finish()
-	if err != nil {
-		return nil, fmt.Errorf("CommandEncoder.Finish: %w", err)
-	}
-	if _, err := d.queue.Submit(cmd); err != nil {
-		return nil, fmt.Errorf("Queue.Submit: %w", err)
-	}
-
-	// Resolve the map ourselves rather than calling staging.Map: Buffer.Map
-	// spawns an internal, UNPINNED goroutine to run Poll(PollWait)→WaitIdle,
-	// whose NSAutoreleasePool then drains on whatever OS thread the scheduler
-	// migrated it to → SIGSEGV. MapAsync registers the pending map without
-	// spawning anything; a single Poll(PollWait) issues a full GPU barrier
-	// (WaitIdle) and resolves all pending maps with the "all completed"
-	// sentinel. Because runLocked/readBuffer run on the GPU-owner goroutine
-	// (locked to one OS thread), that WaitIdle's pool is created and drained
-	// on the same thread — no migration, no crash.
-	pending, err := staging.MapAsync(wgpu.MapModeRead, 0, byteSize)
-	if err != nil {
-		return nil, fmt.Errorf("MapAsync: %w", err)
-	}
-	d.device.Poll(wgpu.PollWait)
-	ready, werr := pending.Status()
-	for i := 0; i < 8 && !ready && werr == nil; i++ {
-		d.device.Poll(wgpu.PollWait)
-		ready, werr = pending.Status()
-	}
-	if werr != nil {
-		return nil, fmt.Errorf("map: %w", werr)
-	}
-	if !ready {
-		return nil, fmt.Errorf("map: pending map did not resolve after PollWait")
-	}
-	rng, err := staging.MappedRange(0, byteSize)
-	if err != nil {
-		return nil, fmt.Errorf("MappedRange: %w", err)
-	}
-
-	raw := rng.Bytes()
-	result := make([]float32, nElems)
-	if dtype != nil && dtype.Scalar() == uop.Dtypes.Float16 {
-		for i := int64(0); i < nElems; i++ {
-			result[i] = float16ToFloat32(binary.LittleEndian.Uint16(raw[i*2:]))
-		}
-	} else {
-		for i := int64(0); i < nElems; i++ {
-			result[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:]))
-		}
-	}
-	rng.Release()
-	return result, nil
-}
-
-// elemBytes returns the GPU buffer element size in bytes for a dtype, via the
-// single per-dtype WGSL metadata table in codegen.
-func elemBytes(d *uop.DType) uint64 {
-	return codegen.WGSLTypeInfoFor(d).SizeBytes
-}
-
-// float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.
-func float16ToFloat32(h uint16) float32 {
-	return uop.Float16ToFloat32(h)
-}
-
-// float32ToFloat16 converts a float32 to its nearest IEEE 754 half-precision value.
-func float32ToFloat16(f float32) uint16 {
-	return uop.Float32ToFloat16(f)
-}
-
-// float32sToF16Bytes converts float32 values to packed f16 little-endian bytes.
-func float32sToF16Bytes(data []float32) []byte {
-	b := make([]byte, len(data)*2)
-	for i, v := range data {
-		binary.LittleEndian.PutUint16(b[i*2:], float32ToFloat16(v))
-	}
-	return b
-}
-
-// float32sToBF16U32Bytes encodes float32 values as bf16 packed in u32 slots.
-// Narrowing uses round-to-nearest-even via uop.Float32ToBFloat16, matching
-// the GPU store path (codegen/wgsl.go _bf16_rtne_bits) and the CPU oracle
-// (uop.DType.Quantize). The bf16 bits land in the upper 16 of each u32
-// storage word so the GPU's bitcast<f32>(u32) load reconstructs the
-// bf16-quantized f32 directly.
-func float32sToBF16U32Bytes(data []float32) []byte {
-	b := make([]byte, len(data)*4)
-	for i, v := range data {
-		bf16u32 := uint32(uop.Float32ToBFloat16(v)) << 16
-		binary.LittleEndian.PutUint32(b[i*4:], bf16u32)
-	}
-	return b
-}
-
-// float32sToBytes converts a float32 slice to its little-endian byte representation.
-func float32sToBytes(data []float32) []byte {
-	b := make([]byte, len(data)*4)
-	for i, v := range data {
-		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(v))
-	}
-	return b
-}
-
-// bytesToFloat32s reinterprets a byte slice as float32 values (little-endian).
-func bytesToFloat32s(b []byte) []float32 {
-	out := make([]float32, len(b)/4)
-	for i := range out {
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
-	}
-	return out
-}
-
-// silence unused import warning for unsafe (used in test file, kept here for completeness)
-var _ = unsafe.Pointer(nil)
-
-// ── Symbolic dispatch (SLICE 3b-1) ───────────────────────────────────────────
+// ── symElemCount and friends (preserved from the original executor.go) ───────
 
 // symElemCount returns the actual element count for buf in a symbolic schedule.
 // For concrete buffers (Size>0) it returns Size directly. For symbolic buffers
@@ -545,8 +467,6 @@ func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []strin
 	}
 	if len(buf.Shape) == 0 {
 		// 1D symbolic (arg=nil): size equals the single symbolic variable.
-		// (Leaf inputs constructed via the 1D NewSymbolicInput path have nil
-		// Shape and an implicit multiplier of 1.)
 		if len(symVars) > 0 {
 			if n, ok := binding[symVars[0]]; ok {
 				return n
@@ -555,12 +475,7 @@ func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []strin
 		return 0
 	}
 	// Multi-dim symbolic: product over dims, using binding × per-dim multiplier
-	// for symbolic (Shape[i]==0) dims. When buf.SymDimAffine is set (Option B
-	// Slice 5 pad/shrink output bounds: Add over distinct vars), it overrides
-	// the simpler (Mul, Var) form. Otherwise, when buf.SymDimVar is set
-	// (Slice 3 derived-bound buffers), it overrides the positional
-	// symVars[symIdx] lookup so dim-order may differ from name-sorted var
-	// order.
+	// for symbolic (Shape[i]==0) dims.
 	n := int64(1)
 	symIdx := 0
 	for _, s := range buf.Shape {
@@ -603,407 +518,14 @@ func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []strin
 	return n
 }
 
-// RunSymbolic executes a schedule that may contain symbolic kernels.
-// binding maps DefineVar name → concrete int64 value for this dispatch.
-// Symbolic kernels are compiled once (keyed by WGSL source) and reused across
-// calls with the same kernel structure but different binding values.
-// Schedules may contain a mix of symbolic and fully-concrete kernels; concrete
-// kernels are dispatched via the static runKernel path.
-func (d *Device) RunSymbolic(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error) {
-	if len(items) == 0 {
-		return nil, nil
-	}
-	var outputs map[uint32][]float32
-	err := d.onGPU(func() error {
-		var rerr error
-		outputs, rerr = d.runSymbolicLocked(items, inputs, binding)
-		return rerr
-	})
-	return outputs, err
-}
-
-// runSymbolicLocked is RunSymbolic's body; it assumes it is already executing on
-// the GPU-owner goroutine and must not call onGPU.
-func (d *Device) runSymbolicLocked(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error) {
-	if !d.HasShaderF16 {
-		for _, item := range items {
-			for _, buf := range item.Bufs {
-				if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
-					return nil, fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
-				}
-			}
-		}
-	}
-
-	// ── Compile all kernels (cached by WGSL source) ───────────────────────
-	// Symbolic kernels → CompileSymKernel (cached handle); concrete → just WGSL.
-	wgsls := make([]string, len(items))
-	handles := make([]*SymKernelHandle, len(items)) // nil for concrete kernels
-	for i := range items {
-		if items[i].WGSL != "" {
-			wgsls[i] = items[i].WGSL // pre-rendered by cache; Ast may be zeroed
-		} else {
-			res := codegen.RenderWGSL(items[i])
-			wgsls[i] = res.WGSL
-			items[i].WGSL = res.WGSL
-			items[i].LocalSize = res.LocalSize
-			items[i].WorkgroupCount = res.WorkgroupCount
-		}
-		if len(items[i].SymVars) > 0 {
-			handle, cached := d.symCache[wgsls[i]]
-			if !cached {
-				var err error
-				handle, err = d.compileSymKernelLocked(items[i])
-				if err != nil {
-					return nil, fmt.Errorf("RunSymbolic compile kernel %d: %w", i, err)
-				}
-				d.symCache[wgsls[i]] = handle
-			}
-			handles[i] = handle
-		}
-	}
-
-	// ── Classify buffers ──────────────────────────────────────────────────
-	writtenBy := make(map[uint32]int, len(items))
-	for i, item := range items {
-		writtenBy[item.Bufs[0].UOpIdx] = i
-	}
-	readByAny := make(map[uint32]bool)
-	for _, item := range items {
-		for _, buf := range item.Bufs[1:] {
-			readByAny[buf.UOpIdx] = true
-		}
-	}
-
-	// ── Allocate GPU buffers ──────────────────────────────────────────────
-	gpuBufs := make(map[uint32]*wgpu.Buffer, len(items)*2)
-
-	// Phase A: slot-shared intermediate buffers.
-	slotMaxElems := make(map[int]int64)
-	for i, item := range items {
-		out := item.Bufs[0]
-		if out.Slot >= 0 {
-			actualElems := symElemCount(out, binding, items[i].SymVars)
-			if actualElems > slotMaxElems[out.Slot] {
-				slotMaxElems[out.Slot] = actualElems
-			}
-		}
-	}
-	slotGPUBuf := make(map[int]*wgpu.Buffer, len(slotMaxElems))
-	for slot, maxElems := range slotMaxElems {
-		buf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-			Label: fmt.Sprintf("symslot%d", slot),
-			Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-			Size:  uint64(maxElems) * 4,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("webgpu: RunSymbolic alloc slot %d: %w", slot, err)
-		}
-		slotGPUBuf[slot] = buf
-	}
-	for i, item := range items {
-		out := item.Bufs[0]
-		if out.Slot >= 0 {
-			gpuBufs[out.UOpIdx] = slotGPUBuf[out.Slot]
-		}
-		_ = i
-	}
-
-	// Phase B: dedicated final output buffers (Slot == -1, written by a kernel).
-	for i, item := range items {
-		out := item.Bufs[0]
-		if out.Slot < 0 {
-			if _, ok := gpuBufs[out.UOpIdx]; !ok {
-				actualElems := symElemCount(out, binding, items[i].SymVars)
-				buf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-					Label: fmt.Sprintf("symout%d", out.UOpIdx),
-					Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-					Size:  uint64(actualElems) * 4,
-				})
-				if err != nil {
-					return nil, fmt.Errorf("webgpu: RunSymbolic alloc output: %w", err)
-				}
-				gpuBufs[out.UOpIdx] = buf
-			}
-		}
-	}
-
-	// Phase C: leaf input buffers (never written by any kernel).
-	for i, item := range items {
-		for _, buf := range item.Bufs[1:] {
-			if _, written := writtenBy[buf.UOpIdx]; written {
-				continue
-			}
-			if _, ok := gpuBufs[buf.UOpIdx]; ok {
-				continue
-			}
-			actualElems := symElemCount(buf, binding, items[i].SymVars)
-			if actualElems == 0 {
-				actualElems = 1
-			}
-			gpuBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-				Label: fmt.Sprintf("symleaf%d", buf.UOpIdx),
-				Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst,
-				Size:  uint64(actualElems) * 4,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("webgpu: RunSymbolic alloc leaf: %w", err)
-			}
-			gpuBufs[buf.UOpIdx] = gpuBuf
-		}
-	}
-
-	// ── Upload leaf inputs ────────────────────────────────────────────────
-	symBufDType := make(map[uint32]*uop.DType, len(items)*4)
-	for _, item := range items {
-		for _, buf := range item.Bufs {
-			symBufDType[buf.UOpIdx] = buf.DType
-		}
-	}
-	for uopIdx, data := range inputs {
-		gpuBuf, ok := gpuBufs[uopIdx]
-		if !ok {
-			continue
-		}
-		var raw []byte
-		sdt := symBufDType[uopIdx]
-		switch {
-		case sdt != nil && sdt.Scalar() == uop.Dtypes.Float16:
-			raw = float32sToF16Bytes(data)
-		case sdt != nil && sdt.Scalar() == uop.Dtypes.BFloat16:
-			raw = float32sToBF16U32Bytes(data)
-		default:
-			raw = float32sToBytes(data)
-		}
-		if err := d.queue.WriteBuffer(gpuBuf, 0, raw); err != nil {
-			return nil, fmt.Errorf("webgpu: RunSymbolic upload: %w", err)
-		}
-	}
-
-	// ── Execute kernels in schedule order ─────────────────────────────────
-	// Symbolic kernels use runSymKernelWithHandle; concrete kernels use runKernel.
-	// Static kernel GPU resources (shader, pipeline, bg) must outlive GPU completion.
-	staticRess := make([]runKernelRes, len(items))
-	for i, item := range items {
-		if handles[i] != nil {
-			if err := d.runSymKernelWithHandle(item, handles[i], binding, gpuBufs); err != nil {
-				return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, err)
-			}
-		} else {
-			res, err := d.runKernel(item, wgsls[i], gpuBufs)
-			if err != nil {
-				return nil, fmt.Errorf("webgpu: RunSymbolic kernel %d: %w", i, err)
-			}
-			staticRess[i] = res
-		}
-	}
-
-	// ── Read back final outputs ───────────────────────────────────────────
-	outputs := make(map[uint32][]float32)
-	for i, item := range items {
-		out := item.Bufs[0]
-		if readByAny[out.UOpIdx] {
-			continue
-		}
-		actualElems := symElemCount(out, binding, items[i].SymVars)
-		data, err := d.readBuffer(gpuBufs[out.UOpIdx], actualElems, out.DType)
-		if err != nil {
-			return nil, fmt.Errorf("webgpu: RunSymbolic readback: %w", err)
-		}
-		outputs[out.UOpIdx] = data
-	}
-
-	// ── Release static kernel GPU resources ───────────────────────────────
-	// GPU is now idle (readBuffer syncs). Release static kernel resources so GC
-	// finalizers for these objects become no-ops and don't race future dispatches.
-	for i := len(staticRess) - 1; i >= 0; i-- {
-		r := staticRess[i]
-		if r.shader != nil {
-			r.bg.Release()
-			r.pipeline.Release()
-			r.pipelineLayout.Release()
-			r.bgLayout.Release()
-			r.shader.Release()
-		}
-	}
-
-	// ── Release GPU buffers ───────────────────────────────────────────────
-	released := make(map[*wgpu.Buffer]bool, len(gpuBufs)+len(slotGPUBuf))
-	for _, buf := range gpuBufs {
-		if !released[buf] {
-			released[buf] = true
-			buf.Release()
-		}
-	}
-	for _, buf := range slotGPUBuf {
-		if !released[buf] {
-			released[buf] = true
-			buf.Release()
-		}
-	}
-
-	return outputs, nil
-}
-
-// runSymKernelWithHandle dispatches one symbolic kernel using pre-allocated GPU
-// buffers from gpuBufs. It creates a fresh params_n buffer per dispatch (4 bytes,
-// holds the concrete batch size n) and submits a compute pass.
-func (d *Device) runSymKernelWithHandle(item schedule.ExecItem, handle *SymKernelHandle, binding map[string]int64, gpuBufs map[uint32]*wgpu.Buffer) error {
-	// Resolve the symbolic dispatch-axis size for the workgroup count.
-	// item.SymVars is name-sorted, matching codegen's params_n slot order;
-	// the dispatch-axis variable is the one consumed by the first symbolic
-	// loop range, which by Option-A construction is the first SymVar.
-	n := int64(1)
-	if len(item.SymVars) > 0 {
-		if bv, ok := binding[item.SymVars[0]]; ok {
-			n = bv
-		}
-	}
-
-	// Params uniform buffer: one u32 per symbolic var, in name-sorted slot order
-	// (same order as item.SymVars and codegen's symSlot). Pad up to a multiple
-	// of 16 bytes — WGSL forces uniform-struct size and alignment to a multiple
-	// of 16, and codegen rounds the field count up to a multiple of 4 to match.
-	// Using a uniform buffer (not storage) avoids consuming a storage slot and
-	// keeps the total storage buffer count within Metal's 8-per-stage limit.
-	nVars := len(item.SymVars)
-	paramsBytesLen := (nVars*4 + 15) &^ 15
-	if paramsBytesLen < 16 {
-		paramsBytesLen = 16
-	}
-	paramsBytes := make([]byte, paramsBytesLen)
-	for i, name := range item.SymVars {
-		bv, ok := binding[name]
-		if !ok {
-			return fmt.Errorf("symbolic kernel missing binding for DefineVar %q (expected in binding map)", name)
-		}
-		binary.LittleEndian.PutUint32(paramsBytes[i*4:], uint32(bv))
-	}
-	paramsBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "sym_params",
-		Usage: gputypes.BufferUsageUniform | gputypes.BufferUsageCopyDst,
-		Size:  uint64(paramsBytesLen),
-	})
-	if err != nil {
-		return fmt.Errorf("alloc params: %w", err)
-	}
-	defer paramsBuf.Release()
-	if err := d.queue.WriteBuffer(paramsBuf, 0, paramsBytes); err != nil {
-		return fmt.Errorf("upload params: %w", err)
-	}
-
-	// Bind group: [data0, data1, ..., params_n]
-	entries := make([]wgpu.BindGroupEntry, len(item.Bufs)+1)
-	for i, buf := range item.Bufs {
-		gpuBuf := gpuBufs[buf.UOpIdx]
-		if gpuBuf == nil {
-			return fmt.Errorf("missing GPU buf for UOpIdx %d (param %d)", buf.UOpIdx, i)
-		}
-		actualElems := symElemCount(buf, binding, item.SymVars)
-		if actualElems == 0 {
-			actualElems = n
-		}
-		entries[i] = wgpu.BindGroupEntry{
-			Binding: uint32(i),
-			Buffer:  gpuBuf,
-			Size:    uint64(actualElems) * 4,
-		}
-	}
-	entries[len(item.Bufs)] = wgpu.BindGroupEntry{
-		Binding: uint32(len(item.Bufs)),
-		Buffer:  paramsBuf,
-		Size:    uint64(paramsBytesLen),
-	}
-
-	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Layout:  handle.bgLayout,
-		Entries: entries,
-	})
-	if err != nil {
-		return fmt.Errorf("CreateBindGroup: %w", err)
-	}
-	defer bg.Release()
-
-	// Dispatch grid: compute per-dim workgroup counts from the lowerer's
-	// SymDispatch artifact (handle.SymDispatch). Dims with no sym ranges keep
-	// the lowerer-computed wc — byte-identical with the static path.
-	wc, derr := computeSymDispatchWC(handle, binding)
-	if derr != nil {
-		return derr
-	}
-	// Suppress unused-var warning when the per-axis path drops outElems.
-	_ = n
-
-	enc, err := d.device.CreateCommandEncoder(nil)
-	if err != nil {
-		return fmt.Errorf("CreateCommandEncoder: %w", err)
-	}
-	pass, err := enc.BeginComputePass(nil)
-	if err != nil {
-		return fmt.Errorf("BeginComputePass: %w", err)
-	}
-	pass.SetPipeline(handle.pipeline)
-	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
-	if err := pass.End(); err != nil {
-		return fmt.Errorf("ComputePass.End: %w", err)
-	}
-	cmd, err := enc.Finish()
-	if err != nil {
-		return fmt.Errorf("CommandEncoder.Finish: %w", err)
-	}
-	if _, err := d.queue.Submit(cmd); err != nil {
-		return fmt.Errorf("Queue.Submit: %w", err)
-	}
-	return nil
-}
-
-// SymCompiledCount returns the number of distinct WGSL programs compiled and
-// cached by RunSymbolic. A value of 1 after multiple dispatches of the same
-// kernel structure proves compile-once behaviour.
-func (d *Device) SymCompiledCount() int { return len(d.symCache) }
-
-// ── Symbolic-shapes spike (SLICE 1) ──────────────────────────────────────────
-//
-// A SymKernelHandle holds a compiled GPU pipeline for a kernel that contains at
-// least one symbolic (runtime-sized) loop range.  The WGSL shader reads loop
-// bounds from a trailing params_n storage buffer rather than using compile-time
-// literals, so the same compiled pipeline can be dispatched with different dim
-// values without recompilation.
-//
-// Usage:
-//
-//	k, err := dev.CompileSymKernel(item)   // compiles the WGSL exactly once
-//	defer k.Release()
-//	out8, grid8, err := dev.DispatchSymKernel(k, 8, inputs8)
-//	out128, grid128, err := dev.DispatchSymKernel(k, 128, inputs128)
-
-// collectVarNames walks a BoundExpr tree, inserting every VarName it
-// encounters as a key in the binding map (with zero value). Used by the
-// single-var DispatchSymKernel entry-point to discover what binding keys
-// are needed before resolving them to the supplied n.
-func collectVarNames(be schedule.BoundExpr, binding map[string]int64) {
-	if be.Op == schedule.BoundOpVar {
-		binding[be.VarName] = 0
-		return
-	}
-	for _, c := range be.Children {
-		collectVarNames(c, binding)
-	}
-}
-
-// computeSymDispatchWC computes the per-dim WebGPU workgroup count for a
-// symbolic kernel from handle.SymDispatch and the runtime binding. For each
-// dim with at least one symbolic range it evaluates the bound expressions and
-// overrides wc[d]; dims with no sym ranges keep handle.WorkgroupCount[d]
-// (byte-identical with the static path). After per-dim computation, when
-// only dim 0 is in use (1D-sym kernel) and wc[0] > 65535, excess workgroup
-// count spreads into Y/Z to stay within WebGPU's per-dim limit. Skipped for
-// genuine multi-dim sym (wc[1] or wc[2] > 1).
-func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3]int, error) {
-	wc := handle.WorkgroupCount
+// computeSymDispatchWCFromItem is the in-Run dispatch-WC evaluator used by
+// runSymbolicLocked. It mirrors computeSymDispatchWC (which operates on a
+// SymKernelHandle) but reads the per-dim DimDispatch straight off the
+// ExecItem — the inputs are equivalent because RenderWGSL populates both.
+func computeSymDispatchWCFromItem(item schedule.ExecItem, binding map[string]int64) ([3]int, error) {
+	wc := item.WorkgroupCount
 	for axis := 0; axis < 3; axis++ {
-		dd := handle.SymDispatch[axis]
+		dd := item.SymDispatch[axis]
 		if len(dd.SymBounds) == 0 {
 			continue
 		}
@@ -1022,7 +544,7 @@ func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3
 			}
 			extent *= v
 		}
-		ls := int64(handle.LocalSize[axis])
+		ls := int64(item.LocalSize[axis])
 		if ls < 1 {
 			ls = 1
 		}
@@ -1044,459 +566,22 @@ func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3
 	return wc, nil
 }
 
-// SymKernelHandle is an opaque handle to a compiled symbolic kernel.
-type SymKernelHandle struct {
-	shader         *wgpu.ShaderModule
-	bgLayout       *wgpu.BindGroupLayout
-	pipelineLayout *wgpu.PipelineLayout
-	pipeline       *wgpu.ComputePipeline
-	numDataParams  int // number of data buffer bindings (PARAM count from KernelInfo)
-	wgsl           string
-	LocalSize      [3]int
-	WorkgroupCount [3]int
-	SymDispatch    [3]schedule.DimDispatch // per-dim extent decomposition; non-empty SymFactors triggers per-launch wc override
-}
-
-// WGSL returns the compiled shader source, useful for debugging.
-func (k *SymKernelHandle) WGSL() string { return k.wgsl }
-
-// Release frees GPU resources held by the handle.
-func (k *SymKernelHandle) Release() {
-	if k.pipeline != nil {
-		k.pipeline.Release()
+// collectVarNames walks a BoundExpr tree, inserting every VarName it
+// encounters as a key in the binding map (with zero value). Used by the
+// single-var DispatchSymKernel entry-point to discover what binding keys
+// are needed before resolving them to the supplied n.
+func collectVarNames(be schedule.BoundExpr, binding map[string]int64) {
+	if be.Op == schedule.BoundOpVar {
+		binding[be.VarName] = 0
+		return
 	}
-	if k.pipelineLayout != nil {
-		k.pipelineLayout.Release()
-	}
-	if k.bgLayout != nil {
-		k.bgLayout.Release()
-	}
-	if k.shader != nil {
-		k.shader.Release()
+	for _, c := range be.Children {
+		collectVarNames(c, binding)
 	}
 }
 
-// CompileSymKernel compiles the WGSL shader for item exactly once and returns a
-// reusable handle.  item must contain at least one symbolic OpRange node.
-//
-// The bind group layout always has an extra read-only params_n binding at slot
-// ki.NumParams, immediately after all data bindings — this matches what
-// codegen.RenderWGSL emits for symbolic kernels.
-func (d *Device) CompileSymKernel(item schedule.ExecItem) (*SymKernelHandle, error) {
-	var handle *SymKernelHandle
-	err := d.onGPU(func() error {
-		var cerr error
-		handle, cerr = d.compileSymKernelLocked(item)
-		return cerr
-	})
-	return handle, err
-}
-
-// compileSymKernelLocked is CompileSymKernel's body; it assumes it is already
-// executing on the GPU-owner goroutine and must not call onGPU.
-func (d *Device) compileSymKernelLocked(item schedule.ExecItem) (*SymKernelHandle, error) {
-	var wgsl string
-	var ws, wc [3]int
-	var sd [3]schedule.DimDispatch
-	if item.WGSL != "" {
-		wgsl = item.WGSL
-		ws = item.LocalSize
-		wc = item.WorkgroupCount
-		sd = item.SymDispatch
-	} else {
-		res := codegen.RenderWGSL(item)
-		wgsl = res.WGSL
-		ws = res.LocalSize
-		wc = res.WorkgroupCount
-		sd = res.SymDispatch
-	}
-	var numData int
-	if item.Ast.Valid() {
-		numData = item.Ast.Arg().(uop.KernelInfo).NumParams
-	} else {
-		numData = len(item.Bufs) // Ast zeroed by cache; NumParams == len(Bufs) invariant
-	}
-
-	// Bind group layout: numData data buffers + 1 params_n buffer.
-	totalBindings := numData + 1 // params_n is always present for symbolic kernels
-	layoutEntries := make([]gputypes.BindGroupLayoutEntry, totalBindings)
-	for i := 0; i < numData; i++ {
-		bt := gputypes.BufferBindingTypeReadOnlyStorage
-		if i == 0 {
-			bt = gputypes.BufferBindingTypeStorage // output: read_write
-		}
-		layoutEntries[i] = gputypes.BindGroupLayoutEntry{
-			Binding:    uint32(i),
-			Visibility: gputypes.ShaderStageCompute,
-			Buffer:     &gputypes.BufferBindingLayout{Type: bt},
-		}
-	}
-	layoutEntries[numData] = gputypes.BindGroupLayoutEntry{
-		Binding:    uint32(numData),
-		Visibility: gputypes.ShaderStageCompute,
-		Buffer:     &gputypes.BufferBindingLayout{Type: gputypes.BufferBindingTypeUniform},
-	}
-
-	shader, err := d.device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{WGSL: wgsl})
-	if err != nil {
-		return nil, fmt.Errorf("CompileSymKernel CreateShaderModule: %w\n--- WGSL ---\n%s", err, wgsl)
-	}
-
-	bgLayout, err := d.device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
-		Entries: layoutEntries,
-	})
-	if err != nil {
-		shader.Release()
-		return nil, fmt.Errorf("CompileSymKernel CreateBindGroupLayout: %w", err)
-	}
-
-	pipelineLayout, err := d.device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
-		BindGroupLayouts: []*wgpu.BindGroupLayout{bgLayout},
-	})
-	if err != nil {
-		bgLayout.Release()
-		shader.Release()
-		return nil, fmt.Errorf("CompileSymKernel CreatePipelineLayout: %w", err)
-	}
-
-	pipeline, err := d.device.CreateComputePipeline(&wgpu.ComputePipelineDescriptor{
-		Layout:     pipelineLayout,
-		Module:     shader,
-		EntryPoint: "main",
-	})
-	if err != nil {
-		pipelineLayout.Release()
-		bgLayout.Release()
-		shader.Release()
-		return nil, fmt.Errorf("CompileSymKernel CreateComputePipeline: %w\n--- WGSL ---\n%s", err, wgsl)
-	}
-
-	return &SymKernelHandle{
-		shader:         shader,
-		bgLayout:       bgLayout,
-		pipelineLayout: pipelineLayout,
-		pipeline:       pipeline,
-		numDataParams:  numData,
-		wgsl:           wgsl,
-		LocalSize:      ws,
-		WorkgroupCount: wc,
-		SymDispatch:    sd,
-	}, nil
-}
-
-// DispatchSymKernelWithBinding runs k with multiple symbolic variables.
-//
-// varNames lists the kernel's symbolic vars in name-sorted slot order (the
-// same ordering as schedule.ExecItem.SymVars / codegen's symSlot). binding
-// maps each var name to its concrete int64 value for this dispatch. outElems
-// is the number of output elements (used to size the output buffer and the
-// dispatch grid). inputs[i] is the float32 data for PARAM(i+1).
-//
-// Returns the output, the dispatch workgroup count, and any error. Panics
-// if binding is missing an entry for a var named in varNames.
-func (d *Device) DispatchSymKernelWithBinding(k *SymKernelHandle, varNames []string, binding map[string]int64, outElems int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
-	var out []float32
-	var wgs uint32
-	rerr := d.onGPU(func() error {
-		var derr error
-		out, wgs, derr = d.dispatchSymKernelBindingLocked(k, varNames, binding, outElems, inputs)
-		return derr
-	})
-	return out, wgs, rerr
-}
-
-// dispatchSymKernelBindingLocked is DispatchSymKernelWithBinding's body; it
-// assumes it is already executing on the GPU-owner goroutine.
-func (d *Device) dispatchSymKernelBindingLocked(k *SymKernelHandle, varNames []string, binding map[string]int64, outElems int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
-	nInputs := len(inputs)
-
-	outBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "sym_out",
-		Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-		Size:  uint64(outElems) * 4,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc output: %w", err)
-	}
-	defer outBuf.Release()
-
-	inBufs := make([]*wgpu.Buffer, nInputs)
-	for i, data := range inputs {
-		buf, berr := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-			Label: fmt.Sprintf("sym_in%d", i),
-			Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst,
-			Size:  uint64(len(data)) * 4,
-		})
-		if berr != nil {
-			for j := 0; j < i; j++ {
-				inBufs[j].Release()
-			}
-			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc input %d: %w", i, berr)
-		}
-		inBufs[i] = buf
-	}
-	defer func() {
-		for _, b := range inBufs {
-			if b != nil {
-				b.Release()
-			}
-		}
-	}()
-
-	for i, data := range inputs {
-		raw := float32sToBytes(data)
-		if werr := d.queue.WriteBuffer(inBufs[i], 0, raw); werr != nil {
-			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding upload input %d: %w", i, werr)
-		}
-	}
-
-	// Params uniform: one u32 per var in slot order, padded to multiple of 16
-	// bytes to satisfy WGSL's uniform-struct alignment rule (codegen rounds
-	// the ParamsN field count up to a multiple of 4 to match).
-	nVars := len(varNames)
-	paramsBytesLen := (nVars*4 + 15) &^ 15
-	if paramsBytesLen < 16 {
-		paramsBytesLen = 16
-	}
-	paramsBytes := make([]byte, paramsBytesLen)
-	for i, name := range varNames {
-		bv, ok := binding[name]
-		if !ok {
-			return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding missing binding for var %q", name)
-		}
-		binary.LittleEndian.PutUint32(paramsBytes[i*4:], uint32(bv))
-	}
-	paramsBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "sym_params",
-		Usage: gputypes.BufferUsageUniform | gputypes.BufferUsageCopyDst,
-		Size:  uint64(paramsBytesLen),
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding alloc params: %w", err)
-	}
-	defer paramsBuf.Release()
-	if werr := d.queue.WriteBuffer(paramsBuf, 0, paramsBytes); werr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding upload params: %w", werr)
-	}
-
-	entries := make([]wgpu.BindGroupEntry, 1+nInputs+1)
-	entries[0] = wgpu.BindGroupEntry{
-		Binding: 0,
-		Buffer:  outBuf,
-		Size:    uint64(outElems) * 4,
-	}
-	for i, buf := range inBufs {
-		entries[1+i] = wgpu.BindGroupEntry{
-			Binding: uint32(1 + i),
-			Buffer:  buf,
-			Size:    uint64(len(inputs[i])) * 4,
-		}
-	}
-	entries[1+nInputs] = wgpu.BindGroupEntry{
-		Binding: uint32(1 + nInputs),
-		Buffer:  paramsBuf,
-		Size:    uint64(paramsBytesLen),
-	}
-	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Layout:  k.bgLayout,
-		Entries: entries,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CreateBindGroup: %w", err)
-	}
-	defer bg.Release()
-
-	wc, derr := computeSymDispatchWC(k, binding)
-	if derr != nil {
-		return nil, 0, derr
-	}
-	wgs := uint32(wc[0])
-	_ = outElems // outElems still drives buffer allocation above; per-dim wc comes from k.SymDispatch.
-
-	enc, err := d.device.CreateCommandEncoder(nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CreateCommandEncoder: %w", err)
-	}
-	pass, err := enc.BeginComputePass(nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding BeginComputePass: %w", err)
-	}
-	pass.SetPipeline(k.pipeline)
-	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
-	if perr := pass.End(); perr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding ComputePass.End: %w", perr)
-	}
-	cmd, err := enc.Finish()
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding CommandEncoder.Finish: %w", err)
-	}
-	if _, serr := d.queue.Submit(cmd); serr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding Queue.Submit: %w", serr)
-	}
-
-	out, rerr := d.readBuffer(outBuf, outElems, uop.Dtypes.Float32)
-	if rerr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernelWithBinding readback: %w", rerr)
-	}
-	return out, wgs, nil
-}
-
-// DispatchSymKernel runs k with the given symbolic dimension n.
-// inputs[i] provides the float32 data for PARAM(i+1) (i.e. the first input is
-// inputs[0], the second is inputs[1], etc.; PARAM(0) is the output).
-//
-// Returns the output elements, the dispatch workgroup count (for proof-of-grid
-// variance), and any error.
-func (d *Device) DispatchSymKernel(k *SymKernelHandle, n int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
-	var out []float32
-	var wgs uint32
-	rerr := d.onGPU(func() error {
-		var derr error
-		out, wgs, derr = d.dispatchSymKernelLocked(k, n, inputs)
-		return derr
-	})
-	return out, wgs, rerr
-}
-
-// dispatchSymKernelLocked is DispatchSymKernel's body; it assumes it is already
-// executing on the GPU-owner goroutine and must not call onGPU.
-func (d *Device) dispatchSymKernelLocked(k *SymKernelHandle, n int64, inputs [][]float32) (output []float32, workgroups uint32, err error) {
-	nInputs := len(inputs)
-
-	// ── Allocate GPU buffers ──────────────────────────────────────────────
-	outBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "sym_out",
-		Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopySrc | gputypes.BufferUsageCopyDst,
-		Size:  uint64(n) * 4,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel alloc output: %w", err)
-	}
-	defer outBuf.Release()
-
-	inBufs := make([]*wgpu.Buffer, nInputs)
-	for i, data := range inputs {
-		buf, berr := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-			Label: fmt.Sprintf("sym_in%d", i),
-			Usage: gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst,
-			Size:  uint64(len(data)) * 4,
-		})
-		if berr != nil {
-			for j := 0; j < i; j++ {
-				inBufs[j].Release()
-			}
-			return nil, 0, fmt.Errorf("DispatchSymKernel alloc input %d: %w", i, berr)
-		}
-		inBufs[i] = buf
-	}
-	defer func() {
-		for _, b := range inBufs {
-			if b != nil {
-				b.Release()
-			}
-		}
-	}()
-
-	// ── Upload input data ─────────────────────────────────────────────────
-	for i, data := range inputs {
-		raw := float32sToBytes(data)
-		if werr := d.queue.WriteBuffer(inBufs[i], 0, raw); werr != nil {
-			return nil, 0, fmt.Errorf("DispatchSymKernel upload input %d: %w", i, werr)
-		}
-	}
-
-	// ── Params uniform buffer: ParamsN { data: array<u32, 4> } = 16 bytes ──
-	paramsBytes := make([]byte, 16)
-	binary.LittleEndian.PutUint32(paramsBytes, uint32(n))
-	paramsBuf, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "sym_params",
-		Usage: gputypes.BufferUsageUniform | gputypes.BufferUsageCopyDst,
-		Size:  16,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel alloc params: %w", err)
-	}
-	defer paramsBuf.Release()
-	if werr := d.queue.WriteBuffer(paramsBuf, 0, paramsBytes); werr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel upload params: %w", werr)
-	}
-
-	// ── Bind group ────────────────────────────────────────────────────────
-	// Layout: [out(rw), in0(r), in1(r), ..., params_n(uniform)]
-	entries := make([]wgpu.BindGroupEntry, 1+nInputs+1)
-	entries[0] = wgpu.BindGroupEntry{
-		Binding: 0,
-		Buffer:  outBuf,
-		Size:    uint64(n) * 4,
-	}
-	for i, buf := range inBufs {
-		entries[1+i] = wgpu.BindGroupEntry{
-			Binding: uint32(1 + i),
-			Buffer:  buf,
-			Size:    uint64(len(inputs[i])) * 4,
-		}
-	}
-	entries[1+nInputs] = wgpu.BindGroupEntry{
-		Binding: uint32(1 + nInputs),
-		Buffer:  paramsBuf,
-		Size:    16,
-	}
-	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Layout:  k.bgLayout,
-		Entries: entries,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel CreateBindGroup: %w", err)
-	}
-	defer bg.Release()
-
-	// ── Dispatch ──────────────────────────────────────────────────────────
-	// Single-var sym path: synthesize a binding from the kernel's first sym
-	// var (this entry-point assumes one var, matching its API contract) and
-	// route through the same per-dim SymDispatch evaluator as the multi-var
-	// path.
-	binding := map[string]int64{}
-	for axis := 0; axis < 3; axis++ {
-		for _, be := range k.SymDispatch[axis].SymBounds {
-			collectVarNames(be, binding)
-		}
-	}
-	for name := range binding {
-		binding[name] = n
-	}
-	wc, werr := computeSymDispatchWC(k, binding)
-	if werr != nil {
-		return nil, 0, werr
-	}
-	wgs := uint32(wc[0])
-
-	enc, err := d.device.CreateCommandEncoder(nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel CreateCommandEncoder: %w", err)
-	}
-	pass, err := enc.BeginComputePass(nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel BeginComputePass: %w", err)
-	}
-	pass.SetPipeline(k.pipeline)
-	pass.SetBindGroup(0, bg, nil)
-	pass.Dispatch(uint32(wc[0]), uint32(wc[1]), uint32(wc[2]))
-	if perr := pass.End(); perr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel ComputePass.End: %w", perr)
-	}
-	cmd, err := enc.Finish()
-	if err != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel CommandEncoder.Finish: %w", err)
-	}
-	if _, serr := d.queue.Submit(cmd); serr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel Queue.Submit: %w", serr)
-	}
-
-	// ── Read back output ──────────────────────────────────────────────────
-	out, rerr := d.readBuffer(outBuf, n, uop.Dtypes.Float32)
-	if rerr != nil {
-		return nil, 0, fmt.Errorf("DispatchSymKernel readback: %w", rerr)
-	}
-	return out, wgs, nil
+// elemBytes returns the GPU buffer element size in bytes for a dtype, via the
+// single per-dtype WGSL metadata table in codegen.
+func elemBytes(d *uop.DType) uint64 {
+	return codegen.WGSLTypeInfoFor(d).SizeBytes
 }

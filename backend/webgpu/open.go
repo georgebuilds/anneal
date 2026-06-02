@@ -42,12 +42,13 @@ type Device struct {
 	// executor fails closed if it is false (no silent f32 fallback).
 	HasShaderF16 bool
 
-	// symCache maps compiled WGSL source → handle for compile-once symbolic kernels.
-	// Only touched on the GPU-owner goroutine, so it needs no synchronization.
-	symCache map[string]*SymKernelHandle
-
-	// pipelineCache maps compiled WGSL source → handle for compile-once concrete kernels.
-	pipelineCache map[string]*kernelPipeline
+	// Collaborators (see renderer.go / compiler.go / allocator.go / program.go
+	// / buffer.go). The Renderer is stateless; the Compiler owns the static and
+	// symbolic pipeline caches; Allocators are created per Run / RunSymbolic /
+	// Dispatch call and reset at the end so per-run buffers are dedup'd and
+	// released cleanly.
+	renderer renderer
+	compiler *compiler
 
 	// jobs delivers closures to the GPU-owner goroutine. Closed by Close, which
 	// terminates the owner goroutine (and thereby its locked OS thread).
@@ -133,34 +134,16 @@ func Open() (*Device, error) {
 		close(d.jobs) // tear down the owner goroutine / its OS thread
 		return nil, err
 	}
-	d.symCache = make(map[string]*SymKernelHandle)
-	d.pipelineCache = make(map[string]*kernelPipeline)
+	d.renderer = renderer{}
+	d.compiler = newCompiler(d)
 	return d, nil
-}
-
-// kernelPipeline holds GPU objects for a compiled concrete kernel.
-type kernelPipeline struct {
-	shader         *wgpu.ShaderModule
-	bgLayout       *wgpu.BindGroupLayout
-	pipelineLayout *wgpu.PipelineLayout
-	pipeline       *wgpu.ComputePipeline
-}
-
-func (k *kernelPipeline) Release() {
-	k.pipeline.Release()
-	k.pipelineLayout.Release()
-	k.bgLayout.Release()
-	k.shader.Release()
 }
 
 // Close releases all GPU resources and terminates the GPU-owner goroutine.
 func (d *Device) Close() {
 	_ = d.onGPU(func() error {
-		for _, k := range d.symCache {
-			k.Release()
-		}
-		for _, k := range d.pipelineCache {
-			k.Release()
+		if d.compiler != nil {
+			d.compiler.releaseAll()
 		}
 		if d.device != nil {
 			d.device.Release()

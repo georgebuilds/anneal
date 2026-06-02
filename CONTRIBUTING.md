@@ -14,6 +14,7 @@ A few framing points that explain most of the rules below:
   1. There is **no Z3/SMT solver** in the core indexing path — it's graph rewrite plus interval arithmetic.
   2. Upstream's rewrite driver is **recursive**; ours is **iterative** by design (a deliberate improvement, not an accident to "fix").
   3. The IR memory model is an **integer-indexed arena with interning**, never a `*UOp` pointer graph.
+- **Adding a new backend.** A backend implements `backend.Renderer`, `backend.Compiler`, `backend.Allocator`, `backend.Program`, and `backend.DeviceBuffer`; the orchestrator pattern in `backend/webgpu/executor.go` is the reference for how to compose them. Threading discipline (a locked OS-thread GPU-owner goroutine, see `backend/webgpu/open.go`) is required if the target driver, like Metal, has thread-affine state; WebGPU's `onGPU` funnel is the canonical example.
 
 ## Getting set up
 

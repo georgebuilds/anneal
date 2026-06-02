@@ -86,7 +86,7 @@ rewrite/     PatternMatcher, graph-rewrite driver, symbolic rules
 shape/       View, ShapeTracker, movement ops
 schedule/    rangeify, realize-map, bufferize, kernel split
 codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel transforms), beam.go (BEAM autotuning)
-backend/     device abstraction; webgpu/ first
+backend/     Renderer/Compiler/Allocator/Program/DeviceBuffer interfaces; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
   nn/        Linear, Conv2d, MaxPool2D, Embedding, LayerNorm, CausalSelfAttention,
              MLP, Block, GPT, activations, SGD, Adam, Parameter
