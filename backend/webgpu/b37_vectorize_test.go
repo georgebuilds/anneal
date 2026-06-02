@@ -70,7 +70,7 @@ func TestB37_ValueOracle_VectorizeMatmul(t *testing.T) {
 			out2 := A2.Matmul(B2)
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
-				itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b37Opts(tc.TS, tc.MR, tc.NR, tc.W)).Ast
+				itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(tc.TS, tc.MR, tc.NR, tc.W))
 			}
 			resOpt, err := dev.Run(itemsOpt, nil)
 			if err != nil {
@@ -135,7 +135,7 @@ func TestB37_ValueOracle_VectorizeMLPBackward(t *testing.T) {
 
 	gxOpt, gwOpt, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b37Opts(16, 4, 4, 4)).Ast
+		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
 	}
 	resOpt, err := dev.Run(itemsOpt, nil)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestB37_ValueOracle_VectorizeConv(t *testing.T) {
 
 	outOpt, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b37Opts(16, 4, 4, 4)).Ast
+		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
 	}
 	resOpt, err := dev.Run(itemsOpt, nil)
 	if err != nil {

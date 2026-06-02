@@ -21,10 +21,35 @@ package codegen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// KernelHasTiledReduce reports whether sink contains at least one OpReduce
+// tagged with "tile:" (set by OptTile). This is the prerequisite for the
+// emitTiledReduce lowerer path that actually consumes AxisUpcast positions
+// per (mr, nr) iteration. Without it, AxisUpcast lowering assigns the
+// placeholder expression "0" and each thread silently writes only lane 0 of
+// its factor-wide stripe.
+//
+// Used by applyUpcast (fail-loud assertion at opt-application time), by
+// ActionSpace (pre-filter so BEAM's probe never triggers the assertion),
+// and by spray-mode callers that need to apply OptUpcast across a kernel
+// list containing non-matmul items.
+func KernelHasTiledReduce(sink uop.UOp) bool {
+	for _, u := range uop.TopoSort(sink) {
+		if u.Op() != uop.OpReduce {
+			continue
+		}
+		tag, ok := u.Tag().(string)
+		if ok && strings.HasPrefix(tag, "tile:") {
+			return true
+		}
+	}
+	return false
+}
 
 // OptKind identifies the type of a kernel optimization.
 type OptKind int
@@ -423,15 +448,26 @@ func applyUpcast(sink uop.UOp, axisIdx int, factor int) uop.UOp {
 	if uop.RangeIsSymbolic(targetRange) {
 		return sink
 	}
+
+	// Fail-loud guard: AxisUpcast lowering outside emitTiledReduce assigns the
+	// upcast range the placeholder expression "0", so each thread silently
+	// writes only lane 0 of its factor-wide stripe. emitTiledReduce only runs
+	// when the kernel's OpReduce carries a "tile:" tag (set by OptTile). If
+	// we're about to mutate a kernel that lacks that prerequisite, refuse
+	// rather than producing silently-wrong outputs at runtime.
+	//
+	// ActionSpace pre-filters this case so BEAM never reaches the panic;
+	// callers via direct ApplyOpt/ApplyOpts compose OptTile before OptUpcast.
+	if !KernelHasTiledReduce(sink) {
+		panic(fmt.Sprintf(
+			"codegen: OptUpcast(axis=%d, factor=%d): kernel lacks an OptTile-tagged OpReduce; "+
+				"AxisUpcast lowering outside emitTiledReduce silently drops lanes. "+
+				"Compose OptTile before OptUpcast, or skip OptUpcast on this kernel.",
+			axisIdx, factor))
+	}
+
 	F := int64(factor)
 	S := uop.RangeSize(targetRange)
-	//nolint:staticcheck // SA9003: masking stub. Non-matmul AxisUpcast lowering is unimplemented (AxisUpcast outside emitTiledReduce gets exprOf="0", see SPEC carried-boundary and backend/webgpu/diag_test.go); matmul masking is handled per-(mr,nr) in emitTiledReduce.
-	if S%F != 0 {
-		// Padded outer would be ceil(Size/F). Boundary masking on store is
-		// the user's responsibility; for now allow but report once.
-		// Keep semantics safe by ceiling, mirroring OptLocal.
-		// (Stores are per-(mr,nr) and will be masked at emit time.)
-	}
 	W := (S + F - 1) / F
 
 	// Find max existing Range ID to pick a unique one for the inner range.

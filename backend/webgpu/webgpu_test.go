@@ -5,10 +5,29 @@ import (
 	"testing"
 
 	"github.com/georgebuilds/anneal/backend/webgpu"
+	"github.com/georgebuilds/anneal/codegen"
 	"github.com/georgebuilds/anneal/schedule"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// applyMatmulOptsBestEffort applies a matmul-targeted opt sequence one Opt at a
+// time, skipping OptUpcast when the current kernel lacks an OptTile-tagged
+// reduce. Used by spray-mode tests (B3, B3.7) that broadcast the matmul
+// pipeline across an MLPBackward schedule containing non-matmul kernels
+// (Mean, Sub). The fail-loud guard added in applyUpcast would otherwise
+// crash on those non-matmul kernels; this helper restores the prior
+// "applies where it can, skips where it can't" semantics for the test.
+func applyMatmulOptsBestEffort(item schedule.ExecItem, opts []codegen.Opt) uop.UOp {
+	sink := item.Ast
+	for _, opt := range opts {
+		if opt.Kind == codegen.OptUpcast && !codegen.KernelHasTiledReduce(sink) {
+			continue
+		}
+		sink = codegen.ApplyOpt(sink, opt)
+	}
+	return sink
+}
 
 // requireDevice opens a GPU device or skips the test with a clear message.
 func requireDevice(t *testing.T) *webgpu.Device {

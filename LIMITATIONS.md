@@ -44,7 +44,9 @@ This is a hard platform ceiling, not a missing slice. A CUDA backend retires it 
 
 In v1, `OptUpcast` and `OptVectorize` are only wired through the tiled-reduce lowerer (the matmul shape). On a non-matmul kernel, an `OptUpcast` would lower outside `emitTiledReduce` and produce an `exprOf[AxisUpcast]="0"` substitution, which causes each thread to write only lane 0 of its `factor`-wide stripe and silently drop the other `factor - 1` lanes.
 
-BEAM's value-identity guard catches this automatically: any candidate whose output diverges from the identity baseline is dropped before its time is recorded, so BEAM will never select a broken non-matmul `OptUpcast`. The live exposure is a manual `Opt{Kind: OptUpcast, ...}` applied by hand to a non-matmul kernel. A fail-loud guard at opt-application time is on the roadmap; until it lands, do not hand-apply `OptUpcast` or `OptVectorize` to non-matmul kernels.
+`OptUpcast` is now **fail-loud at opt-application time**: `applyUpcast` panics with a diagnostic when targeting a kernel whose body lacks an `OpReduce` tagged by `OptTile` (the only path that activates `emitTiledReduce`). Compose `OptTile` before `OptUpcast`, or skip `OptUpcast` on the kernel. Use `codegen.KernelHasTiledReduce(sink)` to check eligibility ahead of time when applying opts across a mixed kernel list. BEAM's `ActionSpace` uses the same predicate to pre-filter, so the search never reaches the assertion; BEAM's existing value-identity guard remains as belt-and-suspenders for any other wrong-output candidate.
+
+`OptVectorize` still relies on the same `vecTileActive` machinery and has the same matmul-only constraint, but is not yet guarded at opt-application time. Until that follow-up lands, treat `OptVectorize` the same way: compose after `OptTile + OptUpcast`, or skip on non-matmul kernels.
 
 ### Per-thread scalar f32 throughput on M3
 

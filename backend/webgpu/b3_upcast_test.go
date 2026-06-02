@@ -133,7 +133,7 @@ func TestB3_ValueOracle_UpcastMLPBackward(t *testing.T) {
 
 	gxOpt, gwOpt, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b3Opts(16, 4, 4)).Ast
+		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
 	}
 	resOpt, err := dev.Run(itemsOpt, nil)
 	if err != nil {
@@ -179,7 +179,7 @@ func TestB3_ValueOracle_UpcastConv(t *testing.T) {
 
 	outOpt, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b3Opts(16, 4, 4)).Ast
+		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
 	}
 	resOpt, err := dev.Run(itemsOpt, nil)
 	if err != nil {
