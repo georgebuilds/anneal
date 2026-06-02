@@ -1,7 +1,5 @@
 package codegen
 
-import "github.com/georgebuilds/anneal/uop"
-
 // ── Scatter-add WGSL design notes (Slice D) ──────────────────────────────────
 //
 // Slice D's backward kernel for OpGather is NOT a separate WGSL template.
@@ -52,38 +50,3 @@ import "github.com/georgebuilds/anneal/uop"
 // OpScatterAdd which produces an OpConst(0)-broadcast kernel before the
 // scatter reduce. The existing schedule pipeline materialises both kernels
 // in topological order; no new dispatch infrastructure required.
-
-// containsScatterAdd reports whether the UOp subgraph rooted at u contains an
-// OpScatterAdd node. Reserved for any future optimizer that wants to skip
-// fusion/tiling decisions on subgraphs that produce scatter outputs. Not
-// wired in Slice D because the scatter UOp is already a hard realize point
-// (it bottoms out at a BUFFER leaf the rangeifier sees, exactly like
-// OpReshape on a buffer); the OpGatherIdx containment scan already protects
-// tile-rewrites that would consume scatter outputs in a downstream matmul.
-//
-// Kept exported via the unexported name (Slice D internal use) so a future
-// slice can lift it without an API churn.
-func containsScatterAdd(u uop.UOp) bool {
-	seen := make(map[uint32]bool)
-	var walk func(n uop.UOp) bool
-	walk = func(n uop.UOp) bool {
-		if !n.Valid() {
-			return false
-		}
-		idx := n.Index()
-		if seen[idx] {
-			return false
-		}
-		seen[idx] = true
-		if n.Op() == uop.OpScatterAdd {
-			return true
-		}
-		for i := 0; i < n.NSrc(); i++ {
-			if walk(n.Src(i)) {
-				return true
-			}
-		}
-		return false
-	}
-	return walk(u)
-}

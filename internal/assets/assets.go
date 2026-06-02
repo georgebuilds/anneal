@@ -101,7 +101,7 @@ func verifyFile(dst, want string) (bool, error) {
 		}
 		return false, fmt.Errorf("assets: open cached %s: %w", dst, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return false, fmt.Errorf("assets: hash cached %s: %w", dst, err)
@@ -133,7 +133,7 @@ func download(url, dst string, a Asset) error {
 	if err != nil {
 		return fmt.Errorf("assets: GET %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("assets: GET %s: status %s", url, resp.Status)
 	}

@@ -56,7 +56,7 @@ func scatterAddSnapshotSetup(t *testing.T, V, D, B int) (schedule.RenderResult, 
 	// the dW tensor. Identify it by inspecting WGSL for the segment-mask
 	// pattern (a for-loop accumulator); fall back to the last item if none
 	// of the kernels exhibit the pattern (schedule ordering is stable).
-	var lastIdx int = len(items) - 1
+	lastIdx := len(items) - 1
 	scatterIdx := lastIdx
 	for i, item := range items {
 		w := codegen.RenderWGSL(item).WGSL
@@ -139,6 +139,7 @@ func TestScatterAdd_Snapshot_RaceFreeWrite(t *testing.T) {
 	}
 	depth := 1
 	bodyEnd := -1
+brace:
 	for i := forPos + bodyStart + 1; i < len(wgsl); i++ {
 		switch wgsl[i] {
 		case '{':
@@ -147,11 +148,8 @@ func TestScatterAdd_Snapshot_RaceFreeWrite(t *testing.T) {
 			depth--
 			if depth == 0 {
 				bodyEnd = i
-				break
+				break brace
 			}
-		}
-		if bodyEnd >= 0 {
-			break
 		}
 	}
 	if bodyEnd < 0 {

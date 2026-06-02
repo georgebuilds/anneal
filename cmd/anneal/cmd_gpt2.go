@@ -20,6 +20,7 @@ func gpt2Cmd(args []string) int {
 	return gpt2CmdW(args, os.Stdout)
 }
 
+//nolint:errcheck // best-effort writes to stdout/stderr
 func gpt2CmdW(args []string, w io.Writer) int {
 	if len(args) == 0 {
 		printGPT2Usage(w)

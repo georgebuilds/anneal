@@ -257,6 +257,8 @@ func int32sAsLeafBits(vs []int32) []float32 {
 // w is the output sink (usually os.Stdout). When plain is true, the output
 // is just the generated text with a trailing newline; otherwise a short
 // header lists the prompt and configuration for readability.
+//
+//nolint:errcheck // best-effort writes to stdout/stderr
 func RunSampleCLI(w io.Writer, device string, prompt string, opts SampleOptions, plain bool) error {
 	a := uop.NewArena(1 << 14)
 	g, bpe, err := LoadGPT2(a, device)

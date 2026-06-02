@@ -234,19 +234,6 @@ func fdBlockGradParam(t *testing.T, b *nn.Block, p *nn.Parameter,
 	return (lp - lm) / (2 * h)
 }
 
-// fdBlockGradInput returns the central-difference estimate of d loss / d xData[idx].
-func fdBlockGradInput(t *testing.T, b *nn.Block, xData []float32,
-	idx int, h float32, B, T, nEmbd int64) float32 {
-	t.Helper()
-	orig := xData[idx]
-	xData[idx] = orig + h
-	lp := evalBlockLoss(t, b, xData, B, T, nEmbd)
-	xData[idx] = orig - h
-	lm := evalBlockLoss(t, b, xData, B, T, nEmbd)
-	xData[idx] = orig
-	return (lp - lm) / (2 * h)
-}
-
 // TestBlockFDGradCheck verifies analytic Backward gradients agree with
 // central-difference FD for every Parameter and the input. Uses the tiered
 // tolerance pattern from Slice J (attention_test.go):
@@ -275,8 +262,6 @@ func TestBlockFDGradCheck(t *testing.T) {
 		fdH = float32(1e-3)
 		// Linear-only paths: Slice J's tight 1e-3 budget.
 		tolTight = float32(1e-3)
-		// Softmax-chain paths: Slice J's 7e-2 carry-forward budget.
-		tolLoose = float32(1e-1)
 		// Number of elements per tensor to FD-check; keeps total FD calls
 		// to ~12 * 3 + 3 = 39, well inside the GPU-roundtrip budget.
 		nCheck = 3
