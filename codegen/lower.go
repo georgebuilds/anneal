@@ -316,11 +316,20 @@ func newStrideAcc() strideAcc { return strideAcc{constPart: 1} }
 
 // mulConst returns acc * k where k is a concrete int64. Multiplying by 1 is a
 // no-op so existing accs stay unchanged for size-1 dims.
+//
+// Panics with a diagnostic on int64 overflow: strides drive memory-address
+// arithmetic, so a silent wrap would corrupt downstream codegen. There is no
+// give-up channel at this layer (every dim must produce a concrete stride),
+// so fail-loud is the only safe response.
 func (acc strideAcc) mulConst(k int64) strideAcc {
 	if k == 1 {
 		return acc
 	}
-	return strideAcc{constPart: acc.constPart * k, symPart: acc.symPart}
+	product, ok := uop.MulInt64Checked(acc.constPart, k)
+	if !ok {
+		panic(fmt.Sprintf("codegen: strideAcc.mulConst: int64 overflow: %d * %d (constPart * k)", acc.constPart, k))
+	}
+	return strideAcc{constPart: product, symPart: acc.symPart}
 }
 
 // mulSym returns acc * <expr> where expr is a WGSL u32 expression for a single

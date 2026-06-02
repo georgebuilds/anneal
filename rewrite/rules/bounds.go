@@ -84,9 +84,21 @@ func BoundsOf(u uop.UOp) Bounds {
 		return Bounds{s0.Min - s1.Max, s0.Max - s1.Min, true}
 
 	case uop.OpMul:
-		corners := [4]int64{
-			s0.Min * s1.Min, s0.Min * s1.Max,
-			s0.Max * s1.Min, s0.Max * s1.Max,
+		// Corner products use uop.MulInt64Checked so a silent int64 wrap
+		// would not produce a wrong-but-valid Bounds. Any overflow gives up
+		// cleanly (Valid=false), matching the established pattern in this
+		// file for "cannot represent this bound".
+		var corners [4]int64
+		pairs := [4][2]int64{
+			{s0.Min, s1.Min}, {s0.Min, s1.Max},
+			{s0.Max, s1.Min}, {s0.Max, s1.Max},
+		}
+		for i, p := range pairs {
+			c, ok := uop.MulInt64Checked(p[0], p[1])
+			if !ok {
+				return Bounds{}
+			}
+			corners[i] = c
 		}
 		lo, hi := corners[0], corners[0]
 		for _, c := range corners[1:] {

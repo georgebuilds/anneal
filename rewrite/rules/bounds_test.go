@@ -130,6 +130,21 @@ func TestBoundsOfMulSignRegimes(t *testing.T) {
 	}
 }
 
+// ── TestBoundsOfMulOverflowGivesUp ────────────────────────────────────────────
+//
+// QA-5 regression: a corner-product overflow inside OpMul bounds analysis
+// must return Bounds{Valid:false} rather than a silently-wrong interval.
+// Two paired DefineVars whose max values multiply past int64 exercise the
+// guard.
+func TestBoundsOfMulOverflowGivesUp(t *testing.T) {
+	a := arena()
+	hi := int64(1) << 40
+	got := rules.BoundsOf(mul(a, dv(a, 0, hi), dv(a, 0, hi)))
+	if got.Valid {
+		t.Fatalf("expected Valid=false on overflowing mul, got %+v", got)
+	}
+}
+
 // ── TestBoundsOfMax ───────────────────────────────────────────────────────────
 
 func TestBoundsOfMax(t *testing.T) {

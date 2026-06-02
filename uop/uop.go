@@ -517,14 +517,25 @@ func BoundToAffine(u UOp) (terms []AffineTerm, offset int64, ok bool) {
 		if !ok2 {
 			return nil, 0, false
 		}
-		// scale all by c
+		// Scale all terms by c via MulInt64Checked so a silent wrap on a
+		// pathological Const operand gives up cleanly (matches the existing
+		// ok=false channel) instead of producing a wrong-but-valid affine
+		// encoding downstream.
 		scaled := make([]AffineTerm, 0, len(otherTerms))
 		for _, t := range otherTerms {
-			if t.Mul*c != 0 {
-				scaled = append(scaled, AffineTerm{Mul: t.Mul * c, VarName: t.VarName})
+			scaledMul, mulOK := MulInt64Checked(t.Mul, c)
+			if !mulOK {
+				return nil, 0, false
+			}
+			if scaledMul != 0 {
+				scaled = append(scaled, AffineTerm{Mul: scaledMul, VarName: t.VarName})
 			}
 		}
-		return scaled, otherOffset * c, true
+		scaledOffset, offOK := MulInt64Checked(otherOffset, c)
+		if !offOK {
+			return nil, 0, false
+		}
+		return scaled, scaledOffset, true
 	case OpAdd:
 		if u.NSrc() != 2 {
 			return nil, 0, false
