@@ -7,6 +7,8 @@
         <!--
           Anti-FOUC: read the site's saved theme before first paint so the
           correct palette applies immediately. Mirrors docs/index.html.
+          Also resolve the saved model choice before first paint so the
+          tutorial body renders the correct variant on first pixel.
         -->
         <script>
             (function () {
@@ -17,13 +19,26 @@
                         ? "light"
                         : "dark";
                 document.documentElement.setAttribute("data-theme", t);
+
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, gpt2: 1 };
+                var m = null;
+                // URL takes priority so deep links win on first paint.
+                var hash = (window.location.hash || "").replace(/^#/, "");
+                var fromHash = (hash.match(/(?:^|[&;])model=([a-z0-9]+)/) || [])[1];
+                if (fromHash && VALID[fromHash]) m = fromHash;
+                if (!m) {
+                    try { m = localStorage.getItem("anneal-tutorial-model"); } catch (e) {}
+                    if (!VALID[m]) m = null;
+                }
+                if (!m) m = "mlp";
+                document.documentElement.setAttribute("data-model", m);
             })();
         </script>
 
         <title>anneal: tutorial</title>
         <meta
             name="description"
-            content="Step-by-step tutorial: install anneal, train nanoGPT on Shakespeare, and run GPT-2-small forward. Covers WebGPU prereqs, asset download cache, the BPE tokenizer, and a compiler-level walkthrough."
+            content="Pick a model (MLP, ConvNet, nanoGPT, GPT-2) and follow a tailored walkthrough: install anneal, run the chosen model on WebGPU, and tour the rewrite/scheduler that produced its kernels."
         />
         <meta name="robots" content="index, follow" />
         <link
@@ -125,6 +140,185 @@
 
             :focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 2px; }
 
+            /* ── Model picker ──────────────────────────────────────────────
+               A sticky tablist that sits below the header and above the
+               progress bar. It is the primary axis of the tutorial: every
+               step below adapts to the chosen model. The picker is visible
+               from any scroll position so the user can pivot mid-read.
+            */
+            .modelbar {
+                position: sticky;
+                top: 54px;
+                z-index: 105;
+                background: var(--bg-glass);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid var(--faint);
+                padding: 0.55rem clamp(1.25rem, 4vw, 2rem);
+            }
+            .modelbar-inner {
+                max-width: 1100px;
+                margin: 0 auto;
+                display: flex;
+                align-items: center;
+                gap: 0.85rem;
+                flex-wrap: wrap;
+            }
+            .modelbar-label {
+                font-size: 0.66rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                white-space: nowrap;
+            }
+            .modelbar-label .pick-arrow { color: var(--teal-tx); margin-right: 0.35em; }
+            .modeltabs {
+                display: inline-flex;
+                gap: 0.3rem;
+                flex-wrap: wrap;
+            }
+            .modeltabs button {
+                background: transparent;
+                border: 1px solid var(--faint);
+                color: var(--muted);
+                font-family: var(--mono);
+                font-size: 0.78rem;
+                padding: 0.32rem 0.75rem;
+                border-radius: 999px;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                min-height: 32px;
+                transition:
+                    color 0.15s ease,
+                    border-color 0.15s ease,
+                    background 0.15s ease;
+            }
+            .modeltabs button:hover { color: var(--text); border-color: var(--muted); }
+            .modeltabs button[aria-selected="true"] {
+                color: var(--text);
+                border-color: var(--teal);
+                background: var(--surface);
+            }
+            /* Non-color cue for the selected tab (a leading marker glyph),
+               so the selection survives color-blindness and forced-colors. */
+            .modeltabs button::before {
+                content: "";
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--faint);
+                flex-shrink: 0;
+                transition: background 0.15s ease;
+            }
+            .modeltabs button[aria-selected="true"]::before {
+                background: var(--teal);
+                box-shadow: 0 0 0 2px rgba(0, 173, 216, 0.18);
+            }
+            .modeltabs button .tab-cost {
+                font-size: 0.66rem;
+                color: var(--faint);
+                letter-spacing: 0.04em;
+            }
+            .modeltabs button[aria-selected="true"] .tab-cost { color: var(--muted); }
+
+            /* High-contrast / forced-colors fallback: a solid border switch. */
+            @media (forced-colors: active) {
+                .modeltabs button[aria-selected="true"] {
+                    border: 2px solid CanvasText;
+                    background: Highlight;
+                    color: HighlightText;
+                }
+            }
+
+            /* ── Per-model variants ────────────────────────────────────────
+               Authors wrap model-specific blocks in:
+                   <div class="variant" data-model="mlp">…</div>
+               The default rule hides any variant whose data-model does not
+               match the current root [data-model="..."] attribute. We use
+               attribute selectors so we never depend on a JS class toggle
+               for visibility; the anti-FOUC script sets data-model on
+               <html> before paint.
+
+               Print, noscript, and a "show all" escape hatch reveal every
+               variant in source order so no content is hidden behind a
+               toggle when JS is unavailable.
+            */
+            .variant { display: none; }
+            html[data-model="mlp"] .variant[data-model="mlp"],
+            html[data-model="conv"] .variant[data-model="conv"],
+            html[data-model="nanogpt"] .variant[data-model="nanogpt"],
+            html[data-model="gpt2"] .variant[data-model="gpt2"] {
+                display: block;
+            }
+
+            /* Subtle cross-fade so switching models does not feel jumpy. */
+            .variant { animation: variant-in 0.18s ease-out; }
+            @keyframes variant-in {
+                from { opacity: 0; transform: translateY(2px); }
+                to   { opacity: 1; transform: none; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .variant { animation: none; }
+            }
+
+            /* Small inline pill that names the active model inside flowing
+               copy (e.g. "Currently picked: nanoGPT"). */
+            .model-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                color: var(--teal-tx);
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                padding: 0.1rem 0.55rem;
+                border-radius: 999px;
+            }
+            .model-pill::before {
+                content: "";
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--teal);
+            }
+
+            /* Cross-reference panel ("you can also try ...") */
+            .crossref {
+                background: var(--surface);
+                border: 1px dashed var(--faint);
+                border-radius: 6px;
+                padding: 0.7rem 0.9rem;
+                margin-top: 1rem;
+                font-size: 0.78rem;
+                color: var(--muted);
+            }
+            .crossref strong { color: var(--text); font-weight: 600; }
+            .crossref a.inline { color: var(--teal-tx); }
+
+            /* When JS is off, surface every variant inline with a heading
+               that names which model it belongs to, so the page is still
+               useful (and printable) without script. */
+            @media print {
+                .modelbar { display: none; }
+                .variant { display: block !important; animation: none; }
+                .variant::before {
+                    content: "Variant: " attr(data-model);
+                    display: block;
+                    font-size: 0.7rem;
+                    letter-spacing: 0.12em;
+                    text-transform: uppercase;
+                    color: #444;
+                    margin: 0.4rem 0 0.3rem;
+                    border-top: 1px solid #888;
+                    padding-top: 0.3rem;
+                }
+            }
+
             /* Sticky top progress bar (thin teal line) */
             .progress-track {
                 position: sticky;
@@ -204,9 +398,9 @@
 
             aside.rail {
                 position: sticky;
-                top: 64px;
+                top: 114px;
                 align-self: start;
-                max-height: calc(100dvh - 80px);
+                max-height: calc(100dvh - 130px);
                 overflow-y: auto;
                 font-size: 0.78rem;
             }
@@ -282,7 +476,7 @@
             section.step {
                 padding: 1.5rem 0 2rem;
                 border-bottom: 1px solid var(--faint);
-                scroll-margin-top: 70px;
+                scroll-margin-top: 130px;
             }
             section.step:last-of-type { border-bottom: none; }
             .step-label {
@@ -605,6 +799,24 @@
                 html { scroll-behavior: auto; }
             }
         </style>
+        <noscript>
+            <style>
+                /* No script: reveal every model variant in source order with
+                   a clear label, and hide the (non-functional) tablist. */
+                .modelbar { display: none !important; }
+                .variant { display: block !important; animation: none; }
+                .variant::before {
+                    content: "Variant for: " attr(data-model);
+                    display: block;
+                    font-size: 0.66rem;
+                    font-weight: 700;
+                    letter-spacing: 0.12em;
+                    text-transform: uppercase;
+                    color: var(--gold-tx);
+                    margin: 0.6rem 0 0.4rem;
+                }
+            </style>
+        </noscript>
     </head>
     <body>
         <a href="#main-content" class="skip-link">skip to main content</a>
@@ -640,6 +852,72 @@
             </nav>
         </header>
 
+        <div class="modelbar" aria-label="pick a model to follow">
+            <div class="modelbar-inner">
+                <span class="modelbar-label"><span class="pick-arrow">&gt;</span>pick a model</span>
+                <div
+                    class="modeltabs"
+                    role="tablist"
+                    aria-label="model variants"
+                    id="js-modeltabs"
+                >
+                    <button
+                        role="tab"
+                        id="tab-mlp"
+                        data-model="mlp"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        mlp <span class="tab-cost">(seconds)</span>
+                    </button>
+                    <button
+                        role="tab"
+                        id="tab-conv"
+                        data-model="conv"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        conv <span class="tab-cost">(seconds)</span>
+                    </button>
+                    <button
+                        role="tab"
+                        id="tab-nanogpt"
+                        data-model="nanogpt"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        nanogpt <span class="tab-cost">(minutes)</span>
+                    </button>
+                    <button
+                        role="tab"
+                        id="tab-gpt2"
+                        data-model="gpt2"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        gpt-2 <span class="tab-cost">(~550 MB)</span>
+                    </button>
+                </div>
+                <span
+                    class="sr-only"
+                    id="js-modelannounce"
+                    role="status"
+                    aria-live="polite"
+                    style="
+                        position: absolute;
+                        width: 1px;
+                        height: 1px;
+                        overflow: hidden;
+                        clip: rect(0 0 0 0);
+                    "
+                ></span>
+            </div>
+        </div>
+
         <div class="shell">
             <aside class="rail" aria-label="tutorial steps">
                 <div class="rail-title">contents</div>
@@ -648,9 +926,9 @@
                     <li><a href="#prereqs"><span class="num">01</span><span>prereqs</span></a></li>
                     <li><a href="#install"><span class="num">02</span><span>install</span></a></li>
                     <li><a href="#sanity"><span class="num">03</span><span>sanity check</span></a></li>
-                    <li><a href="#nanogpt"><span class="num">04</span><span>train nanoGPT</span></a></li>
+                    <li><a href="#train"><span class="num">04</span><span>run your model</span></a></li>
                     <li><a href="#tour"><span class="num">05</span><span>compiler tour</span></a></li>
-                    <li><a href="#gpt2"><span class="num">06</span><span>run GPT-2-small</span></a></li>
+                    <li><a href="#gpt2"><span class="num">06</span><span>also try</span></a></li>
                     <li><a href="#further"><span class="num">07</span><span>going further</span></a></li>
                     <li><a href="#troubleshooting"><span class="num">08</span><span>troubleshooting</span></a></li>
                     <li><a href="#qa"><span class="num">qa</span><span>questions</span></a></li>
@@ -665,9 +943,9 @@
                         <li><a href="#prereqs">01. prereqs</a></li>
                         <li><a href="#install">02. install</a></li>
                         <li><a href="#sanity">03. sanity check</a></li>
-                        <li><a href="#nanogpt">04. train nanoGPT</a></li>
+                        <li><a href="#train">04. run your model</a></li>
                         <li><a href="#tour">05. compiler tour</a></li>
-                        <li><a href="#gpt2">06. run GPT-2-small</a></li>
+                        <li><a href="#gpt2">06. also try</a></li>
                         <li><a href="#further">07. going further</a></li>
                         <li><a href="#troubleshooting">08. troubleshooting</a></li>
                         <li><a href="#qa">qa</a></li>
@@ -677,14 +955,40 @@
                 <!-- ─── 0. Welcome ─────────────────────────────────────── -->
                 <section class="step" id="welcome">
                     <p class="step-label"><span class="num">00</span><span>welcome</span></p>
-                    <h1 class="step-heading">Get anneal running, train a small transformer, sample from GPT-2.</h1>
-                    <p class="intent">
-                        This walkthrough takes about ten minutes of reading and a few minutes of waiting on a download. By the end you will have installed anneal, trained a tiny char-level transformer on Shakespeare end to end on your GPU, and produced a sample from GPT-2-small running entirely as Go on WebGPU. Along the way you'll see how these models are put together (the embedding table, attention heads, the autoregressive sampling loop) and how anneal compiles them into fused WGSL kernels. Each command surfaces one layer of either the model or the compiler.
-                    </p>
+
+                    <div class="variant" data-model="mlp">
+                        <h1 class="step-heading">Get anneal running and train a tiny MLP on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">MLP</span> path. It is the smallest demo in the project: a 2 to 8 to 1 network that learns y = x₁² + x₂² in a few seconds on any WebGPU device, with a live TUI dashboard that shows loss and live compiler counts (UOps, kernels, fused regions). It is the fastest way to see anneal's forward graph, gradient rewrite, and scheduler all in one place. Switch the picker above to follow a different model; the steps below adapt accordingly.
+                        </p>
+                    </div>
+
+                    <div class="variant" data-model="conv">
+                        <h1 class="step-heading">Get anneal running and train a tiny ConvNet on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">ConvNet</span> path. It runs a conv2d (1 to 4 channels, 3 by 3 kernel) plus ReLU, shrink, flatten, and a final linear layer on a synthetic 6 by 6 spatial task; a few seconds on any WebGPU device, with a live TUI dashboard. Use it to see how movement ops (the shrink and the flatten) become index arithmetic instead of data copies, and how the scheduler fuses across the conv and its gradient.
+                        </p>
+                    </div>
+
+                    <div class="variant" data-model="nanogpt">
+                        <h1 class="step-heading">Get anneal running and train a char-level transformer on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">nanoGPT</span> path. It is a tiny but transformer-shaped model: 2 layers, 2 heads, embedding 64, block size 32, vocab about 65, trained on Tiny Shakespeare (about 1 MB, cached on first run). A few minutes for 2000 steps on Apple Silicon; it prints a Shakespeare-flavored sample at the end. Use it to see forward and backward fuse into the same WGSL kernels through the rangeify scheduler.
+                        </p>
+                    </div>
+
+                    <div class="variant" data-model="gpt2">
+                        <h1 class="step-heading">Get anneal running and sample from GPT-2-small on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">GPT-2</span> path. There is no training here: anneal loads the HuggingFace GPT-2-small checkpoint (about 548 MB of FP32 weights, plus the BPE vocab and merges), runs forward inference, and samples text. The first run downloads roughly 550 MB into the asset cache and verifies SHA pins. Use it to see the same compiler that trains nanoGPT also drive a real production checkpoint, byte-for-byte against HuggingFace.
+                        </p>
+                    </div>
+
                     <details class="why">
-                        <summary>Why these three demos in this order?</summary>
+                        <summary>Why is the model the first decision?</summary>
                         <div class="body">
-                            <p>Training nanoGPT walks the full pipeline end to end: a tiny transformer learns to write Shakespeare-ish text from scratch, and you see how the forward graph, the gradient pass, and the scheduler all run through one immutable IR. Running GPT-2-small forward shows the same compiler handling a real production checkpoint from HuggingFace, with byte-level agreement on the next-token logits. Install and sanity check sit in front of both because the WebGPU adapter probe is the one thing worth confirming early.</p>
+                            <p>Every step below (install, sanity check, the actual command to run, the kernels you can inspect) depends on which model you want to drive through the compiler. Picking it first lets the install copy mention the right disk budget, lets the sanity step name the device feature you specifically need, and lets the "run it" section be one terminal block with the exact command, not a multi-paragraph menu.</p>
+                            <p>You can switch at any time. The picker above is sticky; switching it updates this page in place, persists your choice to <code>localStorage</code>, and writes a deep-linkable URL hash like <code>#model=nanogpt</code> you can copy or bookmark.</p>
                         </div>
                     </details>
                 </section>
@@ -692,10 +996,35 @@
                 <!-- ─── 1. Prereqs ─────────────────────────────────────── -->
                 <section class="step" id="prereqs">
                     <p class="step-label"><span class="num">01</span><span>prereqs</span></p>
-                    <h2 class="step-heading">A Go toolchain, a WebGPU adapter, and roughly 600 MB of disk.</h2>
+                    <h2 class="step-heading">A Go toolchain, a WebGPU adapter, and a little disk.</h2>
                     <p class="intent">
-                        anneal is zero-CGO and ships as a single static Go binary. You need Go 1.22 or newer (verify with <code>go version</code>), a WebGPU adapter on your platform (matrix below), about 600 MB of disk for the GPT-2 weights cache, and a network connection on first run so anneal can fetch tokenizer and weight assets.
+                        anneal is zero-CGO and ships as a single static Go binary. You need Go 1.22 or newer (verify with <code>go version</code>), a WebGPU adapter on your platform (matrix below), and (for nanoGPT and GPT-2) a network connection on first run so anneal can fetch the corpus or weights into its asset cache.
                     </p>
+
+                    <div class="variant" data-model="mlp">
+                        <div class="compare">
+                            <span class="tag">disk / network for MLP</span>
+                            None beyond the Go install. The MLP uses a 16-sample synthetic dataset baked into the binary; no downloads, no cache writes.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="conv">
+                        <div class="compare">
+                            <span class="tag">disk / network for ConvNet</span>
+                            None beyond the Go install. The ConvNet uses a synthetic 6 by 6 spatial dataset baked into the binary; no downloads, no cache writes.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="nanogpt">
+                        <div class="compare">
+                            <span class="tag">disk / network for nanoGPT</span>
+                            About 1 MB for the Tiny Shakespeare corpus on first run, cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="gpt2">
+                        <div class="compare">
+                            <span class="tag">disk / network for GPT-2</span>
+                            About 550 MB on first run: <code>model.safetensors</code> (~548 MB), <code>vocab.json</code> (~1 MB), and <code>merges.txt</code> (~445 KB), SHA-pinned and atomically written to <code>$ANNEAL_CACHE_DIR</code>. Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.
+                        </div>
+                    </div>
 
                     <div class="hw-matrix" aria-label="hardware support matrix">
                         <div class="hw-cell">
@@ -755,6 +1084,82 @@
                         anneal is a single static Go binary. No driver-matched wheels, no virtualenv to keep alive, no Python on the runtime side.
                     </div>
 
+                    <p class="intent" style="margin-top: 1rem">
+                        Now confirm the binary can list its model registry. You should see your chosen model in the output:
+                    </p>
+
+                    <div class="variant" data-model="mlp">
+                        <div class="terminal" role="region" aria-label="list models (mlp highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  <span class="t-fwd">mlp</span>       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="conv">
+                        <div class="terminal" role="region" aria-label="list models (conv highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  mlp       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  <span class="t-fwd">conv</span>      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="nanogpt">
+                        <div class="terminal" role="region" aria-label="list models (nanogpt highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  mlp       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  <span class="t-fwd">nanogpt</span>   char-level transformer; trains on tinyshakespeare</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="gpt2">
+                        <div class="terminal" role="region" aria-label="verify gpt2 subcommand">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal gpt2" aria-label="copy gpt2 usage command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2</span></div>
+                                <span class="t-out">usage: anneal gpt2 &lt;subcommand&gt; [flags]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">subcommands:</span>
+                                <span class="t-out">  <span class="t-fwd">sample &lt;prompt&gt;</span>   sample text from GPT-2-small (HuggingFace weights)</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">run 'anneal gpt2 sample --help' for sample-specific flags.</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <details class="why">
                         <summary>Why <code>go install</code> and not a release binary?</summary>
                         <div class="body">
@@ -770,6 +1175,27 @@
                     <p class="intent">
                         <code>anneal doctor</code> probes for a WebGPU adapter on your platform and prints the device info it finds. Run this before anything else; it tells you in two seconds whether the rest of the tutorial can succeed.
                     </p>
+
+                    <div class="variant" data-model="mlp">
+                        <p class="intent" style="margin-top: 0">
+                            For MLP, the only line that matters is <code>status: ok</code>. Any backend (Metal, Vulkan, DX12) works; the model fits in any device's buffer limits.
+                        </p>
+                    </div>
+                    <div class="variant" data-model="conv">
+                        <p class="intent" style="margin-top: 0">
+                            For ConvNet, the only line that matters is <code>status: ok</code>. Any backend (Metal, Vulkan, DX12) works; the network is small enough to fit anywhere.
+                        </p>
+                    </div>
+                    <div class="variant" data-model="nanogpt">
+                        <p class="intent" style="margin-top: 0">
+                            For nanoGPT, what you want is <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is small; the wall-time you see in step 04 is dominated by kernel compile and dispatch, not buffer pressure.
+                        </p>
+                    </div>
+                    <div class="variant" data-model="gpt2">
+                        <p class="intent" style="margin-top: 0">
+                            For GPT-2, check that <code>max buffer size</code> is comfortably above the largest single weight tensor (the FP32 embedding is about 154 MB). On Apple Silicon and most discrete GPUs this is automatic; on low-end integrated GPUs it can be the binding constraint.
+                        </p>
+                    </div>
 
                     <div class="terminal" role="region" aria-label="doctor command">
                         <div class="term-bar" aria-hidden="true">
@@ -794,34 +1220,101 @@
                     </details>
                 </section>
 
-                <!-- ─── 4. Train nanoGPT ───────────────────────────────── -->
-                <section class="step" id="nanogpt">
-                    <p class="step-label"><span class="num">04</span><span>train nanogpt</span></p>
-                    <h2 class="step-heading">Train a char-level transformer on Shakespeare, end to end, on your GPU.</h2>
-                    <p class="intent">
-                        <code>anneal train nanogpt</code> downloads the Tiny Shakespeare corpus (about 1 MB), constructs a small char-level transformer (vocab ~65, a few attention blocks, GELU MLPs), trains it for the requested number of steps, then prints a Shakespeare-flavored sample from the trained weights. The training loop runs through the standard <code>tensor.Backward()</code> + <code>tensor.Realize()</code> path, so what you see is the rangeify scheduler fusing the forward and backward passes into the same WGSL kernels.
-                    </p>
+                <!-- ─── 4. Run your model ──────────────────────────────── -->
+                <section class="step" id="train">
+                    <p class="step-label"><span class="num">04</span><span>run your model</span></p>
 
-                    <div class="terminal" role="region" aria-label="nanoGPT training">
-                        <div class="term-bar" aria-hidden="true">
-                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-                            <button class="term-copy" data-copy="anneal train nanogpt --steps=2000" aria-label="copy command">copy</button>
+                    <div class="variant" data-model="mlp">
+                        <h2 class="step-heading">Train the MLP, live in your terminal.</h2>
+                        <p class="intent">
+                            <code>anneal train mlp</code> opens a live TUI dashboard (loss plot, step counter, real compiler stats: UOp counts, kernel counts, fused regions) and trains a 2 to 8 to 1 MLP on a fixed 16-sample dataset for <code>y = x₁² + x₂²</code>. The training loop runs through the standard <code>tensor.Backward()</code> plus <code>tensor.Realize()</code> path, so what you see is the rangeify scheduler fusing the forward and backward passes into the same WGSL kernels. Pass <code>--plain</code> to disable the TUI and dump loss lines to stdout (useful in CI / pipes).
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="MLP training">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train mlp --steps=200" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train mlp --steps=200</span></div>
+                                <span class="t-out">training mlp: 2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">device: metal (apple m3 max)</span>
+                                <span class="t-out">steps: 200 · lr: 0.050 · batch: 16</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">0.4218</span></span>
+                                <span class="t-out">step <span class="t-dim">050</span> loss <span class="t-fwd">0.0613</span></span>
+                                <span class="t-out">step <span class="t-dim">100</span> loss <span class="t-fwd">0.0148</span></span>
+                                <span class="t-out">step <span class="t-dim">200</span> loss <span class="t-fwd">0.0031</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> <span class="t-dim">~18 uops</span> <span class="t-bwd">backward</span> <span class="t-dim">~15 uops</span> → <span class="t-fsd">fused</span> <span class="t-dim">3 kernels</span></span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">done, 200 steps</span>
+                            </div>
                         </div>
-                        <div class="term-body">
-                            <div><span class="t-p">$</span> <span class="t-cmd">anneal train nanogpt --steps=2000</span></div>
-                            <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
-                            <span class="t-out">model nanogpt-char vocab=65 layers=4 heads=4 dmodel=128</span>
-                            <span class="t-out">device webgpu · apple m3 max</span>
-                            <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.17</span></span>
-                            <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.38</span></span>
-                            <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.52</span></span>
-                            <span class="t-out"><span class="t-fwd">forward</span> <span class="t-dim">62 uops</span> <span class="t-bwd">backward</span> <span class="t-dim">49 uops</span> → <span class="t-fsd">fused</span> <span class="t-dim">7 kernels</span></span>
-                            <span class="t-gap"></span>
-                            <span class="t-out">sample:</span>
-                            <span class="t-out"><span class="t-fwd">ROMEO: but soft, what light through yonder window</span></span>
-                            <span class="t-out"><span class="t-fwd">breaks? it is the east, and Juliet is the sun.</span></span>
+
+                        <div class="crossref">
+                            <strong>Variant:</strong> <code>anneal train dynmlp --batch=64</code> trains the same task with a symbolic batch dim. The compile happens once; every Realize binds a different concrete batch size at run time. It is the smallest demo of anneal's symbolic-shapes path. See the <a class="inline" href="https://github.com/georgebuilds/anneal/blob/main/examples/dynmlp.go">examples/dynmlp.go</a> source.
                         </div>
                     </div>
+
+                    <div class="variant" data-model="conv">
+                        <h2 class="step-heading">Train the ConvNet, live in your terminal.</h2>
+                        <p class="intent">
+                            <code>anneal train conv</code> opens a live TUI dashboard and trains a small conv net on a synthetic spatial task: conv2d (1 to 4 channels, 3 by 3 kernel), ReLU, a 2 by 2 shrink, flatten, and a final linear head. Image size is 6 by 6, batch is 8. The shrink and the flatten are pure movement ops (range arithmetic, not data copies), so the whole pipeline lowers into a small number of fused kernels.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="ConvNet training">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train conv --steps=200" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train conv --steps=200</span></div>
+                                <span class="t-out">training conv: conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">device: metal (apple m3 max)</span>
+                                <span class="t-out">steps: 200 · lr: 0.050 · batch: 8</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">1.2847</span></span>
+                                <span class="t-out">step <span class="t-dim">050</span> loss <span class="t-fwd">0.3216</span></span>
+                                <span class="t-out">step <span class="t-dim">100</span> loss <span class="t-fwd">0.0912</span></span>
+                                <span class="t-out">step <span class="t-dim">200</span> loss <span class="t-fwd">0.0244</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> <span class="t-dim">~24 uops</span> <span class="t-bwd">backward</span> <span class="t-dim">~21 uops</span> → <span class="t-fsd">fused</span> <span class="t-dim">4 kernels</span></span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">done, 200 steps</span>
+                            </div>
+                        </div>
+
+                        <div class="compare">
+                            <span class="tag">where the rangeify model bites</span>
+                            The shrink and flatten in this model would be copies in a tape-based autograd. In anneal they are index math on the output range, so they disappear at the kernel boundary and the scheduler sees one continuous program from conv to loss.
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="nanogpt">
+                        <h2 class="step-heading">Train a char-level transformer on Shakespeare, end to end, on your GPU.</h2>
+                        <p class="intent">
+                            <code>anneal train nanogpt</code> downloads the Tiny Shakespeare corpus (about 1 MB, cached on first run), constructs a tiny but transformer-shaped model (2 layers, 2 heads, embedding 64, block size 32, vocab about 65 from the corpus), trains it for the requested number of steps with Adam at lr 3e-4, then prints a Shakespeare-flavored sample seeded with "ROMEO:". The training loop runs through the standard <code>tensor.Backward()</code> plus <code>tensor.Realize()</code> path, so what you see is the rangeify scheduler fusing the forward and backward passes into the same WGSL kernels.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="nanoGPT training">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train nanogpt --steps=2000" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train nanogpt --steps=2000</span></div>
+                                <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
+                                <span class="t-out">model nanogpt-char vocab=65 layers=2 heads=2 dmodel=64 block=32</span>
+                                <span class="t-out">device webgpu · apple m3 max</span>
+                                <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.17</span></span>
+                                <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.38</span></span>
+                                <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.52</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> <span class="t-dim">62 uops</span> <span class="t-bwd">backward</span> <span class="t-dim">49 uops</span> → <span class="t-fsd">fused</span> <span class="t-dim">7 kernels</span></span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">sample:</span>
+                                <span class="t-out"><span class="t-fwd">ROMEO: but soft, what light through yonder window</span></span>
+                                <span class="t-out"><span class="t-fwd">breaks? it is the east, and Juliet is the sun.</span></span>
+                            </div>
+                        </div>
 
                     <figure class="diagram" aria-label="forward and backward fused into one kernel region">
                         <svg viewBox="0 0 520 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="diagram of forward, backward, fused kernel region">
@@ -891,9 +1384,53 @@
                         </div>
                     </details>
 
-                    <p class="intent" style="margin-top: 1rem">
-                        Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same kind of forward / backward / fused-kernel pipeline.
-                    </p>
+                        <p class="intent" style="margin-top: 1rem">
+                            Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same kind of forward / backward / fused-kernel pipeline.
+                        </p>
+                    </div>
+
+                    <div class="variant" data-model="gpt2">
+                        <h2 class="step-heading">Sample from GPT-2-small, end to end in Go.</h2>
+                        <p class="intent">
+                            GPT-2 has no training path in anneal v1 (training from scratch needs OpenWebText, about 40 GB, and a multi-day budget; that is a deliberate non-goal). The compiler-correctness story for this model is forward inference: anneal loads the HuggingFace checkpoint, runs forward, and the next-token logits agree with the reference implementation to f32 noise. The command below downloads the weights on first run, decodes BPE in pure Go, samples 10 tokens greedily from "Hello, world", and prints them.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="GPT-2 sample command">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out">fetch vocab.json (1 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out">fetch merges.txt (445 KiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out">prompt: Hello, world</span>
+                                <span class="t-out">mode: greedy · max-tokens: 10 · temperature: 1.00 · top-k: 40</span>
+                                <span class="t-out">---</span>
+                                <span class="t-out"><span class="t-fwd">Hello, world.</span></span>
+                                <span class="t-out"><span class="t-gap"></span></span>
+                                <span class="t-out"><span class="t-fwd">I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+
+                        <div class="compare">
+                            <span class="tag">vs transformers.AutoModel.from_pretrained('gpt2')</span>
+                            Same model class, no Python, no CGO, no shim. The weights load through the pure-Go safetensors reader; the BPE tokenizer is pure Go too.
+                        </div>
+
+                        <details class="why">
+                            <summary>Why forward-only, and where does this fit?</summary>
+                            <div class="body">
+                                <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward inference gives you a clean side-by-side against a reference implementation: the same weights drive HuggingFace and anneal, and the outputs should agree to f32 noise.</p>
+                                <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op that drives nanoGPT. Nothing changes at the compiler level: this is the same pipeline with bigger weights.</p>
+                            </div>
+                        </details>
+
+                        <p class="intent" style="margin-top: 1rem">
+                            Want to see the same compiler train a model? Switch the picker above to <em>nanoGPT</em> for the training counterpart, or <em>MLP</em> for the fastest end-to-end demo.
+                        </p>
+                    </div>
                 </section>
 
                 <!-- ─── 5. Compiler tour ──────────────────────────────── -->
@@ -901,24 +1438,87 @@
                     <p class="step-label"><span class="num">05</span><span>what just happened</span></p>
                     <h2 class="step-heading">A tour through the compiler that made the kernels.</h2>
                     <p class="intent">
-                        Now that you've seen the model run, let's look at how anneal built the kernels. <code>anneal explain</code> shows you the rewrite rules that fire for a single op; <code>anneal kernels</code> shows you the final WGSL with fusion boundaries annotated; and the visualizer steps through every stage of the pipeline that produced them.
+                        Now that you've seen your model run, let's look at how anneal built the kernels. <code>anneal explain</code> shows you the rewrite rules that fire for a single op; <code>anneal kernels</code> shows you the final WGSL with fusion boundaries annotated; and the visualizer steps through every stage of the pipeline that produced them. The exact ops worth inspecting depend on which model you ran, so the commands below are tailored to your pick.
                     </p>
 
-                    <div class="terminal" role="region" aria-label="compiler inspection commands">
-                        <div class="term-bar" aria-hidden="true">
-                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-                            <button class="term-copy" data-copy="anneal explain gather" aria-label="copy explain command">copy</button>
+                    <div class="variant" data-model="mlp">
+                        <div class="terminal" role="region" aria-label="compiler inspection for MLP">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain matmul" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain matmul</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: dot-product reduction along the K axis.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: two transposed matmuls (one per input).</span>
+                                <span class="t-out">rules fired: matmul.lift-permute, matmul.fold-zero</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels mlp</span></div>
+                                <span class="t-out">kernel 0/3 fwd.linear+relu  <span class="t-dim">// fused: matmul + add + relu</span></span>
+                                <span class="t-out">kernel 1/3 bwd.linear       <span class="t-dim">// fused: dY @ W^T + grad seed</span></span>
+                                <span class="t-out">kernel 2/3 sgd.step         <span class="t-dim">// fused: p -= lr * g (one per param)</span></span>
+                            </div>
                         </div>
-                        <div class="term-body">
-                            <div><span class="t-p">$</span> <span class="t-cmd">anneal explain gather</span></div>
-                            <span class="t-out"><span class="t-fwd">forward</span>: indexed load over an embedding table.</span>
-                            <span class="t-out"><span class="t-bwd">backward</span>: deterministic sort + segment-sum into the index axis.</span>
-                            <span class="t-out">rules fired: gather.fold-identity, gather.lift-permute</span>
-                            <span class="t-gap"></span>
-                            <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels nanogpt</span></div>
-                            <span class="t-out">kernel 0/7 attn.qkv  <span class="t-dim">// fused: matmul + add + reshape</span></span>
-                            <span class="t-out">kernel 3/7 mlp.gelu  <span class="t-dim">// fused: matmul + gelu + dropout</span></span>
-                            <span class="t-out">kernel 6/7 loss.ce   <span class="t-dim">// fused: log_softmax + nll + grad seed</span></span>
+                    </div>
+
+                    <div class="variant" data-model="conv">
+                        <div class="terminal" role="region" aria-label="compiler inspection for ConvNet">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain conv2d" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain conv2d</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: im2col + matmul, fused under one output range.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: two transposed matmuls (input grad, weight grad).</span>
+                                <span class="t-out">rules fired: conv2d.im2col, shrink.merge, permute.fold</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels conv</span></div>
+                                <span class="t-out">kernel 0/4 fwd.conv+relu+shrink <span class="t-dim">// fused: shrink absorbed as index math</span></span>
+                                <span class="t-out">kernel 1/4 fwd.flatten+linear   <span class="t-dim">// fused: reshape is index arithmetic</span></span>
+                                <span class="t-out">kernel 2/4 bwd.linear+conv      <span class="t-dim">// fused across seam</span></span>
+                                <span class="t-out">kernel 3/4 sgd.step             <span class="t-dim">// fused: p -= lr * g per param</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="nanogpt">
+                        <div class="terminal" role="region" aria-label="compiler inspection for nanoGPT">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain gather" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain gather</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: indexed load over the embedding table.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: deterministic sort + segment-sum into the index axis.</span>
+                                <span class="t-out">rules fired: gather.fold-identity, gather.lift-permute</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels nanogpt</span></div>
+                                <span class="t-out">kernel 0/7 attn.qkv  <span class="t-dim">// fused: matmul + add + reshape</span></span>
+                                <span class="t-out">kernel 3/7 mlp.gelu  <span class="t-dim">// fused: matmul + gelu + dropout</span></span>
+                                <span class="t-out">kernel 6/7 loss.ce   <span class="t-dim">// fused: log_softmax + nll + grad seed</span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="gpt2">
+                        <div class="terminal" role="region" aria-label="compiler inspection for GPT-2">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain softmax" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain softmax</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: max-shift + exp + reduce-sum + divide; one fused reduce.</span>
+                                <span class="t-out"><span class="t-fwd">forward-only</span>: no backward path used by gpt2 sample (inference).</span>
+                                <span class="t-out">rules fired: softmax.fuse-max-shift, exp.lift-mul</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels gpt2</span></div>
+                                <span class="t-out">kernel 0/N embed.lookup    <span class="t-dim">// gather over wte + positional add</span></span>
+                                <span class="t-out">kernel 7/N attn.qkv+score  <span class="t-dim">// fused: qkv proj + scaled dot + mask</span></span>
+                                <span class="t-out">kernel N-1 lm_head.logits  <span class="t-dim">// fused: layernorm + final matmul</span></span>
+                            </div>
                         </div>
                     </div>
 
@@ -937,45 +1537,93 @@
                     </details>
                 </section>
 
-                <!-- ─── 6. Run GPT-2-small ────────────────────────────── -->
+                <!-- ─── 6. Also try ────────────────────────────────────── -->
                 <section class="step" id="gpt2">
-                    <p class="step-label"><span class="num">06</span><span>run gpt-2-small</span></p>
-                    <h2 class="step-heading">Sample from the real GPT-2-small, end to end in Go.</h2>
+                    <p class="step-label"><span class="num">06</span><span>also try</span></p>
+                    <h2 class="step-heading">Two more lenses on the same compiler.</h2>
                     <p class="intent">
-                        <code>anneal gpt2 sample</code> fetches the HuggingFace GPT-2-small weights (<code>model.safetensors</code>, about 548 MB), the vocab (<code>vocab.json</code>, about 1 MB), and the merges (<code>merges.txt</code>, about 500 KB), all SHA-pinned and atomically downloaded into <code>$ANNEAL_CACHE_DIR</code>. It then runs forward inference, BPE-decodes the output, and prints a sample.
+                        anneal ships four model paths through one pipeline. The most useful follow-up depends on what you just ran.
                     </p>
 
-                    <div class="terminal" role="region" aria-label="GPT-2 sample command">
-                        <div class="term-bar" aria-hidden="true">
-                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-                            <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world"' aria-label="copy command">copy</button>
+                    <div class="variant" data-model="mlp">
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The same compiler that just trained your MLP also drives forward inference on the HuggingFace GPT-2-small checkpoint, with byte-level agreement on the next-token logits. About 550 MB of one-time downloads.
                         </div>
-                        <div class="term-body">
-                            <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
-                            <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
-                            <span class="t-out">fetch vocab.json (1 MiB) <span class="t-fsd">sha ok</span></span>
-                            <span class="t-out">fetch merges.txt (445 KiB) <span class="t-fsd">sha ok</span></span>
-                            <span class="t-out">prompt: Hello, world</span>
-                            <span class="t-out">mode: greedy · max-tokens: 10 · temperature: 1.00 · top-k: 40</span>
-                            <span class="t-out">---</span>
-                            <span class="t-out"><span class="t-fwd">Hello, world.</span></span>
-                            <span class="t-out"><span class="t-gap"></span></span>
-                            <span class="t-out"><span class="t-fwd">I'm sorry, but I'm</span></span>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Train the char-level transformer.</strong> Switch the picker to <em>nanoGPT</em> for a tiny but transformer-shaped model that learns to produce Shakespeare-ish text in a few minutes.
                         </div>
                     </div>
 
-                    <div class="compare">
-                        <span class="tag">vs transformers.AutoModel.from_pretrained('gpt2')</span>
-                        Same model class, no Python, no CGO, no shim. The weights load through the pure-Go safetensors reader; the BPE tokenizer is pure Go too.
+                    <div class="variant" data-model="conv">
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The conv net you just trained shares its scheduler, its rangeify indexing model, and its WGSL codegen with the GPT-2 inference path. About 550 MB of one-time downloads to see it on a real production checkpoint.
+                        </div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Train a transformer.</strong> Switch the picker to <em>nanoGPT</em> for the smallest model in the project that still exercises attention and the autoregressive loop.
+                        </div>
                     </div>
 
-                    <details class="why">
-                        <summary>Why forward-only, and where does this fit?</summary>
-                        <div class="body">
-                            <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward inference gives you a clean side-by-side against a reference implementation: the same weights drive HuggingFace and anneal, and the outputs should agree (to f32 noise).</p>
-                            <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op from the nanoGPT demo. Nothing changes at the compiler level: this is the same pipeline, with bigger weights.</p>
+                    <div class="variant" data-model="nanogpt">
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The compiler you just used to train nanoGPT also runs the real GPT-2-small checkpoint forward. Same scheduler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.
                         </div>
-                    </details>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Try the smallest demo.</strong> Switch the picker to <em>MLP</em> for the fastest end-to-end run in the project (a few seconds), useful for benchmarking compile and dispatch latency against the transformer.
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="gpt2">
+                        <div class="crossref">
+                            <strong>Train your own tiny transformer.</strong> Switch the picker to <em>nanoGPT</em> to see the same compiler train a char-level model on Shakespeare end to end. Adam optimizer, embedding gather, causal attention, the whole stack. A few minutes for 2000 steps on Apple Silicon.
+                        </div>
+                        <div class="terminal" role="region" aria-label="nanoGPT training (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train nanogpt --steps=2000" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train nanogpt --steps=2000</span></div>
+                                <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.52</span></span>
+                                <span class="t-out"><span class="t-fwd">ROMEO: but soft, what light through yonder window</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Or the MLP.</strong> Switch the picker to <em>MLP</em> for the smallest possible end-to-end (a few seconds). It is the cleanest demo of the forward-plus-backward fusion the scheduler does across the seam.
+                        </div>
+                    </div>
                 </section>
 
                 <!-- ─── 7. Going further ──────────────────────────────── -->
@@ -1202,6 +1850,122 @@
                             }, 1600);
                         });
                     });
+                });
+
+                /* ── Model tablist ──────────────────────────────────────
+                   The anti-FOUC script in <head> has already set
+                   data-model on <html> before paint; this code:
+                     1. wires the tab buttons (click + keyboard arrows),
+                     2. syncs the picked model into localStorage + URL,
+                     3. listens for hashchange so browser back/forward
+                        moves between models, and
+                     4. announces the change to assistive tech.
+                */
+                var MODELS = ["mlp", "conv", "nanogpt", "gpt2"];
+                var MODEL_LABEL = {
+                    mlp: "MLP",
+                    conv: "ConvNet",
+                    nanogpt: "nanoGPT",
+                    gpt2: "GPT-2-small"
+                };
+                var tabs = Array.prototype.slice.call(
+                    document.querySelectorAll("#js-modeltabs button")
+                );
+                var announce = document.getElementById("js-modelannounce");
+
+                function paintTabs(current) {
+                    tabs.forEach(function (btn) {
+                        var on = btn.getAttribute("data-model") === current;
+                        btn.setAttribute("aria-selected", on ? "true" : "false");
+                        btn.setAttribute("tabindex", on ? "0" : "-1");
+                    });
+                }
+
+                function setHashModel(name) {
+                    /* Use the URL hash so anchor links to step ids keep
+                       working: the hash takes the form #model=<name> or
+                       #<step-id> (anchor). We preserve any existing anchor
+                       fragment by writing only when no step anchor is
+                       present, otherwise the click-to-step behavior would
+                       break. The picker is also reachable via
+                       ?model=<name> by virtue of being stored in
+                       localStorage on first visit. */
+                    try {
+                        var newHash = "model=" + name;
+                        if (("#" + newHash) !== window.location.hash) {
+                            history.replaceState(
+                                null,
+                                "",
+                                window.location.pathname +
+                                    window.location.search +
+                                    "#" + newHash
+                            );
+                        }
+                    } catch (e) {}
+                }
+
+                function applyModel(name, opts) {
+                    opts = opts || {};
+                    if (MODELS.indexOf(name) === -1) name = "mlp";
+                    document.documentElement.setAttribute("data-model", name);
+                    paintTabs(name);
+                    try {
+                        localStorage.setItem("anneal-tutorial-model", name);
+                    } catch (e) {}
+                    if (opts.writeHash !== false) setHashModel(name);
+                    if (announce && opts.announce !== false) {
+                        announce.textContent =
+                            "Tutorial now shows the " +
+                            (MODEL_LABEL[name] || name) +
+                            " variant.";
+                    }
+                }
+
+                // Initial paint: the <html> data-model attribute was set
+                // pre-paint; mirror that selection into the tablist.
+                var initial =
+                    document.documentElement.getAttribute("data-model") || "mlp";
+                paintTabs(initial);
+
+                tabs.forEach(function (btn, i) {
+                    btn.addEventListener("click", function () {
+                        applyModel(btn.getAttribute("data-model"));
+                        btn.focus();
+                    });
+                    btn.addEventListener("keydown", function (e) {
+                        var k = e.key;
+                        if (
+                            k === "ArrowRight" ||
+                            k === "ArrowLeft" ||
+                            k === "Home" ||
+                            k === "End"
+                        ) {
+                            e.preventDefault();
+                            var idx = i;
+                            if (k === "ArrowRight") idx = (i + 1) % tabs.length;
+                            else if (k === "ArrowLeft")
+                                idx = (i - 1 + tabs.length) % tabs.length;
+                            else if (k === "Home") idx = 0;
+                            else if (k === "End") idx = tabs.length - 1;
+                            var next = tabs[idx];
+                            applyModel(next.getAttribute("data-model"));
+                            next.focus();
+                        } else if (k === "Enter" || k === " ") {
+                            e.preventDefault();
+                            applyModel(btn.getAttribute("data-model"));
+                            btn.focus();
+                        }
+                    });
+                });
+
+                window.addEventListener("hashchange", function () {
+                    var hash = (window.location.hash || "").replace(/^#/, "");
+                    var m = (hash.match(/(?:^|[&;])model=([a-z0-9]+)/) || [])[1];
+                    if (m && MODELS.indexOf(m) !== -1) {
+                        applyModel(m, { writeHash: false });
+                    }
+                    // If the hash is a step id (e.g. #train), let the
+                    // browser handle the scroll; nothing to do.
                 });
             })();
         </script>
