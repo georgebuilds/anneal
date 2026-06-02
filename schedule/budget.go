@@ -81,7 +81,7 @@ func enforceBufferBudget(sink uop.UOp) uop.UOp {
 	// Cap iterations to avoid infinite loops if the heuristic stalls.
 	const maxIters = 64
 	for iter := 0; iter < maxIters; iter++ {
-		topo := topoSort(sink)
+		topo := uop.TopoSort(sink)
 		realize := buildRealizeMapForBudget(sink, topo)
 
 		// Find the first over-budget realize point in topo order (stable).
@@ -369,7 +369,7 @@ func cutLessTier2(a, b uop.UOp, scoreOf map[uint32]int) bool {
 func candidateSize(u uop.UOp) int64 {
 	cache := make(map[uint32][]shape.Sint)
 	// Build shape cache by topo-walking u's subgraph.
-	topo := topoSort(u)
+	topo := uop.TopoSort(u)
 	for _, n := range topo {
 		shapeOfNode(n, cache)
 	}
@@ -453,7 +453,7 @@ func isCutCandidate(u uop.UOp) bool {
 // any path from oldIdx to sink are rebuilt with src updated. The arena's
 // hash-consing folds duplicates automatically.
 func rebuildWithReplacement(a *uop.Arena, sink uop.UOp, oldIdx uint32, replacement uop.UOp) uop.UOp {
-	topo := topoSort(sink)
+	topo := uop.TopoSort(sink)
 	rebuild := make(map[uint32]uint32, len(topo))
 	rebuild[oldIdx] = replacement.Index()
 

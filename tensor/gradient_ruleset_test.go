@@ -9,10 +9,10 @@ import (
 )
 
 // buildTestShapeCache computes a shapeCache for all nodes reachable from root.
-// Uses the same topoSortUOp and shapeOfNode helpers as runBackward.
+// Uses the same uop.TopoSort and shapeOfNode helpers as runBackward.
 func buildTestShapeCache(root uop.UOp) map[uint32][]shape.Sint {
 	cache := make(map[uint32][]shape.Sint)
-	topo := topoSortUOp(root)
+	topo := uop.TopoSort(root)
 	for _, n := range topo {
 		shapeOfNode(n, cache)
 	}

@@ -51,7 +51,7 @@ func runBackward(loss *Tensor, targets map[uint32]bool, trace *GradTrace) map[ui
 	defer a.SetPhase(prev)
 
 	// Forward topological order (sources before consumers).
-	topo := topoSortUOp(loss.node)
+	topo := uop.TopoSort(loss.node)
 
 	// Compute Sint shapes for all nodes in forward order.
 	shapeCache := make(map[uint32][]shape.Sint, len(topo))
@@ -125,48 +125,6 @@ func runBackward(loss *Tensor, targets map[uint32]bool, trace *GradTrace) map[ui
 // ── Per-op gradient rules ─────────────────────────────────────────────────────
 
 // ── Graph utilities ───────────────────────────────────────────────────────────
-
-// topoSortUOp returns the nodes reachable from root in forward topological
-// order (each node appears after all its sources).
-func topoSortUOp(root uop.UOp) []uop.UOp {
-	seen := make(map[uint32]bool)
-	var order []uop.UOp
-
-	type frame struct {
-		u       uop.UOp
-		nextSrc int
-	}
-	stack := []frame{{root, 0}}
-
-	for len(stack) > 0 {
-		f := &stack[len(stack)-1]
-		u := f.u
-
-		if seen[u.Index()] {
-			stack = stack[:len(stack)-1]
-			continue
-		}
-
-		// Push the next unvisited source to process first.
-		pushed := false
-		for f.nextSrc < u.NSrc() {
-			child := u.Src(f.nextSrc)
-			f.nextSrc++
-			if !seen[child.Index()] {
-				stack = append(stack, frame{child, 0})
-				pushed = true
-				break
-			}
-		}
-		if !pushed {
-			seen[u.Index()] = true
-			order = append(order, u)
-			stack = stack[:len(stack)-1]
-		}
-	}
-
-	return order
-}
 
 // shapeOfNode computes and caches the output Sint shape of u.
 // All of u's sources must already be in cache (guaranteed when called in topo order).
@@ -244,8 +202,8 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			// Symbolic pad: shape[i] = srcSh[i] + lo + hi via Sint arithmetic.
 			a := u.Arena()
 			for i, s := range srcSh {
-				lo := shapeDimToSint(a, padding[i][0])
-				hi := shapeDimToSint(a, padding[i][1])
+				lo := shape.SintFromShapeDim(a, padding[i][0])
+				hi := shape.SintFromShapeDim(a, padding[i][1])
 				sh[i] = shape.Add(shape.Add(s, lo), hi)
 			}
 		default:
@@ -263,8 +221,8 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			a := u.Arena()
 			sh = make([]shape.Sint, len(arg))
 			for i, p := range arg {
-				lo := shapeDimToSint(a, p[0])
-				hi := shapeDimToSint(a, p[1])
+				lo := shape.SintFromShapeDim(a, p[0])
+				hi := shape.SintFromShapeDim(a, p[1])
 				sh[i] = shape.Sub(hi, lo)
 			}
 		default:
@@ -345,35 +303,15 @@ func intsToSints(ints []int64) []shape.Sint {
 	return sh
 }
 
-// shapeSintArgToSintsGrad converts a ShapeSintArg to []shape.Sint by rebuilding
-// the bound expression UOp from the (VarName, Mul) encoding. Mirror of
-// schedule.shapeSintArgToSints. The DefineVar is looked up by name in a;
-// Mul>1 reconstructs OpMul(DefineVar, Const) which interning aliases to the
-// original node whenever it was built in canonical orientation.
+// shapeSintArgToSintsGrad converts a ShapeSintArg to []shape.Sint via
+// shape.SintFromShapeDim. Mirror of schedule.shapeSintArgToSints; shares the
+// single source of truth for (VarName, Mul) -> bound-UOp reconstruction in
+// uop.RebuildSymBound, so the gradient pass and the scheduler agree on the
+// interned bound node for identical ShapeDims.
 func shapeSintArgToSintsGrad(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
 	sh := make([]shape.Sint, len(arg))
 	for i, d := range arg {
-		sh[i] = shapeDimToSint(a, d)
+		sh[i] = shape.SintFromShapeDim(a, d)
 	}
 	return sh
-}
-
-// shapeDimToSint converts a single uop.ShapeDim back to a shape.Sint by
-// reconstructing the bound UOp expression from (VarName, Mul). Used by
-// gradient.go shape-cache OpPad/OpShrink branches (Slice 5) and shared by
-// shapeSintArgToSintsGrad for the Slice 4 reshape/expand path.
-func shapeDimToSint(a *uop.Arena, d uop.ShapeDim) shape.Sint {
-	if !d.Sym {
-		return shape.Const(d.V)
-	}
-	defVar, ok := a.FindDefineVar(d.VarName)
-	if !ok {
-		panic(fmt.Sprintf("tensor/gradient: shapeDimToSint: DefineVar %q not found in arena", d.VarName))
-	}
-	bound := defVar
-	if d.Mul > 1 {
-		mulConst := a.New(uop.OpConst, uop.Dtypes.Index, nil, d.Mul, nil)
-		bound = a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{defVar, mulConst}, nil, nil)
-	}
-	return shape.SymInt{Node: bound}
 }

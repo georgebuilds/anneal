@@ -997,7 +997,7 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 
 	// Topologically order the shared UOps so we emit producers before consumers.
 	// Reuse the body topo, filtering by `shared`.
-	order := topoSortForHoist(body)
+	order := uop.TopoSort(body)
 	for _, u := range order {
 		if !shared[u.Index()] {
 			continue
@@ -1023,27 +1023,6 @@ func hoistEligible(u uop.UOp) bool {
 		return false
 	}
 	return true
-}
-
-// topoSortForHoist returns body's reachable subgraph in topological order
-// (producers before consumers). Standalone from rangeify.topoSort to avoid a
-// package-level import cycle and to scope traversal to the body subgraph.
-func topoSortForHoist(root uop.UOp) []uop.UOp {
-	var order []uop.UOp
-	seen := make(map[uint32]bool)
-	var visit func(u uop.UOp)
-	visit = func(u uop.UOp) {
-		if seen[u.Index()] {
-			return
-		}
-		seen[u.Index()] = true
-		for i := 0; i < u.NSrc(); i++ {
-			visit(u.Src(i))
-		}
-		order = append(order, u)
-	}
-	visit(root)
-	return order
 }
 
 func (l *lowerer) emitExpr(u uop.UOp) string {

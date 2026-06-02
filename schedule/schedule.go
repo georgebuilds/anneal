@@ -138,7 +138,7 @@ func removeBufferize(sink uop.UOp) uop.UOp {
 		return sink
 	}
 	a := sink.Arena()
-	topo := topoSort(sink)
+	topo := uop.TopoSort(sink)
 
 	// 1. Analyze all BUFFERIZE nodes.
 	bufzNodes := make([]uop.UOp, 0)
@@ -483,7 +483,7 @@ func (fr *fusedRebuilder) substituteRanges(root uop.UOp, subs map[uint32]uop.UOp
 // Any INDEX(BUFFERIZE, *indices) in the body is rewritten to INDEX(BUFFER, *indices)
 // so that downstream reads target the allocated buffer, not the wrapper.
 func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
-	topo := topoSort(sink)
+	topo := uop.TopoSort(sink)
 	rebuild := make(map[uint32]uint32, len(topo))
 	// bufForBufz maps a BUFFERIZE node's arena index → the BUFFER node's arena
 	// index.  INDEX(BUFFERIZE, *i) nodes use this to become INDEX(BUFFER, *i).

@@ -45,7 +45,7 @@ func graphCmdW(args []string, w io.Writer) int {
 	}
 
 	// Count reachable nodes for header.
-	nodes := topoSortNodes(result.Output.Node())
+	nodes := uop.TopoSort(result.Output.Node())
 
 	fmt.Fprintf(w, "graph: %s — %s\n", ex.Name, ex.Summary)
 	fmt.Fprintf(w, "device: webgpu\n")
@@ -61,7 +61,7 @@ func graphCmdW(args []string, w io.Writer) int {
 //
 //nolint:errcheck // best-effort write to stdout/stderr
 func dumpDAG(w io.Writer, root uop.UOp) {
-	nodes := topoSortNodes(root)
+	nodes := uop.TopoSort(root)
 	for _, u := range nodes {
 		idx := u.Index()
 		op := u.Op().String()
@@ -107,47 +107,6 @@ func dumpDAG(w io.Writer, root uop.UOp) {
 
 		fmt.Fprintln(w, line)
 	}
-}
-
-// topoSortNodes returns all nodes reachable from root in topological post-order
-// (sources before consumers) using iterative DFS.
-func topoSortNodes(root uop.UOp) []uop.UOp {
-	seen := make(map[uint32]bool)
-	var order []uop.UOp
-
-	type frame struct {
-		u       uop.UOp
-		nextSrc int
-	}
-	stack := []frame{{root, 0}}
-
-	for len(stack) > 0 {
-		f := &stack[len(stack)-1]
-		u := f.u
-
-		if seen[u.Index()] {
-			stack = stack[:len(stack)-1]
-			continue
-		}
-
-		pushed := false
-		for f.nextSrc < u.NSrc() {
-			child := u.Src(f.nextSrc)
-			f.nextSrc++
-			if !seen[child.Index()] {
-				stack = append(stack, frame{child, 0})
-				pushed = true
-				break
-			}
-		}
-		if !pushed {
-			seen[u.Index()] = true
-			order = append(order, u)
-			stack = stack[:len(stack)-1]
-		}
-	}
-
-	return order
 }
 
 // srcList returns the arena indices of u's sources as a slice for display.

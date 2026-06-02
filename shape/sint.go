@@ -42,6 +42,20 @@ func CV(s Sint) int64 { return cv(s) }
 // Const wraps a literal int64 as a Sint.
 func Const(v int64) Sint { return ConstInt{V: v} }
 
+// SintFromShapeDim converts a uop.ShapeDim into a Sint by reconstructing the
+// bound expression from its (VarName, Mul) encoding for symbolic dims, and
+// returning a ConstInt for concrete dims. The symbolic path delegates to
+// uop.RebuildSymBound, so interning aliases the rebuilt node to the original
+// whenever the original was built in canonical orientation. Single source of
+// truth for ShapeDim to Sint conversion across schedule/, tensor/gradient.go,
+// and any other consumer.
+func SintFromShapeDim(a *uop.Arena, d uop.ShapeDim) Sint {
+	if !d.Sym {
+		return ConstInt{V: d.V}
+	}
+	return SymInt{Node: uop.RebuildSymBound(a, d)}
+}
+
 // SintShapesEqual reports whether two Sint slices are structurally equal without
 // forcing concretisation. ConstInt dims are compared by value; SymInt dims are
 // compared by UOp identity (same arena index in the same arena).

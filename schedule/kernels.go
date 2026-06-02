@@ -27,7 +27,7 @@ func collectBuffers(u uop.UOp, seen map[uint32]bool, out *[]uop.UOp) {
 // BUFFER node is replaced by the corresponding PARAM from paramMap.
 // PARAM nodes are leaves and are not recursed into.
 func rebuildWithParams(a *uop.Arena, inner uop.UOp, paramMap map[uint32]uop.UOp) uop.UOp {
-	topo := topoSort(inner)
+	topo := uop.TopoSort(inner)
 	rebuild := make(map[uint32]uint32, len(topo))
 
 	for _, u := range topo {

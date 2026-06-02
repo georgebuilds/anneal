@@ -116,7 +116,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		case uop.ShrinkSintArg:
 			srcIndices := make([]uop.UOp, len(bounds))
 			for i, b := range bounds {
-				off := dimToUOp(a, shapeDimToSintI(a, b[0]))
+				off := dimToUOp(a, shape.SintFromShapeDim(a, b[0]))
 				if isZeroConst(off) {
 					srcIndices[i] = indices[i]
 				} else {
@@ -156,8 +156,8 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 			loSints = make([]shape.Sint, len(padding))
 			hiSints = make([]shape.Sint, len(padding))
 			for i, p := range padding {
-				loSints[i] = shapeDimToSintI(a, p[0])
-				hiSints[i] = shapeDimToSintI(a, p[1])
+				loSints[i] = shape.SintFromShapeDim(a, p[0])
+				hiSints[i] = shape.SintFromShapeDim(a, p[1])
 			}
 		default:
 			panic("schedule/index: OpPad: unexpected arg type")
@@ -452,6 +452,21 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 
 // ── index arithmetic helpers ──────────────────────────────────────────────────
 
+// rowMajorStrides returns row-major strides for a static int64 shape:
+// strides[i] = prod(shape[i+1:]). Last dim is 1. Shared by flatIndex and
+// unflatIndex so the int64-stride accumulation lives in one place.
+func rowMajorStrides(shape []int64) []int64 {
+	if len(shape) == 0 {
+		return nil
+	}
+	strides := make([]int64, len(shape))
+	strides[len(shape)-1] = 1
+	for i := len(shape) - 2; i >= 0; i-- {
+		strides[i] = strides[i+1] * shape[i+1]
+	}
+	return strides
+}
+
 // flatIndex computes the row-major flat index from multi-dim indices and shape.
 // flatIndex([r0, r1], [n0, n1]) = r0*n1 + r1
 func flatIndex(a *uop.Arena, indices []uop.UOp, shape []int64) uop.UOp {
@@ -461,12 +476,7 @@ func flatIndex(a *uop.Arena, indices []uop.UOp, shape []int64) uop.UOp {
 	if len(indices) == 1 {
 		return indices[0]
 	}
-	// strides[i] = prod(shape[i+1:])
-	strides := make([]int64, len(shape))
-	strides[len(shape)-1] = 1
-	for i := len(shape) - 2; i >= 0; i-- {
-		strides[i] = strides[i+1] * shape[i+1]
-	}
+	strides := rowMajorStrides(shape)
 	var result uop.UOp
 	for i, r := range indices {
 		s := strides[i]
@@ -495,11 +505,7 @@ func unflatIndex(a *uop.Arena, flat uop.UOp, shape []int64) []uop.UOp {
 	if len(shape) == 1 {
 		return []uop.UOp{flat}
 	}
-	strides := make([]int64, len(shape))
-	strides[len(shape)-1] = 1
-	for i := len(shape) - 2; i >= 0; i-- {
-		strides[i] = strides[i+1] * shape[i+1]
-	}
+	strides := rowMajorStrides(shape)
 	out := make([]uop.UOp, len(shape))
 	for i, s := range shape {
 		stride := strides[i]
@@ -619,17 +625,6 @@ func dimToUOp(a *uop.Arena, s shape.Sint) uop.UOp {
 	}
 	sym := s.(shape.SymInt)
 	return sym.Node
-}
-
-// shapeDimToSintI converts a uop.ShapeDim back to a shape.Sint by rebuilding
-// the symbolic bound UOp via (VarName, Mul) lookup. Mirror of the
-// gradient.go helper, scoped to schedule/index.go to keep the index path
-// self-contained.
-func shapeDimToSintI(a *uop.Arena, d uop.ShapeDim) shape.Sint {
-	if !d.Sym {
-		return shape.Const(d.V)
-	}
-	return shape.SymInt{Node: rebuildSymBound(a, d)}
 }
 
 // isZeroConst reports whether u is a literal int64 OpConst with value 0.

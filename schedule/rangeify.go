@@ -7,46 +7,6 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// ── Topological sort ──────────────────────────────────────────────────────────
-
-// topoSort returns all nodes reachable from root in forward topological order
-// (each node appears after all its sources). Iterative post-order DFS.
-func topoSort(root uop.UOp) []uop.UOp {
-	seen := make(map[uint32]bool)
-	var order []uop.UOp
-
-	type frame struct {
-		u       uop.UOp
-		nextSrc int
-	}
-	stack := []frame{{root, 0}}
-
-	for len(stack) > 0 {
-		f := &stack[len(stack)-1]
-		u := f.u
-		if seen[u.Index()] {
-			stack = stack[:len(stack)-1]
-			continue
-		}
-		pushed := false
-		for f.nextSrc < u.NSrc() {
-			child := u.Src(f.nextSrc)
-			f.nextSrc++
-			if !seen[child.Index()] {
-				stack = append(stack, frame{child, 0})
-				pushed = true
-				break
-			}
-		}
-		if !pushed {
-			seen[u.Index()] = true
-			order = append(order, u)
-			stack = stack[:len(stack)-1]
-		}
-	}
-	return order
-}
-
 // ── Shape map ─────────────────────────────────────────────────────────────────
 
 // buildShapeMap computes the output shape for every node in topo (forward order).
@@ -111,8 +71,8 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			a := u.Arena()
 			sh = make([]shape.Sint, len(srcSh))
 			for i, s := range srcSh {
-				lo := schedShapeDimToSint(a, padding[i][0])
-				hi := schedShapeDimToSint(a, padding[i][1])
+				lo := shape.SintFromShapeDim(a, padding[i][0])
+				hi := shape.SintFromShapeDim(a, padding[i][1])
 				sh[i] = shape.Add(shape.Add(s, lo), hi)
 			}
 		default:
@@ -130,8 +90,8 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			a := u.Arena()
 			sh = make([]shape.Sint, len(arg))
 			for i, p := range arg {
-				lo := schedShapeDimToSint(a, p[0])
-				hi := schedShapeDimToSint(a, p[1])
+				lo := shape.SintFromShapeDim(a, p[0])
+				hi := shape.SintFromShapeDim(a, p[1])
 				sh[i] = shape.Sub(hi, lo)
 			}
 		default:
@@ -185,52 +145,22 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 	cache[u.Index()] = sh
 }
 
-// shapeSintArgToSints converts a ShapeSintArg to []shape.Sint.
-// Symbolic dims carry (VarName, Mul) structurally (Option B Slice 4); the
-// bound expression UOp is rebuilt in a via name lookup + intern-stable Mul
-// construction. For Mul>1 the reconstructed bound is OpMul(DefineVar, Const)
-// in (var, const) canonical orientation — matches shape.Mul's natural order.
+// shapeSintArgToSints converts a ShapeSintArg to []shape.Sint via
+// shape.SintFromShapeDim. Symbolic dims carry (VarName, Mul) structurally
+// (Option B Slice 4); the bound expression UOp is rebuilt via name lookup +
+// intern-stable Mul construction in uop.RebuildSymBound.
 func shapeSintArgToSints(a *uop.Arena, arg uop.ShapeSintArg) []shape.Sint {
 	sh := make([]shape.Sint, len(arg))
 	for i, d := range arg {
-		if d.Sym {
-			sh[i] = shape.SymInt{Node: rebuildSymBound(a, d)}
-		} else {
-			sh[i] = shape.Const(d.V)
-		}
+		sh[i] = shape.SintFromShapeDim(a, d)
 	}
 	return sh
-}
-
-// rebuildSymBound reconstructs the UOp bound expression for a symbolic ShapeDim
-// from its (VarName, Mul) encoding. Interning ensures the rebuilt node aliases
-// the original whenever the original was constructed in canonical orientation.
-func rebuildSymBound(a *uop.Arena, d uop.ShapeDim) uop.UOp {
-	defVar, ok := a.FindDefineVar(d.VarName)
-	if !ok {
-		panic(fmt.Sprintf("schedule: shapeSintArgToSints: DefineVar %q not found in arena", d.VarName))
-	}
-	if d.Mul <= 1 {
-		return defVar
-	}
-	mulConst := a.New(uop.OpConst, uop.Dtypes.Index, nil, d.Mul, nil)
-	return a.New(uop.OpMul, uop.Dtypes.Index, []uop.UOp{defVar, mulConst}, nil, nil)
 }
 
 func cloneShape(s []shape.Sint) []shape.Sint {
 	c := make([]shape.Sint, len(s))
 	copy(c, s)
 	return c
-}
-
-// schedShapeDimToSint converts a uop.ShapeDim into a shape.Sint by rebuilding
-// the symbolic bound UOp from its (VarName, Mul) encoding. Used by the
-// rangeify shape-cache OpPad/OpShrink branches when the pad amount is symbolic.
-func schedShapeDimToSint(a *uop.Arena, d uop.ShapeDim) shape.Sint {
-	if !d.Sym {
-		return shape.Const(d.V)
-	}
-	return shape.SymInt{Node: rebuildSymBound(a, d)}
 }
 
 // ── Realize map ───────────────────────────────────────────────────────────────
@@ -325,7 +255,7 @@ func (rc *rangeCtx) freshRanges(sh []shape.Sint, t uop.AxisType) []uop.UOp {
 //	src[1..] = all RANGE nodes for the kernel (AxisLoop first, then AxisReduce)
 func runRangeify(sink uop.UOp) uop.UOp {
 	a := sink.Arena()
-	topo := topoSort(sink)
+	topo := uop.TopoSort(sink)
 	shapeMap := buildShapeMap(topo)
 	realizeMap := buildRealizeMap(sink, topo)
 	rc := newRangeCtx(a)

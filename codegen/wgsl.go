@@ -447,56 +447,9 @@ func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 }
 
 func wgslDType(d *uop.DType) string {
-	if d == nil || d == uop.Dtypes.Void {
-		return "f32"
-	}
-	s := d.Scalar()
-	switch s {
-	case uop.Dtypes.Float32:
-		return "f32"
-	case uop.Dtypes.Float16:
-		return "f16"
-	case uop.Dtypes.Int32:
-		return "i32"
-	case uop.Dtypes.UInt32:
-		return "u32"
-	case uop.Dtypes.Index:
-		return "i32"
-	case uop.Dtypes.Bool:
-		return "bool"
-	case uop.Dtypes.Int8, uop.Dtypes.Int16:
-		return "i32"
-	case uop.Dtypes.UInt8, uop.Dtypes.UInt16:
-		return "u32"
-	case uop.Dtypes.Int64:
-		// WGSL has no i64; silently downgrade. The principled vmax-driven
-		// decision (rules.IndexDtypeForBound) is honored at the per-loop
-		// symbolic-bound emission site (InstrLoopBegin emits a comment when
-		// the bound's vmax would have required i64). tinygrad PR #8268.
-		return "i32"
-	case uop.Dtypes.UInt64:
-		return "u32"
-	default:
-		if d.IsFloat() {
-			return "f32"
-		}
-		return "i32"
-	}
+	return WGSLTypeInfoFor(d).Scalar
 }
 
 func wgslBufferElemType(d *uop.DType) string {
-	if d == nil {
-		return "f32"
-	}
-	if d.IsPtr() {
-		d = d.Base()
-	}
-	if d.Scalar() == uop.Dtypes.BFloat16 {
-		return "u32"
-	}
-	t := wgslDType(d.Scalar())
-	if t == "bool" {
-		return "u32"
-	}
-	return t
+	return WGSLTypeInfoFor(d).BufferElem
 }

@@ -468,14 +468,10 @@ func (d *Device) readBuffer(buf *wgpu.Buffer, nElems int64, dtype *uop.DType) ([
 	return result, nil
 }
 
-// elemBytes returns the GPU buffer element size in bytes for a dtype.
-// f16 uses 2 bytes; all other dtypes (bool→u32, int8/16→i32, etc.) use 4 bytes,
-// matching wgsl.go's wgslBufferElemType promotion rules.
+// elemBytes returns the GPU buffer element size in bytes for a dtype, via the
+// single per-dtype WGSL metadata table in codegen.
 func elemBytes(d *uop.DType) uint64 {
-	if d != nil && d.Scalar() == uop.Dtypes.Float16 {
-		return 2
-	}
-	return 4
+	return codegen.WGSLTypeInfoFor(d).SizeBytes
 }
 
 // float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.
