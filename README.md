@@ -12,7 +12,7 @@
 [![model](https://img.shields.io/badge/it's%20a-compiler-f59e0b)](#what-anneal-is)
 [![license](https://img.shields.io/badge/license-AGPL3-blue)](LICENSE)
 
-[Visualizer](https://georgebuilds.github.io/anneal/) · [Architecture (SPEC)](SPEC.md) · [Contributing](CONTRIBUTING.md)
+[Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
