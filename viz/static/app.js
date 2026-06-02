@@ -322,6 +322,9 @@ function renderTimelineSkeleton(data, svgRoot) {
     lbl.textContent = labelShort;
     g.appendChild(lbl);
 
+    const ruleLine = n.gradRule
+      ? 'rule=' + n.gradRule + '·backward @ seq=' + (n.gradFiredSeq || 0)
+      : '';
     const title = document.createElementNS(NS, 'title');
     title.textContent = [
       n.op,
@@ -329,16 +332,58 @@ function renderTimelineSkeleton(data, svgRoot) {
       n.shape && n.shape.length ? 'shape=' + JSON.stringify(n.shape) : '',
       n.arg ? 'arg=' + n.arg : '',
       n.class + ' / ' + n.kind,
+      ruleLine,
       'id=' + n.id,
     ].filter(Boolean).join('  ');
     g.insertBefore(title, g.firstChild);
 
     nodeG.appendChild(g);
-    nodeEls.set(n.id, { g, shape, opTxt, baseKind: n.kind, baseClass: n.class });
+    nodeEls.set(n.id, {
+      g, shape, opTxt,
+      baseKind: n.kind, baseClass: n.class,
+      gradRule: n.gradRule || '',
+      gradFiredSeq: n.gradRule ? (n.gradFiredSeq || 0) : -1,
+    });
   }
   svgRoot.appendChild(nodeG);
 
   return { pos, nodeEls, edgeEls };
+}
+
+// computeRulesIndex scans the union nodes and returns the max gradFiredSeq
+// across all backward nodes (those with a non-empty gradRule), plus a
+// seq -> ordered list of {id, rule} groups for label display. -1 means no
+// rules fired (e.g. forward-only graph), in which case the rules sub-
+// timeline stays hidden.
+function computeRulesIndex(nodes) {
+  let maxSeq = -1;
+  const bySeq = new Map();
+  for (const n of nodes) {
+    if (!n.gradRule) continue;
+    const seq = n.gradFiredSeq || 0;
+    if (seq > maxSeq) maxSeq = seq;
+    if (!bySeq.has(seq)) bySeq.set(seq, []);
+    bySeq.get(seq).push({ id: n.id, rule: n.gradRule });
+  }
+  return { maxSeq, bySeq };
+}
+
+// applyRulesSeq sets the current rules cursor and re-runs the active
+// stage so the seq filter composes with stage Overrides (node and edge
+// visibility, restyling). Only meaningful on stages that include backward
+// nodes; other stages ignore the cursor.
+function applyRulesSeq(seq) {
+  if (!timelineState || !timelineState.rules) return;
+  timelineState.rules.cursor = seq;
+  const slider = document.getElementById('rulesSlider');
+  if (slider) slider.value = String(seq);
+  const cur = document.getElementById('rulesCurrent');
+  const cnt = document.getElementById('rulesCounter');
+  const group = timelineState.rules.bySeq.get(seq) || [];
+  const labels = group.map(g => '∂(' + g.rule + ')').join(', ');
+  if (cur) cur.textContent = labels || '-';
+  if (cnt) cnt.textContent = `seq ${seq + 1} / ${timelineState.rules.maxSeq + 1}`;
+  applyStage(timelineState.currentStage);
 }
 
 // applyStage mutates the rendered SVG to reflect stage.Overrides without
@@ -355,15 +400,37 @@ function applyStage(stageIdx) {
   // Track which nodes are visible so edges can hide both endpoints are absent.
   const visible = new Set();
 
+  // Rules-cursor: on stages that include backward nodes, hide any backward
+  // node whose gradFiredSeq is past the current cursor. cursor == maxSeq
+  // (the default) reveals every rule, restoring the original stage view.
+  // Stages that do not include backward nodes (forward stage) skip this
+  // filter implicitly because backward nodes are not in overrides.
+  const rules = timelineState.rules;
+  const stageHasBackward = stage.id === 'gradient' || stage.id === 'scheduled';
+  const cursor = rules && stageHasBackward ? rules.cursor : Infinity;
+
   // First pass: visibility + per-node restyling.
   for (const [id, refs] of nodeEls.entries()) {
     const ov = overrides[id];
     if (!ov) {
       refs.g.classList.add('hidden');
+      refs.shape.classList.remove('rule-just-fired');
+      continue;
+    }
+    // Rules-cursor filter: backward nodes past the cursor stay hidden.
+    if (refs.gradFiredSeq >= 0 && refs.gradFiredSeq > cursor) {
+      refs.g.classList.add('hidden');
+      refs.shape.classList.remove('rule-just-fired');
       continue;
     }
     refs.g.classList.remove('hidden');
     visible.add(id);
+    // Highlight: nodes fired exactly at the cursor pulse briefly.
+    if (refs.gradFiredSeq === cursor && stageHasBackward) {
+      refs.shape.classList.add('rule-just-fired');
+    } else {
+      refs.shape.classList.remove('rule-just-fired');
+    }
 
     // Determine effective kind / class for this stage.
     const cls  = ov.class || refs.baseClass;
@@ -435,6 +502,17 @@ function applyStage(stageIdx) {
   });
   const slider = document.getElementById('timelineSlider');
   if (slider) slider.value = String(stageIdx);
+
+  // Show the rules sub-timeline when the active stage includes backward
+  // nodes and there's at least one fired rule to scrub through. Otherwise
+  // hide the section so the layout collapses back to the original.
+  const rulesSection = document.getElementById('rulesTimeline');
+  if (rulesSection) {
+    const rules = timelineState.rules;
+    const visible = stageHasBackward && rules && rules.maxSeq >= 0;
+    rulesSection.hidden = !visible;
+    rulesSection.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  }
 }
 
 // ── Timeline UI wiring ────────────────────────────────────────────────────
@@ -470,6 +548,10 @@ function wireSliderAndKeys() {
   if (slider) {
     slider.addEventListener('input', e => applyStage(Number(e.target.value)));
   }
+  const rulesSlider = document.getElementById('rulesSlider');
+  if (rulesSlider) {
+    rulesSlider.addEventListener('input', e => applyRulesSeq(Number(e.target.value)));
+  }
   // Global keyboard scrub: arrows step through stages, home/end jump to ends.
   document.addEventListener('keydown', e => {
     if (!timelineState) return;
@@ -504,7 +586,21 @@ async function loadAndRender(name) {
 
     const skel = renderTimelineSkeleton(data, svg);
     if (!skel) return;
-    timelineState = { data, ...skel, currentStage: 0 };
+    const rulesIdx = computeRulesIndex(data.nodes);
+    timelineState = {
+      data, ...skel, currentStage: 0,
+      rules: rulesIdx.maxSeq >= 0
+        ? { maxSeq: rulesIdx.maxSeq, bySeq: rulesIdx.bySeq, cursor: rulesIdx.maxSeq }
+        : null,
+    };
+
+    // Configure the rules sub-slider range and initial cursor.
+    const rulesSlider = document.getElementById('rulesSlider');
+    if (rulesSlider && timelineState.rules) {
+      rulesSlider.max = String(timelineState.rules.maxSeq);
+      rulesSlider.value = String(timelineState.rules.maxSeq);
+      applyRulesSeq(timelineState.rules.maxSeq);
+    }
 
     buildTickRow(data.stages);
 

@@ -48,6 +48,22 @@
              aria-label="scrub through pipeline stages">
     </section>
 
+    <!-- Rules sub-timeline: shown only on the gradient and scheduled stages.
+         Scrubs through gradient rule firings in reverse-topological order
+         (seq 0 = first rule fired, closest to the loss). Backward nodes
+         whose gradFiredSeq exceeds the slider position are hidden. -->
+    <section class="rules-timeline" id="rulesTimeline" hidden aria-hidden="true"
+             aria-label="gradient rules firing animation">
+      <div class="rules-header">
+        <span class="rules-label">rules fired</span>
+        <span class="rules-current" id="rulesCurrent" aria-live="polite">-</span>
+        <span class="rules-counter" id="rulesCounter"></span>
+      </div>
+      <input type="range" id="rulesSlider" class="rules-slider"
+             min="0" max="0" step="1" value="0"
+             aria-label="scrub through gradient rule firings">
+    </section>
+
     <div id="graph-container" role="img" aria-label="UOp computation graph">
       <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"
            aria-hidden="true" focusable="false">

@@ -441,6 +441,34 @@
                 />
             </section>
 
+            <section
+                class="rules-timeline"
+                id="rulesTimeline"
+                hidden
+                aria-hidden="true"
+                aria-label="gradient rules firing animation"
+            >
+                <div class="rules-header">
+                    <span class="rules-label">rules fired</span>
+                    <span
+                        class="rules-current"
+                        id="rulesCurrent"
+                        aria-live="polite"
+                    >-</span>
+                    <span class="rules-counter" id="rulesCounter"></span>
+                </div>
+                <input
+                    type="range"
+                    id="rulesSlider"
+                    class="rules-slider"
+                    min="0"
+                    max="0"
+                    step="1"
+                    value="0"
+                    aria-label="scrub through gradient rule firings"
+                />
+            </section>
+
             <div
                 id="graph-container"
                 role="img"

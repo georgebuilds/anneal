@@ -153,11 +153,6 @@ func BuildTimeline(name string) (*TimelineData, error) {
 	unfusedKernels := countKernels(ex, false)
 	fusedKernels := countKernels(ex, true)
 
-	// ── Build the union node/edge tables from gradTopo ────────────────────
-	// gradTopo is the superset (forward ∪ backward). Stage 0 hides backward
-	// nodes via its Overrides map; Stages 2/3 reclassify reduce nodes as gold.
-	nodes, edges := buildUnion(a, gradTopo)
-
 	// ── Per-stage attribution maps ────────────────────────────────────────
 	// Forward attribution: every node in forwardTopo is "forward" for stage 0.
 	// Stage 0 hides anything not in forwardTopo by omitting it from Overrides.
@@ -166,8 +161,10 @@ func BuildTimeline(name string) (*TimelineData, error) {
 		forwardSet[u.Index()] = true
 	}
 
-	// Backward attribution from the trace: maps the forward node a rule fired
-	// on → the seq number. Used only for the optional gradRule label in the UI.
+	// Backward attribution from the trace: maps each backward UOp index to
+	// the (forward op name, firing seq) of the gradient rule that produced
+	// it. Surfaced in the union NodeData so the browser can play back rule
+	// firings in reverse-topological order during the gradient stage.
 	attribution := make(map[uint32]ruleAttribution)
 	if trace != nil {
 		for _, ev := range trace.Events {
@@ -180,6 +177,13 @@ func BuildTimeline(name string) (*TimelineData, error) {
 			}
 		}
 	}
+
+	// ── Build the union node/edge tables from gradTopo ────────────────────
+	// gradTopo is the superset (forward ∪ backward). Stage 0 hides backward
+	// nodes via its Overrides map; Stages 2/3 reclassify reduce nodes as gold.
+	// Attribution rides on the backward NodeData entries so the browser can
+	// animate rule firings.
+	nodes, edges := buildUnion(a, gradTopo, attribution)
 
 	stages := []StageData{
 		buildForwardStage(forwardTopo, forwardSet, a),
@@ -203,8 +207,9 @@ type ruleAttribution struct {
 
 // buildUnion produces the union node and edge tables from topo. Each node's
 // Class / Kind / GradRule reflect its *final* state (post-gradient); per-stage
-// overrides narrow this down.
-func buildUnion(a *uop.Arena, topo []uop.UOp) ([]NodeData, []EdgeData) {
+// overrides narrow this down. Backward nodes that were produced by a known
+// gradient rule receive a (GradRule, GradFiredSeq) pair from attribution.
+func buildUnion(a *uop.Arena, topo []uop.UOp, attribution map[uint32]ruleAttribution) ([]NodeData, []EdgeData) {
 	nodeSet := make(map[uint32]bool, len(topo))
 	for _, u := range topo {
 		nodeSet[u.Index()] = true
@@ -218,15 +223,25 @@ func buildUnion(a *uop.Arena, topo []uop.UOp) ([]NodeData, []EdgeData) {
 		if a.Provenance(u.Index()) == uop.PhaseBackward {
 			class = ClassBackward
 		}
+		firedSeq := -1
+		var rule string
+		if class == ClassBackward {
+			if info, ok := attribution[u.Index()]; ok {
+				rule = info.rule
+				firedSeq = info.seq
+			}
+		}
 		nodes = append(nodes, NodeData{
-			ID:    u.Index(),
-			Op:    u.Op().String(),
-			DType: dtypeStr(u.DType()),
-			Shape: bufShape(u),
-			Class: class,
-			Kind:  kindOf(u, a),
-			Label: nodeLabel(u),
-			Arg:   argStr(u),
+			ID:           u.Index(),
+			Op:           u.Op().String(),
+			DType:        dtypeStr(u.DType()),
+			Shape:        bufShape(u),
+			Class:        class,
+			Kind:         kindOf(u, a),
+			Label:        nodeLabel(u),
+			Arg:          argStr(u),
+			GradRule:     rule,
+			GradFiredSeq: firedSeq,
 		})
 		for i := 0; i < u.NSrc(); i++ {
 			src := u.Src(i)

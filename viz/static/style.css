@@ -325,6 +325,65 @@ main {
 .node.hidden, .edge.hidden { opacity: 0; pointer-events: none; }
 .node, .edge { transition: opacity 0.25s ease, fill 0.2s, stroke 0.2s; }
 
+/* Pulse highlight on the backward node(s) that fired at the current rules    */
+/* cursor. Brief: enough to draw the eye, not so long it visually shouts.     */
+@keyframes ruleJustFiredPulse {
+  0%   { stroke-width: 1.6; }
+  50%  { stroke-width: 3.4; }
+  100% { stroke-width: 1.6; }
+}
+.node-shape.rule-just-fired { animation: ruleJustFiredPulse 0.7s ease-in-out 1; }
+
+/* Rules sub-timeline: shown only on stages that include backward nodes.      */
+.rules-timeline {
+  padding: 6px 20px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--faint);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rules-timeline[hidden] { display: none; }
+.rules-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.rules-label { letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+.rules-current { color: var(--text); font-weight: 600; }
+.rules-counter { margin-left: auto; font-size: 10.5px; }
+.rules-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--faint);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.rules-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bwd-stroke, var(--red-stroke));
+  border: 2px solid var(--bg);
+  cursor: pointer;
+}
+.rules-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bwd-stroke, var(--red-stroke));
+  border: 2px solid var(--bg);
+  cursor: pointer;
+}
+
 /* ── footer ──────────────────────────────────────────────────────────────── */
 footer {
   padding: 8px 20px;

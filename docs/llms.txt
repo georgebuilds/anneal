@@ -49,5 +49,5 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 
 - Homepage: https://georgebuilds.github.io/anneal/
 - Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step tutorial. Install anneal, train nanoGPT on Shakespeare, run GPT-2-small forward; covers WebGPU prereqs, asset download cache, BPE tokenizer, compiler-level walkthrough.
-- Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/ : Static UOp graph visualizer for the MLP model. Forward / backward / fused-kernel coloring; a scrubbable timeline through compiler passes.
+- Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/ : Static UOp graph visualizer for the MLP model. Forward / backward / fused-kernel coloring; a scrubbable timeline through compiler passes; a rules sub-timeline on the gradient and scheduled stages that animates backward nodes appearing in reverse-topological order per BackwardWithTrace's GradTrace, with SVG tooltips naming the gradient rule and firing seq on each backward node.
 - Source: https://github.com/georgebuilds/anneal
