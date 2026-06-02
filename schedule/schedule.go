@@ -50,6 +50,14 @@ func GetKernelGraph(sink uop.UOp, device string) uop.UOp {
 	// at tensor-construction time).
 	sink = earlyRewrites(sink)
 
+	// Pass 1b: auto-Contiguous budget pass. Inserts OpContiguous nodes when
+	// a future kernel boundary would exceed MaxBuffersPerKernel storage-buffer
+	// reads (WebGPU/Metal cap is 8 bindings per kernel). Operates pre-rangeify
+	// so the inserted nodes are picked up naturally by hardRealizeOps in
+	// buildRealizeMap. Generalises the manual Contiguous() calls historically
+	// sprinkled through tensor/nn/ to dodge the same limit.
+	sink = enforceBufferBudget(sink)
+
 	// Passes 2–4: compute realize map, thread range indices through each kernel
 	// subgraph (dissolving movement ops into range arithmetic), insert BUFFERIZE.
 	sink = runRangeify(sink)
