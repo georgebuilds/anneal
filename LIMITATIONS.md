@@ -44,9 +44,7 @@ This is a hard platform ceiling, not a missing slice. A CUDA backend retires it 
 
 In v1, `OptUpcast` and `OptVectorize` are only wired through the tiled-reduce lowerer (the matmul shape). On a non-matmul kernel, an `OptUpcast` would lower outside `emitTiledReduce` and produce an `exprOf[AxisUpcast]="0"` substitution, which causes each thread to write only lane 0 of its `factor`-wide stripe and silently drop the other `factor - 1` lanes.
 
-`OptUpcast` is now **fail-loud at opt-application time**: `applyUpcast` panics with a diagnostic when targeting a kernel whose body lacks an `OpReduce` tagged by `OptTile` (the only path that activates `emitTiledReduce`). Compose `OptTile` before `OptUpcast`, or skip `OptUpcast` on the kernel. Use `codegen.KernelHasTiledReduce(sink)` to check eligibility ahead of time when applying opts across a mixed kernel list. BEAM's `ActionSpace` uses the same predicate to pre-filter, so the search never reaches the assertion; BEAM's existing value-identity guard remains as belt-and-suspenders for any other wrong-output candidate.
-
-`OptVectorize` still relies on the same `vecTileActive` machinery and has the same matmul-only constraint, but is not yet guarded at opt-application time. Until that follow-up lands, treat `OptVectorize` the same way: compose after `OptTile + OptUpcast`, or skip on non-matmul kernels.
+Both `OptUpcast` and `OptVectorize` are now **fail-loud at opt-application time**: `applyUpcast` and `applyVectorize` panic with a diagnostic when targeting a kernel whose body lacks an `OpReduce` tagged by `OptTile` (the only path that activates `emitTiledReduce`). Compose `OptTile` before either opt, or skip them on the kernel. Use `codegen.KernelHasTiledReduce(sink)` to check eligibility ahead of time when applying opts across a mixed kernel list. BEAM's `ActionSpace` uses the same predicate to pre-filter both kinds, so the search never reaches either assertion; BEAM's existing value-identity guard remains as belt-and-suspenders for any other wrong-output candidate.
 
 ### Per-thread scalar f32 throughput on M3
 

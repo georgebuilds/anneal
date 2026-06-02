@@ -52,13 +52,14 @@ var (
 // Call on the live (possibly already-optimised) sink at each search depth.
 func ActionSpace(sink uop.UOp) []Opt {
 	var actions []Opt
-	// OptUpcast applied to a kernel without an OptTile-tagged OpReduce panics
-	// at applyUpcast time (silent-lane-drop guard). Skip the probe entirely
-	// for non-tiled kernels so BEAM's search never reaches the assertion;
-	// when OptTile lands in a later ply, OptUpcast becomes available again.
-	upcastEligible := KernelHasTiledReduce(sink)
+	// OptUpcast and OptVectorize applied to a kernel without an OptTile-tagged
+	// OpReduce panic at apply time (silent-lane-drop guards). Skip the probe
+	// entirely for non-tiled kernels so BEAM's search never reaches the
+	// assertion; when OptTile lands in a later ply, both become available
+	// again.
+	tiledReduce := KernelHasTiledReduce(sink)
 	tryKind := func(kind OptKind, args []int) {
-		if kind == OptUpcast && !upcastEligible {
+		if (kind == OptUpcast || kind == OptVectorize) && !tiledReduce {
 			return
 		}
 		for axis := 0; axis < beamMaxAxis; axis++ {

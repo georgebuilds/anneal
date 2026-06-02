@@ -593,6 +593,20 @@ func applyVectorize(sink uop.UOp, axisIdx int, width int) uop.UOp {
 		return sink
 	}
 
+	// Fail-loud guard: AxisVectorize lowering relies on the vecTileActive
+	// machinery set inside emitTiledReduce. Without an OptTile-tagged
+	// OpReduce, the WGSL store path for an AxisVectorize range silently
+	// loses 3 of the 4 lanes (vec4 packaging falls through the placeholder
+	// "0" expression). Mirrors the OptUpcast guard in applyUpcast; same
+	// predicate, same composition requirement.
+	if !KernelHasTiledReduce(sink) {
+		panic(fmt.Sprintf(
+			"codegen: OptVectorize(axis=%d, width=%d): kernel lacks an OptTile-tagged OpReduce; "+
+				"AxisVectorize lowering outside emitTiledReduce silently drops lanes. "+
+				"Compose OptTile (and typically OptUpcast) before OptVectorize, or skip OptVectorize on this kernel.",
+			axisIdx, width))
+	}
+
 	W := int64(width)
 	S := uop.RangeSize(targetRange)
 	outer := (S + W - 1) / W
