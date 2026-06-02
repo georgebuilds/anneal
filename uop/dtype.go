@@ -443,6 +443,33 @@ func Float32ToFloat16(f float32) uint16 {
 	}
 }
 
+// Float32ToBFloat16 narrows a float32 to its nearest bfloat16 bit pattern
+// using round-to-nearest-even (RTNE). NaN inputs are canonicalized to the
+// bf16 quiet-NaN bit pattern (0x7FC0); the algorithm is the PyTorch /
+// TensorFlow / Eigen reference (c10::detail::round_to_nearest_even).
+//
+// Tie-to-even is encoded by adding ((bits>>16)&1) + 0x7FFF as a rounding
+// bias before truncating: when the discarded low 16 bits are exactly
+// halfway (0x8000), the carry happens only if the kept LSB is already 1,
+// rounding ties to the even neighbour. The NaN guard is required because
+// the bias formula can shift small-mantissa NaNs into the all-zero
+// mantissa pattern (Inf), so canonical qNaN is returned instead.
+func Float32ToBFloat16(v float32) uint16 {
+	if v != v {
+		return 0x7FC0
+	}
+	u := math.Float32bits(v)
+	bias := ((u >> 16) & 1) + 0x7FFF
+	return uint16((u + bias) >> 16)
+}
+
+// BFloat16ToFloat32 widens a bfloat16 bit pattern to float32. bf16 is the
+// high 16 bits of an f32 IEEE-754 encoding; the low 16 mantissa bits zero-
+// fill, so this direction is lossless.
+func BFloat16ToFloat32(b uint16) float32 {
+	return math.Float32frombits(uint32(b) << 16)
+}
+
 // Float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.
 func Float16ToFloat32(h uint16) float32 {
 	sign := uint32(h>>15) << 31
@@ -473,15 +500,16 @@ func Float16ToFloat32(h uint16) float32 {
 }
 
 // Quantize returns v rounded to the nearest value representable in d.
-// Only Float16 and BFloat16 perform quantization; all other dtypes return v unchanged.
-// For BFloat16, quantization is simple truncation of the low 16 mantissa bits.
+// Only Float16 and BFloat16 perform quantization; all other dtypes return v
+// unchanged. Both use round-to-nearest-even (RTNE) to match PyTorch and the
+// rest of the ML ecosystem; storage and compute paths share these helpers.
 func (d *DType) Quantize(v float32) float32 {
 	s := d.Scalar()
 	if s == Dtypes.Float16 {
 		return Float16ToFloat32(Float32ToFloat16(v))
 	}
 	if s == Dtypes.BFloat16 {
-		return math.Float32frombits(math.Float32bits(v) & 0xFFFF0000)
+		return BFloat16ToFloat32(Float32ToBFloat16(v))
 	}
 	return v
 }

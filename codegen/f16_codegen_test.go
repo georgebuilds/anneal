@@ -57,7 +57,7 @@ func TestF16_EnableDirective(t *testing.T) {
 // TestBF16_WGSL verifies bf16 kernels generate correct WGSL:
 // - buffers declared as array<u32> (not array<bf16>, which WGSL does not support)
 // - loads use bitcast<f32> to widen to f32 at read time
-// - stores use bitcast<u32> & 0xFFFF0000u to truncate to bf16 precision
+// - stores narrow via the _bf16_rtne_bits helper (RTNE per PyTorch reference)
 // - no "enable f16;" directive (bf16 doesn't use the f16 extension)
 func TestBF16_WGSL(t *testing.T) {
 	a := newArena()
@@ -80,12 +80,12 @@ func TestBF16_WGSL(t *testing.T) {
 	assertNotContains(t, wgsl, "array<bf16>")
 	assertNotContains(t, wgsl, "enable f16;")
 	assertContains(t, wgsl, "bitcast<f32>(")
-	assertContains(t, wgsl, "bitcast<u32>(")
-	assertContains(t, wgsl, "0xFFFF0000u")
+	assertContains(t, wgsl, "fn _bf16_rtne_bits(", "_bf16_rtne_bits(")
 }
 
 // TestBF16_ReduceWGSL verifies a bf16 sum-reduce uses a f32 accumulator and
-// stores back with the bf16 truncation mask (not a f16() cast).
+// narrows the result back through the RTNE helper at store time (not a
+// truncation mask, not a f16() cast).
 func TestBF16_ReduceWGSL(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{64}, uop.Dtypes.BFloat16, "webgpu")
@@ -104,8 +104,8 @@ func TestBF16_ReduceWGSL(t *testing.T) {
 
 	assertContains(t, wgsl, "var acc0: f32")
 	assertNotContains(t, wgsl, "var acc0: bf16")
-	assertContains(t, wgsl, "bitcast<u32>(acc0) & 0xFFFF0000u")
-	assertNotContains(t, wgsl, "enable f16;")
+	assertContains(t, wgsl, "fn _bf16_rtne_bits(", "_bf16_rtne_bits(acc0)")
+	assertNotContains(t, wgsl, "bitcast<u32>(acc0) & 0xFFFF0000u", "enable f16;")
 }
 
 // TestF16_ReduceF32Accumulator verifies a sum-reduce over f16 uses a f32 accumulator

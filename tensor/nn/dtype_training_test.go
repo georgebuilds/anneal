@@ -204,10 +204,13 @@ func TestQuantization(t *testing.T) {
 	}
 
 	y := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.BFloat16, "cpu")
-	// bf16 has 7 bits of mantissa. 1.0 + 2^-7 is representable. 1.0 + 2^-8 is not.
+	// bf16 has 7 bits of mantissa. 1.0 + 2^-7 is representable; the input
+	// (1 + 1/128 + 1/256) sits exactly halfway between 1.0+1/128 (LSB=1,
+	// odd) and 1.0+2/128 (LSB=0, even). RTNE rounds the tie to the even
+	// neighbour, so the quantized value is 1.0 + 2/128 = 1.015625.
 	v := float32(1.0 + 1.0/128.0 + 1.0/256.0)
 	y.SetData([]float32{v})
-	want := float32(1.0 + 1.0/128.0)
+	want := float32(1.0 + 2.0/128.0)
 	if y.Data()[0] != want {
 		t.Errorf("bf16 quantization failed: got %v, want %v", y.Data()[0], want)
 	}

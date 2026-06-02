@@ -114,7 +114,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | JIT | ✅ Capture/replay (`tensor.JIT`) |
 | Schedule cache | ✅ Memoized on structural key |
 | Devices | Single device |
-| Dtypes | f16 ✅ (with shader-f16); bf16 ✅ storage-only (f32 compute); fp8 ⛔ Deferred |
+| Dtypes | f16 ✅ (RTNE, requires shader-f16); bf16 ✅ storage + RTNE narrowing, f32 compute, any adapter; fp8 ⛔ Deferred |
 | Multi-device | ⛔ Deferred |
 | Image dtypes | ⛔ Deferred |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |

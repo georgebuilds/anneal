@@ -26,6 +26,31 @@ func kernelUsesF16(item schedule.ExecItem) bool {
 	return false
 }
 
+// kernelStoresBF16 reports whether the kernel writes a bf16 output. Only
+// data0 (item.Bufs[0]) is written by InstrStore, so checking the output
+// buffer is sufficient. Gates the _bf16_rtne_bits prelude emission so
+// kernels that do not store bf16 stay slim.
+func kernelStoresBF16(item schedule.ExecItem) bool {
+	if len(item.Bufs) == 0 || item.Bufs[0].DType == nil {
+		return false
+	}
+	return item.Bufs[0].DType.Scalar() == uop.Dtypes.BFloat16
+}
+
+// bf16RTNEPrelude is the WGSL helper that narrows an f32 to bf16 storage bits
+// (bf16 occupies the upper 16 bits of a u32 storage word; the low 16 are 0)
+// using round-to-nearest-even. Mirrors uop.Float32ToBFloat16 and PyTorch's
+// c10::detail::round_to_nearest_even. The NaN guard returns canonical qNaN
+// in the storage layout (0x7FC00000 = qNaN bf16 bits 0x7FC0 in the upper
+// 16). The bias formula ((u>>16)&1)+0x7FFF rounds halfways to even.
+const bf16RTNEPrelude = `fn _bf16_rtne_bits(x: f32) -> u32 {
+  if (x != x) { return 0x7FC00000u; }
+  let u = bitcast<u32>(x);
+  let bias = ((u >> 16u) & 1u) + 0x7FFFu;
+  return (u + bias) & 0xFFFF0000u;
+}
+`
+
 // CompileWGSL converts a kernel's SINK AST to WGSL.
 func CompileWGSL(item schedule.ExecItem) (schedule.RenderResult, error) {
 	instrs, ws, wc, sd := Lower(item)
@@ -89,18 +114,25 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 	b.WriteString("\n")
 
-	// Global flat index for symbolic/large grids.
-	// WC and WS components are used to compute the stride of each dimension.
-	// For B1, we spread components into Y and Z if X overflows.
-	fmt.Fprintf(&b, "@compute @workgroup_size(%d, %d, %d)\n", ws[0], ws[1], ws[2])
-
-	// Declare workgroup variables at module scope
+	// Declare workgroup variables at module scope (must precede the @compute
+	// annotation since that annotation decorates the next function).
 	for _, ins := range instrs {
 		if ins.Kind == InstrDefineLocal {
 			fmt.Fprintf(&b, "var<workgroup> %s: array<%s, %d>;\n",
 				ins.LocalName, wgslDType(ins.DType), ins.LocalSize)
 		}
 	}
+
+	// Emit module-scope helper functions before the @compute annotation so
+	// the annotation lands on fn main rather than the helper.
+	if kernelStoresBF16(item) {
+		b.WriteString(bf16RTNEPrelude)
+	}
+
+	// Global flat index for symbolic/large grids.
+	// WC and WS components are used to compute the stride of each dimension.
+	// For B1, we spread components into Y and Z if X overflows.
+	fmt.Fprintf(&b, "@compute @workgroup_size(%d, %d, %d)\n", ws[0], ws[1], ws[2])
 
 	b.WriteString("fn main(\n")
 	b.WriteString("  @builtin(global_invocation_id) gid: vec3<u32>,\n")
@@ -277,7 +309,7 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 		case InstrStore:
 			idxExpr := ins.IndexExpr
 			if ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16 {
-				fmt.Fprintf(&b, "%sdata0[%s] = bitcast<u32>(%s) & 0xFFFF0000u;\n", indent(), idxExpr, ins.Expr)
+				fmt.Fprintf(&b, "%sdata0[%s] = _bf16_rtne_bits(%s);\n", indent(), idxExpr, ins.Expr)
 			} else {
 				fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
 			}

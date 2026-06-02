@@ -74,13 +74,9 @@ Deferred. anneal's dtype set is `float32`, `int32`, `bool`, `f16` (via the `shad
 
 Deferred. f16 and bf16 are the smallest dtypes in v1.
 
-### bf16 rounding mode
+### f16 requires device support and fails closed
 
-bf16 storage uses truncation, not round-to-nearest-even. PyTorch and most hardware default to RTNE. Nothing is broken; the cost is one ULP of bias in some store patterns. RTNE in WGSL means bit-twiddling at the store site, and the work is parked, not on a deadline. f16 already uses RTNE through the native WGSL conversion.
-
-### f16 and bf16 require device support and fail closed
-
-f16 and bf16 require the WebGPU `shader-f16` device feature. If a device does not advertise it, anneal fails before any GPU allocation rather than silently falling back to f32. `anneal doctor` reports which features your device supports.
+f16 requires the WebGPU `shader-f16` device feature. If a device does not advertise it, anneal fails before any GPU allocation rather than silently falling back to f32. `anneal doctor` reports which features your device supports. bf16 has no such requirement (storage is `array<u32>`, compute runs in f32) and runs on any WebGPU adapter.
 
 ### JIT and schedule cache are single-arena
 

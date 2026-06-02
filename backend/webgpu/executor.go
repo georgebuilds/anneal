@@ -494,13 +494,15 @@ func float32sToF16Bytes(data []float32) []byte {
 }
 
 // float32sToBF16U32Bytes encodes float32 values as bf16 packed in u32 slots.
-// Each float32 is truncated to bf16 by zeroing the low 16 mantissa bits; the
-// result is stored in a 4-byte u32 (little-endian). The GPU reads it back via
-// bitcast<f32>(u32), which recovers the bf16-approximated f32 value.
+// Narrowing uses round-to-nearest-even via uop.Float32ToBFloat16, matching
+// the GPU store path (codegen/wgsl.go _bf16_rtne_bits) and the CPU oracle
+// (uop.DType.Quantize). The bf16 bits land in the upper 16 of each u32
+// storage word so the GPU's bitcast<f32>(u32) load reconstructs the
+// bf16-quantized f32 directly.
 func float32sToBF16U32Bytes(data []float32) []byte {
 	b := make([]byte, len(data)*4)
 	for i, v := range data {
-		bf16u32 := math.Float32bits(v) & 0xFFFF0000
+		bf16u32 := uint32(uop.Float32ToBFloat16(v)) << 16
 		binary.LittleEndian.PutUint32(b[i*4:], bf16u32)
 	}
 	return b

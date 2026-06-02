@@ -292,9 +292,10 @@ func TestF16_CastRoundTrip(t *testing.T) {
 
 // TestBF16_ElementwiseAdd tests bf16 elementwise addition on the GPU.
 // bf16 is stored as u32 (high 16 bits = bf16 bits, low 16 zeroed). Arithmetic
-// runs in f32 on the GPU; results are truncated back to bf16 at store time.
-// Tolerance: atol=5e-3 — bf16 ULP for values in [-1,1] is ~7.8e-3/128 ≈ 6e-5,
-// but two additions and the output truncation can accumulate to ~3e-3.
+// runs in f32 on the GPU; results narrow back to bf16 at store time using
+// round-to-nearest-even (matches uop.Float32ToBFloat16 and the in-shader
+// _bf16_rtne_bits helper). The CPU oracle uses the same narrowing so the
+// assertion is bit-exact (atol=0).
 func TestBF16_ElementwiseAdd(t *testing.T) {
 	dev := requireDevice(t)
 
@@ -320,35 +321,32 @@ func TestBF16_ElementwiseAdd(t *testing.T) {
 	outputs := runSchedule(t, dev, items, inputs)
 	got := firstFinalOutput(t, items, outputs)
 
-	// Reference: truncate inputs to bf16, add in f32, truncate output to bf16.
-	// This mirrors exactly what the GPU does: bitcast<f32>(u32_upload) → add → bitcast<u32>(&mask).
-	bf16Trunc := func(v float32) float32 {
-		return math.Float32frombits(math.Float32bits(v) & 0xFFFF0000)
+	bf16RTNE := func(v float32) float32 {
+		return uop.BFloat16ToFloat32(uop.Float32ToBFloat16(v))
 	}
-	const atol = 1e-6 // bit-identical: same truncation on both sides
 	var maxDiff float64
 	nFail := 0
 	for i := range got {
-		ref := bf16Trunc(bf16Trunc(aVals[i]) + bf16Trunc(bVals[i]))
+		ref := bf16RTNE(bf16RTNE(aVals[i]) + bf16RTNE(bVals[i]))
 		diff := math.Abs(float64(got[i]) - float64(ref))
 		if diff > maxDiff {
 			maxDiff = diff
 		}
-		if diff > atol {
+		if diff != 0 {
 			nFail++
 		}
 	}
 	t.Logf("bf16 elementwise add [%d]: max-abs-diff=%.6e, failures=%d/%d",
 		n, maxDiff, nFail, n)
 	if nFail > 0 {
-		t.Errorf("%d/%d elements differ from bf16-exact reference; max-abs-diff=%.6e", nFail, n, maxDiff)
+		t.Errorf("%d/%d elements differ from bf16 RTNE reference; max-abs-diff=%.6e", nFail, n, maxDiff)
 	}
 }
 
-// TestBF16_RoundTrip verifies that bf16→f32→bf16 is bit-identical for values
-// exactly representable in bf16 (which is all values, since bf16 = f32 high 16 bits).
-// This checks the upload (float32sToBF16U32Bytes) and readback paths agree with
-// the in-shader bitcast<f32>/bitcast<u32> operations.
+// TestBF16_RoundTrip verifies that bf16 -> f32 -> bf16 is bit-identical for
+// values exactly representable in bf16. RTNE is the identity on the bf16
+// grid, so this also catches any regression where the narrowing path diverges
+// from the widening path (upload, readback, in-shader bitcast).
 func TestBF16_RoundTrip(t *testing.T) {
 	dev := requireDevice(t)
 
@@ -365,8 +363,7 @@ func TestBF16_RoundTrip(t *testing.T) {
 	got := firstFinalOutput(t, items, outputs)
 
 	for i, v := range got {
-		// bf16 round-trip: f32 → truncate mantissa → f32; must match bf16RoundTrip.
-		want := math.Float32frombits(math.Float32bits(vals[i]) & 0xFFFF0000)
+		want := uop.BFloat16ToFloat32(uop.Float32ToBFloat16(vals[i]))
 		if v != want {
 			t.Errorf("bf16 round-trip[%d]: got %v, want %v", i, v, want)
 		}

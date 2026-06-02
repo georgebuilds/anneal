@@ -292,7 +292,7 @@ Each kernel's SINK-rooted UOp tree is lowered to a linear `[]Instr` sequence by 
 - `enable f16;` directive emitted when any f16 buffer is in scope.
 - f16 native types and arithmetic for elementwise ops.
 - **Reduction accumulators widen to f32 even when operands are f16** (load-bearing correctness — pure FP16/FP16 is a deferred opt-in, not the default).
-- bf16 as `array<u32>` storage with bitcast/shift widening at boundaries; no `enable f16;` required for bf16-only kernels.
+- bf16 as `array<u32>` storage with bitcast/shift widening at boundaries; no `enable f16;` required for bf16-only kernels. Narrowing on store goes through a `_bf16_rtne_bits(f32) -> u32` prelude helper emitted when the kernel writes bf16 output; the helper implements round-to-nearest-even per the PyTorch / Eigen reference (`((u >> 16) & 1) + 0x7FFF` rounding bias with explicit NaN canonicalization to `0x7FC00000`).
 
 For symbolic kernels (§6.4), the symbolic dim is rendered as a WGSL **uniform** buffer (not a storage buffer — uniforms don't count against WebGPU's 8-storage-buffer limit, restoring full data-buffer budget on symbolic kernels). The uniform must be a struct of `u32` fields, not `array<u32,N>` — array element stride is 16 bytes in the uniform address space; struct fields pack at 4 bytes. A prior memory-corruption-at-step-1200 bug came from this exact pitfall and has been fixed.
 
@@ -467,8 +467,8 @@ Module path: github.com/georgebuilds/anneal
 
 3. **Dtype breadth — runtime lowering. RESOLVED.**
    - **f16** via `shader-f16` WGSL extension; reductions use an f32 accumulator for precision (narrows at write).
-   - **bf16** as storage-only with f32 compute (`bitcast<u32>(expr) & 0xFFFF0000u` on store, `bitcast<f32>(u32_buffer[i])` on load).
-   - **Fail-closed:** the engine fails before any GPU allocation if a requested f16/bf16 surface is unavailable; no silent fp32 fallback. `anneal doctor` reports availability per device.
+   - **bf16** as storage-only with f32 compute (`_bf16_rtne_bits(expr)` on store via the round-to-nearest-even prelude helper matching PyTorch / Eigen, `bitcast<f32>(u32_buffer[i])` on load). Available on any WebGPU adapter; no shader extension required.
+   - **Fail-closed (f16):** the engine fails before any GPU allocation if a requested f16 surface is unavailable; no silent fp32 fallback. `anneal doctor` reports availability per device. bf16 has no such requirement.
    - **Tolerances:** elementwise atol=1e-3 (f16 ε ≈ 9.77e-4); small matmul atol=1e-2 rtol=1e-3 (TVM `test_to_mixed_precision`); chained atol=5e-2 rtol=1e-2 (tinygrad PR #7973: rtol=atol=2e-3 violated after 7 convs); bf16 FD atol=rtol=0.3 (7-bit mantissa quantization noise/h analysis).
    - **Deferred:** FP16/FP16 accumulation (fast-path opt-in); explicit mixed-precision training with loss scaling (Parameter.Value as f32 master gives implicit mixed precision; named API is deferred).
 

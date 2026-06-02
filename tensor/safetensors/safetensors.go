@@ -402,10 +402,10 @@ func f16ToF32(bits uint16) float32 {
 	return math.Float32frombits(result)
 }
 
-// bf16ToF32 converts a bfloat16 bit pattern to float32.
-// BF16 is the high 16 bits of a float32 IEEE-754 encoding; the low 16 mantissa
-// bits are simply zero-filled, making the conversion lossless in the other
-// direction (float32 → BF16 is truncation, not rounding).
+// bf16ToF32 converts a bfloat16 bit pattern to float32 (lossless: bf16 is
+// the high 16 bits of an f32 IEEE-754 encoding, low 16 are zero-filled).
+// Narrowing in the other direction lives in uop.Float32ToBFloat16 and uses
+// round-to-nearest-even; safetensors only reads bf16 today.
 func bf16ToF32(bits uint16) float32 {
 	return math.Float32frombits(uint32(bits) << 16)
 }
