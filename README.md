@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.svg" alt="anneal" width="128" height="128" />
+<img src="docs/favicon.svg" alt="anneal" width="128" height="128" />
 
 # anneal
 
