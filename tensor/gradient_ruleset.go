@@ -282,6 +282,35 @@ func buildGradient() GradRuleset {
 
 	// ── Reduce ────────────────────────────────────────────────────────────────
 
+	// ── Gather (Slice D backward) ─────────────────────────────────────────────
+	//
+	// d/d(data) [Gather(data, idx, dim)] = scatter-add(adj, idx, dim) into
+	// a zero tensor of data's shape. The index is non-differentiable.
+	//
+	// The actual scatter happens via a host-side sort + segment-sum pipeline
+	// wired by scatterAdd. v1 supports dim=0 and 1-D index only (see scatterAdd
+	// for scope rationale).
+	m[uop.OpGather] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
+		dim := int(u.Arg().(int64))
+		src, _, _ := gradHelpers(u, adj, shapeCache, device)
+		idxT := src(1)
+		// Adj must be materialized so the scatter kernel reads it from a
+		// kernel-boundary buffer rather than re-entering its producer
+		// expression. Without this, large adj chains can blow past the
+		// 8-buffer WebGPU limit when fused into the scatter body.
+		adjMat := adj.Contiguous()
+		// Zero-template carries the destination shape into the schedule.
+		// Built from src[0]'s shape (which the shapeCache holds in Sint
+		// form, so symbolic-V data is honoured too).
+		dataSh := shapeCache[u.Src(0).Index()]
+		zeros := FullSints(u.Arena(), dataSh, 0.0, adj.dtype, device)
+		dW := scatterAdd(adjMat, idxT, dim, dataSh, zeros)
+		// Second return value is nil: the index has no float gradient (and
+		// the backward driver skips non-float sources anyway, but spelling
+		// the nil out matches every other multi-src rule's shape).
+		return []*Tensor{dW, nil}
+	}
+
 	m[uop.OpReduceAxis] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
 		src, _, _ := gradHelpers(u, adj, shapeCache, device)
 		a := u.Arena()

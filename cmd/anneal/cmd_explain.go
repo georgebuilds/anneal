@@ -621,6 +621,15 @@ var allRules = []ruleEntry{
 		source:      "tensor/gradient.go",
 	},
 
+	// ── Gather ───────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"gather"},
+		kind:        "gradient",
+		pattern:     "dW = scatter-add(adj, idx) into zeros_like(W)",
+		description: "backward of Gather is host-sorted segment-sum scatter (Slice D); index is non-differentiable",
+		source:      "tensor/gradient_ruleset.go",
+	},
+
 	// ── Max ──────────────────────────────────────────────────────────────────
 	{
 		ops:         []string{"max"},

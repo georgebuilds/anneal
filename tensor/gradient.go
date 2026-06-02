@@ -189,6 +189,16 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			sh = []shape.Sint{shape.Const(v)}
 		case uop.ShapeSintArg:
 			sh = shapeSintArgToSintsGrad(u.Arena(), v)
+		default:
+			// NewSymbolicInput: arg=nil, src[0]=DefineVar, shape is [varNode].
+			// Mirror of schedule/rangeify.go shapeOfNode's 1-D symbolic case so
+			// the gradient pass agrees on rank with the scheduler. Without this,
+			// a symbolic-batch backward path produces a rank-0 cache entry and
+			// downstream rules (e.g. OpReduceAxis on a [n,D] product) panic on
+			// axis-bounds lookup.
+			if u.NSrc() > 0 && u.Src(0).Op() == uop.OpDefineVar {
+				sh = []shape.Sint{shape.SymInt{Node: u.Src(0)}}
+			}
 		}
 		// "randn" string or nil: shape unknown without external context.
 
@@ -262,6 +272,27 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 		}
 
 	case uop.OpFlip, uop.OpCast, uop.OpBitcast:
+		if u.NSrc() > 0 {
+			sh = cache[u.Src(0).Index()]
+		}
+
+	case uop.OpGather:
+		// Torch-gather: output shape = data shape with dim replaced by index shape.
+		// src[0] = data, src[1] = index, arg = int64 dim (already normalized
+		// by the tensor frontend to be non-negative).
+		dataSh := cache[u.Src(0).Index()]
+		idxSh := cache[u.Src(1).Index()]
+		dim := int(u.Arg().(int64))
+		sh = make([]shape.Sint, 0, len(dataSh)-1+len(idxSh))
+		sh = append(sh, dataSh[:dim]...)
+		sh = append(sh, idxSh...)
+		sh = append(sh, dataSh[dim+1:]...)
+
+	case uop.OpScatterAdd:
+		// ScatterAdd produces a tensor with the data-template's shape. By
+		// convention src[0] is the data-template (zeros-like) carrying the
+		// destination shape; downstream srcs are gradient/index/permutation
+		// inputs added in Slice D.
 		if u.NSrc() > 0 {
 			sh = cache[u.Src(0).Index()]
 		}

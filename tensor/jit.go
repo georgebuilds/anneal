@@ -87,6 +87,11 @@ func (j *JIT) Realize(tensors ...*Tensor) error {
 	if len(tensors) == 0 {
 		return nil
 	}
+	// Scatter-add host preprocessors (Slice D) must run before jitDFSLeaves
+	// so the freshly-allocated sortedIdx / perm leaves have data and the
+	// DFS leaf walk includes them in its leaf count. Without this the leaf
+	// count would mismatch capture on the first replay step.
+	RunScatterPreprocessors(tensors[0].arena())
 	fl := jitDFSLeaves(tensors)
 	if !j.captured || j.symbolic {
 		return j.captureStatic(tensors, fl)
@@ -106,6 +111,7 @@ func (j *JIT) RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) e
 	if len(tensors) == 0 {
 		return nil
 	}
+	RunScatterPreprocessors(tensors[0].arena())
 	fl := jitDFSLeaves(tensors)
 	if !j.captured || !j.symbolic {
 		return j.captureSym(binding, tensors, fl)
@@ -176,6 +182,9 @@ func (j *JIT) storeCapture(tensors []*Tensor, fl []jitLeaf, symbolic bool) error
 // ── Replay paths ───────────────────────────────────────────────────────────────
 
 func (j *JIT) replayStatic(fl []jitLeaf, tensors []*Tensor) error {
+	// Scatter-add host preprocessors already ran at the top of Realize/
+	// RealizeWithBinding (before jitDFSLeaves) so sortedIdx / perm leaves
+	// hold current data here.
 	outputs, err := DefaultExecutor.Run(j.items, j.remapInputs(fl))
 	if err != nil {
 		return fmt.Errorf("tensor: JIT replay: %w", err)

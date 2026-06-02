@@ -58,6 +58,11 @@ func Realize(tensors ...*Tensor) error {
 	}
 	items = codegen.BeamApplyToItems(items, DefaultExecutor, bench)
 
+	// Run any host-side preprocessors registered against this arena (Slice D
+	// scatter-add: sort the idx tensor and populate the sortedIdx / perm
+	// leaves before executor.Run reads them).
+	RunScatterPreprocessors(a)
+
 	// Collect input data for leaf buffers.
 	// Leaf tensors are BUFFER nodes; their node.Index() == ExecItem.Bufs[j].UOpIdx
 	// for the kernels that read them (confirmed by splitKernels: input buffers are
@@ -106,6 +111,7 @@ func RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) error {
 		bench = b
 	}
 	items = codegen.BeamApplyToItems(items, DefaultExecutor, bench)
+	RunScatterPreprocessors(a)
 	inputs := leafInputs(tensors)
 	outputs, err := exec.RunSymbolic(items, inputs, binding)
 	if err != nil {

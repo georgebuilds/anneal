@@ -210,6 +210,40 @@ func rewriteBody(u, old, new uop.UOp, cache map[uint32]uop.UOp) uop.UOp {
 	return res
 }
 
+// containsGatherIdx reports whether the UOp subgraph rooted at u contains an
+// OpGatherIdx node. Used by applyTile to skip tiling on reduce bodies whose
+// index operands transitively read through an indirect index; the tiled
+// lowerer assumes affine OpIndex chains and cannot hoist a gather load into
+// a coalesced workgroup-tile copy.
+//
+// Uses a per-call seen map (kept local; applyTile is called per (axis, tile)
+// candidate, not in a hot loop). For each (axis, tile) we walk both Mul
+// operand subgraphs, which are small relative to the full kernel.
+func containsGatherIdx(u uop.UOp) bool {
+	seen := make(map[uint32]bool)
+	var walk func(n uop.UOp) bool
+	walk = func(n uop.UOp) bool {
+		if !n.Valid() {
+			return false
+		}
+		idx := n.Index()
+		if seen[idx] {
+			return false
+		}
+		seen[idx] = true
+		if n.Op() == uop.OpGatherIdx {
+			return true
+		}
+		for i := 0; i < n.NSrc(); i++ {
+			if walk(n.Src(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(u)
+}
+
 func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
 	if sink.Op() != uop.OpSink {
 		return sink
@@ -238,6 +272,16 @@ func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
 	body := reduce.Src(0)
 	if body.Op() != uop.OpMul || body.NSrc() < 2 ||
 		body.Src(0).Op() != uop.OpIndex || body.Src(1).Op() != uop.OpIndex {
+		return sink
+	}
+
+	// Indirect-index containment guard (Slice C). The tiled-reduce lowerer
+	// assumes both OpIndex operands flatten to affine arithmetic over loop
+	// counters. An OpGatherIdx anywhere in either operand's subtree breaks
+	// that assumption (the gather load cannot be hoisted into a coalesced
+	// tile-load), so the tiling rewrite must skip. Returning sink unchanged
+	// keeps the kernel correct under the elementwise lowering path.
+	if containsGatherIdx(body.Src(0)) || containsGatherIdx(body.Src(1)) {
 		return sink
 	}
 

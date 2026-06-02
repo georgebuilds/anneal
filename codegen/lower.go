@@ -922,6 +922,8 @@ func (l *lowerer) emitExpr(u uop.UOp) string {
 		return e
 	case uop.OpIndex:
 		return l.emitIndex(u)
+	case uop.OpGatherIdx:
+		return l.emitGatherIdx(u)
 	case uop.OpReduce:
 		return l.emitReduce(u)
 	case uop.OpDefineLocal:
@@ -1025,6 +1027,25 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	l.emit(Instr{Kind: InstrLet, NodeIdx: u.Index(), DType: emitDType, Expr: rhs})
 	l.exprOf[u.Index()] = letName
 	return letName
+}
+
+// emitGatherIdx emits the scalar i32 result of a single indirect-index
+// expression (an OpGatherIdx node), bound as a let so the surrounding
+// emitIndex expression can splice it into a flat-offset arithmetic chain
+// like any other dim index.
+//
+// OpGatherIdx.Src(0) is itself a complete OpIndex over the index BUFFER, so
+// the actual load is already emitted by emitIndex via emitExpr; we delegate
+// to it. The positional carriers in Src(1:) exist only to mark this node
+// as position-dependent at the schedule level and are not emitted here.
+//
+// The result dtype is Dtypes.Index (i32); the inner OpIndex's dtype carries
+// the index buffer's storage dtype (Int32 or UInt32), both rendered as i32
+// by wgslDType.
+func (l *lowerer) emitGatherIdx(u uop.UOp) string {
+	inner := l.emitExpr(u.Src(0))
+	l.exprOf[u.Index()] = inner
+	return inner
 }
 
 func (l *lowerer) emitReduce(u uop.UOp) string {

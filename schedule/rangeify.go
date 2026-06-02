@@ -143,6 +143,21 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 			sh = cache[u.Src(0).Index()]
 		}
 
+	case uop.OpGather:
+		// Torch-gather: data shape with dim replaced by index shape. Mirrors
+		// the rule in tensor/gradient.go shapeOfNode (Slice B).
+		dataSh := cache[u.Src(0).Index()]
+		idxSh := cache[u.Src(1).Index()]
+		dim := int(u.Arg().(int64))
+		sh = make([]shape.Sint, 0, len(dataSh)-1+len(idxSh))
+		sh = append(sh, dataSh[:dim]...)
+		sh = append(sh, idxSh...)
+		sh = append(sh, dataSh[dim+1:]...)
+
+	case uop.OpGatherIdx:
+		// Scalar (Index-dtype) result; carries positional ranges only.
+		sh = []shape.Sint{}
+
 	case uop.OpReduceAxis:
 		srcSh := cache[u.Src(0).Index()]
 		ra := u.Arg().(uop.ReduceArg)

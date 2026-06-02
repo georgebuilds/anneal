@@ -42,6 +42,15 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		// Scalar/meta nodes — not position-dependent
 		return expr
 
+	case uop.OpGatherIdx:
+		// Scalar (Index-dtype) indirect-index expression. Its subtree (src[0],
+		// an OpIndex over the index BUFFER) has already been fully indexed at
+		// the time it was constructed by the OpGather rewrite below; the
+		// positional carriers in src[1:] exist only to mark this node as
+		// position-dependent so it is not hoisted by intern-driven CSE. Pass
+		// it through unchanged; the codegen lowerer handles emission.
+		return expr
+
 	// ── movement ops — dissolve into index arithmetic ─────────────────────
 
 	case uop.OpReshape:
@@ -239,6 +248,129 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 			return indexExprNode(a, expr.Src(0), srcIndices, shapeMap, rc, fillOp)
 		}
 		panic("schedule/index: OpFlip: unexpected arg type")
+
+	// ── indirect indexing (gather) ────────────────────────────────────────
+
+	case uop.OpGather:
+		// Dissolve OpGather(data, idx) into OpIndex(data, ..., OpGatherIdx(...), ...)
+		// following design §5.
+		//
+		// Output index layout (positional carriers from the caller):
+		//   indices[0..dim)              → data dims [0..dim)
+		//   indices[dim..dim+idxRank)    → idx dims  [0..idxRank)
+		//   indices[dim+idxRank..)       → data dims [dim+1..]
+		//
+		// Inner load: OpIndex(IDX, indices[dim..dim+idxRank]). Built by
+		// recursively indexing through expr.Src(1) (the index tensor subtree),
+		// which terminates at the IDX OpBuffer leaf.
+		//
+		// OpGatherIdx wraps the inner load; its positional carriers are the
+		// caller's full output indices so downstream uses see a fully
+		// position-dependent scalar (no CSE-hoist out of the loop).
+		//
+		// Outer load: OpIndex(data, ..., OpGatherIdx, ...) built by recursing
+		// into expr.Src(0) (the data tensor subtree) with the rewritten
+		// positional indices.
+		dim := int(expr.Arg().(int64))
+		idxSrcShape := shapeMap[expr.Src(1).Index()]
+		idxRank := len(idxSrcShape)
+
+		// Inner load indices: positions corresponding to the index tensor's shape.
+		innerIndices := make([]uop.UOp, idxRank)
+		copy(innerIndices, indices[dim:dim+idxRank])
+		innerLoad := indexExprNode(a, expr.Src(1), innerIndices, shapeMap, rc, 0)
+
+		// Wrap in OpGatherIdx; carriers in src[1:] are the full output indices.
+		gatherSrcs := make([]uop.UOp, 1+len(indices))
+		gatherSrcs[0] = innerLoad
+		copy(gatherSrcs[1:], indices)
+		gIdx := a.New(uop.OpGatherIdx, uop.Dtypes.Index, gatherSrcs, nil, nil)
+
+		// Build the data-side indices: pre-dim from indices[:dim], the
+		// gather scalar at slot dim, post-dim from indices[dim+idxRank:].
+		dataSrcShape := shapeMap[expr.Src(0).Index()]
+		dataRank := len(dataSrcShape)
+		dataIndices := make([]uop.UOp, dataRank)
+		copy(dataIndices[:dim], indices[:dim])
+		dataIndices[dim] = gIdx
+		copy(dataIndices[dim+1:], indices[dim+idxRank:])
+
+		return indexExprNode(a, expr.Src(0), dataIndices, shapeMap, rc, fillOp)
+
+	case uop.OpScatterAdd:
+		// Dissolve OpScatterAdd(zeros, grad, sortedIdx, perm) into a per-
+		// output-position reduce body following design §6 dispatch geometry
+		// (a). Output shape equals zeros' shape == grad's shape with dim 0
+		// replaced by V. Slice D v1 restricts dim to 0 and idx to rank 1,
+		// so:
+		//
+		//   outShape  = [V, *trailing]
+		//   gradShape = [B, *trailing]
+		//
+		// For each output position (v, *t) the body computes:
+		//
+		//   sum_{b in [0, B)} where(
+		//     sortedIdx[b] == v,
+		//     grad[perm[b], *t],
+		//     0.0,
+		//   )
+		//
+		// Distinct (v, *t) write-positions touch disjoint output addresses,
+		// so the resulting kernel is race-free without atomics. The reduce
+		// is correctness-preserving for any execution order within the b
+		// loop because addition is commutative and we accumulate into a
+		// private register, not a shared cell.
+		dim := int(expr.Arg().(int64))
+		if dim != 0 {
+			panic("schedule/index: OpScatterAdd: only dim=0 is supported in Slice D")
+		}
+		gradNode := expr.Src(1)
+		sortedNode := expr.Src(2)
+		permNode := expr.Src(3)
+
+		gradShape := shapeMap[gradNode.Index()]
+		if len(gradShape) == 0 {
+			panic("schedule/index: OpScatterAdd: grad source has no shape")
+		}
+		// reduce range over B (== gradShape[0])
+		var rB uop.UOp
+		bDim := gradShape[0]
+		if v, ok := bDim.ConstValue(); ok {
+			rB = rc.newRange(v, uop.AxisReduce)
+		} else {
+			sym := bDim.(shape.SymInt)
+			rB = rc.newSymRange(sym.Node, uop.AxisReduce)
+		}
+
+		// sortedIdx[b] : INDEX(sortedNode, rB) -> i32 (carried as Index dtype)
+		sortedLoad := indexExprNode(a, sortedNode, []uop.UOp{rB}, shapeMap, rc, 0)
+		// perm[b] : INDEX(permNode, rB) -> i32
+		permLoad := indexExprNode(a, permNode, []uop.UOp{rB}, shapeMap, rc, 0)
+
+		// Wrap permLoad in OpGatherIdx so the lowerer treats it as an
+		// indirect scalar coordinate (same pattern as OpGather above).
+		// Carriers in src[1:] are the full output indices.
+		gatherSrcs := make([]uop.UOp, 1+len(indices))
+		gatherSrcs[0] = permLoad
+		copy(gatherSrcs[1:], indices)
+		gIdxPerm := a.New(uop.OpGatherIdx, uop.Dtypes.Index, gatherSrcs, nil, nil)
+
+		// grad[perm[b], *t] : INDEX(gradNode, gIdxPerm, t1, t2, ...)
+		gradIndices := make([]uop.UOp, len(gradShape))
+		gradIndices[0] = gIdxPerm
+		copy(gradIndices[1:], indices[1:])
+		gradLoad := indexExprNode(a, gradNode, gradIndices, shapeMap, rc, 0)
+
+		// match = (sortedIdx[b] == v) where v == indices[0] (the V output range)
+		v := indices[0]
+		match := a.New(uop.OpCmpEq, uop.Dtypes.Bool, []uop.UOp{sortedLoad, v}, nil, nil)
+
+		// contrib = where(match, grad[perm[b], *t], 0)
+		zero := identityConst(a, uop.OpAdd, expr.DType())
+		contrib := a.New(uop.OpWhere, expr.DType(), []uop.UOp{match, gradLoad, zero}, nil, nil)
+
+		// Reduce(contrib, OpAdd, rB)
+		return a.New(uop.OpReduce, expr.DType(), []uop.UOp{contrib, rB}, uop.OpAdd, nil)
 
 	// ── materialization hint ──────────────────────────────────────────────
 

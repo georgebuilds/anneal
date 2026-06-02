@@ -19,10 +19,33 @@ func TestOpString(t *testing.T) {
 		{uop.OpReshape, "Reshape"},
 		{uop.OpReduceAxis, "ReduceAxis"},
 		{uop.OpContiguousBackward, "ContiguousBackward"},
+		{uop.OpGather, "Gather"},
+		{uop.OpGatherIdx, "GatherIdx"},
+		{uop.OpScatterAdd, "ScatterAdd"},
 	}
 	for _, tc := range tests {
 		if got := tc.op.String(); got != tc.want {
 			t.Errorf("Op(%d).String() = %q, want %q", int(tc.op), got, tc.want)
+		}
+	}
+}
+
+// TestGatherOpsRoundtrip verifies Slice B: the three new gather ops have
+// String() entries and round-trip through OpFromString.
+func TestGatherOpsRoundtrip(t *testing.T) {
+	for _, op := range []uop.Op{uop.OpGather, uop.OpGatherIdx, uop.OpScatterAdd} {
+		name := op.String()
+		if strings.HasPrefix(name, "Op(") {
+			t.Errorf("op %d has no opNames entry; String()=%q", int(op), name)
+			continue
+		}
+		got, ok := uop.OpFromString(name)
+		if !ok {
+			t.Errorf("OpFromString(%q) returned !ok", name)
+			continue
+		}
+		if got != op {
+			t.Errorf("OpFromString(%q)=%s, want %s", name, got, op)
 		}
 	}
 }
