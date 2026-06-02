@@ -1,0 +1,29 @@
+{
+  "_comment": "First-argmax token ids from HuggingFace GPT-2-small for the given prompts. Generated during Slice O dispatch with transformers+torch; serves as the value oracle for the anneal forward pipeline.",
+  "model": "gpt2",
+  "fixtures": [
+    {
+      "prompt": "Hello, world",
+      "prompt_ids": [15496, 11, 995],
+      "first_argmax_id": 13,
+      "first_argmax_decoded": "."
+    },
+    {
+      "prompt": "The quick brown fox",
+      "prompt_ids": [464, 2068, 7586, 21831],
+      "first_argmax_id": 274,
+      "first_argmax_decoded": "es"
+    },
+    {
+      "prompt": "In the beginning",
+      "prompt_ids": [818, 262, 3726],
+      "first_argmax_id": 11,
+      "first_argmax_decoded": ","
+    }
+  ],
+  "greedy_10_tokens": {
+    "prompt": "Hello, world",
+    "decoded_text": "Hello, world.\n\nI'm sorry, but I'm",
+    "generated_ids": [13, 198, 198, 40, 1101, 7926, 11, 475, 314, 1101]
+  }
+}

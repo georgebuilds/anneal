@@ -18,6 +18,7 @@ usage:
 commands:
   run       realize and execute a graph
   train     training loop with live TUI dashboard (--plain for text output)
+  gpt2      load GPT-2-small weights and sample text from a prompt
   viz       open the UOp graph visualizer in a browser
   graph     dump the UOp DAG in textual form
   kernels   show generated WGSL with fusion boundaries annotated
@@ -62,6 +63,9 @@ func run(args []string) int {
 
 	case "train":
 		return trainCmd(rest)
+
+	case "gpt2":
+		return gpt2Cmd(rest)
 
 	case "graph":
 		return graphCmd(rest)
@@ -112,6 +116,25 @@ flags:
   --log-every=<n>   log loss every N steps (default: 10)
   --plain           plain text output; disables the TUI
   --debug=<n>       debug verbosity level
+
+`)
+	case "gpt2":
+		fmt.Print(`usage: anneal gpt2 <subcommand> [flags]
+
+subcommands:
+  sample <prompt>   load GPT-2-small (HuggingFace) and generate text
+
+sample flags:
+  --max-tokens=<n>      number of tokens to generate (default: 20)
+  --temperature=<f>     softmax temperature (default: 1.0)
+  --top-k=<k>           top-k filter; <=0 disables (default: 40)
+  --greedy              deterministic argmax sampling
+  --plain               plain output without prompt header
+
+on first use the vocab.json (~1MB), merges.txt (~500KB), and
+model.safetensors (~548MB) assets are fetched from HuggingFace and
+SHA-verified into the user cache. set ANNEAL_OFFLINE=1 to skip the
+network and require a pre-cached asset.
 
 `)
 	case "graph":

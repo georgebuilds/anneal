@@ -48,6 +48,13 @@ type GPT struct {
 	NEmbd     int
 	BlockSize int
 	Vocab     int
+
+	// TieWeights, when true, indicates LMHead.Weight is the SAME *Parameter
+	// object as Wte.Weight (canonical GPT-2 weight tying). Params() returns
+	// each unique Parameter once, so the tied count drops by one and
+	// LMHead.Weight does not appear independently in the list. Forward-only
+	// for this slice (Slice O); training with tied weights is deferred.
+	TieWeights bool
 }
 
 // NewGPT constructs a GPT model with the given configuration.
@@ -92,6 +99,40 @@ func NewGPT(a *uop.Arena, vocab, nLayer, nHead, nEmbd, blockSize int) *GPT {
 		BlockSize: blockSize,
 		Vocab:     vocab,
 	}
+}
+
+// NewGPTWithTiedHead constructs a GPT model with the language-model head's
+// Weight tied to the token-embedding Weight, matching canonical GPT-2 (the
+// HuggingFace gpt2 safetensors file omits lm_head.weight entirely; on load
+// the LM head reuses wte.weight). Shape-wise this is sound: both tensors
+// are [vocab, nEmbd] and Linear.Forward computes x @ Weight.T which yields
+// the [..., vocab] logits.
+//
+// Implementation: build a plain GPT via NewGPT, then alias LMHead.Weight to
+// the same *Parameter object as Wte.Weight. This is a structural swap, so
+// any subsequent Load(arena) on Wte.Weight automatically updates LMHead's
+// view via the shared Parameter: there is one canonical Value slice.
+//
+// LMHead.Bias is left as the freshly-allocated zero buffer from NewLinear.
+// HF GPT-2 has no bias on the LM head (the standalone Linear's Bias.Value
+// is all zeros), and a zero Bias added to logits is the identity; the
+// constructor's symmetry with NewLinear is preserved so existing call sites
+// that inspect LMHead.Bias do not need to special-case nil.
+//
+// Slice O scope: forward-only. The standard Backward path would route two
+// gradient sources into Wte.Weight (Embedding's scatter-add path and the
+// LM head's Matmul path); supporting that cleanly is a separate slice and
+// is intentionally not exercised here.
+func NewGPTWithTiedHead(a *uop.Arena, vocab, nLayer, nHead, nEmbd, blockSize int) *GPT {
+	g := NewGPT(a, vocab, nLayer, nHead, nEmbd, blockSize)
+	// Alias the LM head's Weight to the embedding's Weight. Both have shape
+	// [vocab, nEmbd] (Embedding stores [numEmbeddings, embeddingDim]; Linear
+	// stores [outFeatures, inFeatures]); Linear.Forward applies a transpose
+	// inside Matmul so the math reduces to wte @ x.T which is the canonical
+	// tied head.
+	g.LMHead.Weight = g.Wte.Weight
+	g.TieWeights = true
+	return g
 }
 
 // Forward runs the full transformer stack on idx.
@@ -204,6 +245,14 @@ func (g *GPT) Params() []*Parameter {
 		ps = append(ps, blk.Params()...)
 	}
 	ps = append(ps, g.LNf.Params()...)
+	// When weight tying is on LMHead.Weight is the same *Parameter as
+	// Wte.Weight; the Wte path has already added it. Only Bias is unique.
+	if g.TieWeights {
+		if g.LMHead.Bias != nil {
+			ps = append(ps, g.LMHead.Bias)
+		}
+		return ps
+	}
 	ps = append(ps, g.LMHead.Params()...)
 	return ps
 }
