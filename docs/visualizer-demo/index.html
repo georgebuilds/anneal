@@ -173,6 +173,21 @@
                 max-width: 60ch;
             }
             main.demo .intro strong { color: var(--text); font-weight: 500; }
+            /* Small "new here?" callout pointing to the tutorial. Understated;
+               sits inline above the existing intro so it does not crowd the demo. */
+            main.demo .tut-callout {
+                font-size: 12px;
+                color: var(--muted);
+                margin-bottom: 0.6rem;
+                max-width: 60ch;
+            }
+            main.demo .tut-callout a {
+                color: var(--fwd-stroke);
+                text-decoration: underline;
+                text-underline-offset: 2px;
+                text-decoration-color: var(--faint);
+            }
+            main.demo .tut-callout a:hover { text-decoration-color: var(--fwd-stroke); }
 
             /* The renderer's #graph-container reads its own tokens — leave it
                alone but cap the height so the scrub timeline + graph sit on
@@ -376,6 +391,10 @@
                     from the CLI (see <a class="cli-jump" href="../#cli">&gt;cli</a>).
                 </p>
             </aside>
+
+            <p class="tut-callout">
+                New here? Start with the <a href="../tutorial/">tutorial</a>.
+            </p>
 
             <p class="intro">
                 Scrub the timeline below to step through the compiler

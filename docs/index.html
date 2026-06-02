@@ -607,6 +607,15 @@
                 color: var(--gold-tx);
             }
 
+            /* Entry-point cards (tutorial + visualizer): mirror install-row chrome */
+            .entry-row { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 1rem; opacity: 0; transition: opacity 0.5s ease 0.74s; }
+            .entry-row.visible { opacity: 1; }
+            .entry-card { display: inline-flex; align-items: center; gap: 0.6rem; background: var(--surface); border: 1px solid var(--faint); border-radius: 6px; padding: 0.55rem 0.95rem; font-size: 0.8rem; color: var(--text); text-decoration: none; transition: border-color 0.2s ease; }
+            .entry-card:hover { border-color: var(--teal); }
+            .entry-card .ec-label { color: var(--teal-tx); font-weight: 500; }
+            .entry-card .ec-desc { color: var(--muted); font-size: 0.74rem; }
+            .entry-card .ec-arrow { color: var(--teal-tx); }
+
             /* ─── Screen-reader only ────────────────────────────────────────── */
 
             .sr-only {
@@ -1152,6 +1161,19 @@
                     aria-atomic="true"
                     id="js-copy-live"
                 ></span>
+
+                <div class="entry-row" id="js-entry">
+                    <a class="entry-card" href="tutorial/">
+                        <span class="ec-label">tutorial</span>
+                        <span class="ec-desc">install, train nanoGPT, run GPT-2</span>
+                        <span class="ec-arrow" aria-hidden="true">&rarr;</span>
+                    </a>
+                    <a class="entry-card" href="visualizer-demo/">
+                        <span class="ec-label">visualizer</span>
+                        <span class="ec-desc">step through a real compile</span>
+                        <span class="ec-arrow" aria-hidden="true">&rarr;</span>
+                    </a>
+                </div>
             </div>
             <!-- /.hero -->
 
@@ -1958,6 +1980,7 @@
                     "js-subhead",
                     "js-secondary",
                     "js-install",
+                    "js-entry",
                 ].forEach(function (id) {
                     document.getElementById(id).classList.add("visible");
                 });

@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+        <!--
+          Anti-FOUC: read the site's saved theme before first paint so the
+          correct palette applies immediately. Mirrors docs/index.html.
+        -->
+        <script>
+            (function () {
+                var t = localStorage.getItem("anneal-theme");
+                if (!t)
+                    t = window.matchMedia("(prefers-color-scheme:light)")
+                        .matches
+                        ? "light"
+                        : "dark";
+                document.documentElement.setAttribute("data-theme", t);
+            })();
+        </script>
+
+        <title>anneal: tutorial</title>
+        <meta
+            name="description"
+            content="Step-by-step tutorial: install anneal, train nanoGPT on Shakespeare, and run GPT-2-small forward. Covers WebGPU prereqs, asset download cache, the BPE tokenizer, and a compiler-level walkthrough."
+        />
+        <meta name="robots" content="index, follow" />
+        <link
+            rel="canonical"
+            href="https://georgebuilds.github.io/anneal/tutorial/"
+        />
+
+        <meta name="theme-color" content="#14110F" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#FBF8F3" media="(prefers-color-scheme: light)" />
+        <meta name="color-scheme" content="light dark" />
+
+        <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+            rel="stylesheet"
+        />
+
+        <style>
+            /* Reset + base, mirrored from docs/index.html */
+            *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+            /* Design tokens: copied verbatim from docs/index.html so styling stays
+               in sync. Same brand colors, same surface tokens, same mono stack. */
+            :root {
+                --bg: #14110f;
+                --surface: #1f1a17;
+                --text: #e8e2da;
+                --muted: #8a817a;
+                --faint: #5c544d;
+                --bg-glass: rgba(20, 17, 15, 0.88);
+
+                --teal: #00add8;
+                --ember: #ff7a45;
+                --gold: #f2c57c;
+
+                --teal-tx: #00add8;
+                --ember-tx: #ff7a45;
+                --gold-tx: #f2c57c;
+
+                --term-bg: #1f1a17;
+                --term-border: #5c544d;
+                --term-text: #e8e2da;
+                --term-muted: #8a817a;
+                --term-faint: #5c544d;
+
+                --mono:
+                    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
+                    Consolas, monospace;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme]) {
+                    --bg: #fbf8f3;
+                    --surface: #ede8e0;
+                    --text: #14110f;
+                    --muted: #5c4e3f;
+                    --faint: #9a8f85;
+                    --bg-glass: rgba(251, 248, 243, 0.88);
+                    --teal-tx: #0078a0;
+                    --ember-tx: #c03a00;
+                    --gold-tx: #8b5e10;
+                }
+            }
+            [data-theme="light"] {
+                --bg: #fbf8f3;
+                --surface: #ede8e0;
+                --text: #14110f;
+                --muted: #5c4e3f;
+                --faint: #9a8f85;
+                --bg-glass: rgba(251, 248, 243, 0.88);
+                --teal-tx: #0078a0;
+                --ember-tx: #c03a00;
+                --gold-tx: #8b5e10;
+            }
+
+            html { scroll-behavior: smooth; }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: var(--mono);
+                font-size: 14px;
+                line-height: 1.7;
+                -webkit-font-smoothing: antialiased;
+                overflow-x: hidden;
+                transition: background 0.2s ease, color 0.2s ease;
+            }
+
+            .skip-link {
+                position: absolute; top: -100%; left: 1rem; z-index: 200;
+                background: var(--surface); color: var(--text);
+                border: 1px solid var(--teal); border-radius: 4px;
+                padding: 0.5rem 1rem; font-family: var(--mono); font-size: 0.82rem;
+                text-decoration: none; transition: top 0.15s ease;
+            }
+            .skip-link:focus { top: 0.75rem; }
+
+            :focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 2px; }
+
+            /* Sticky top progress bar (thin teal line) */
+            .progress-track {
+                position: sticky;
+                top: 0;
+                z-index: 110;
+                height: 2px;
+                background: transparent;
+                pointer-events: none;
+            }
+            .progress-fill {
+                height: 100%;
+                width: 0%;
+                background: var(--teal);
+                transition: width 0.06s linear;
+            }
+
+            /* Header (sticky, same chrome as the home page) */
+            header.site {
+                position: sticky;
+                top: 2px;
+                z-index: 100;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 clamp(1.5rem, 5vw, 3rem);
+                height: 52px;
+                background: var(--bg-glass);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-bottom: 1px solid var(--faint);
+            }
+            .brand { display: inline-flex; align-items: center; font-size: 13px; letter-spacing: 0.01em; }
+            .gb-link { color: var(--muted); text-decoration: none; transition: color 0.2s ease; }
+            .gb-link:hover, .gb-link:focus-visible { color: var(--text); }
+            .brand-sep { color: var(--faint); margin: 0 0.35em; user-select: none; }
+            .proj-name { color: var(--text); font-weight: 500; }
+            .proj-name.linkish { text-decoration: none; color: var(--text); }
+            .proj-name.linkish:hover { color: var(--teal-tx); }
+
+            header.site nav {
+                display: flex; align-items: center; gap: 1.5rem; height: 100%;
+            }
+            header.site nav a {
+                font-size: 13px; color: var(--muted); text-decoration: none;
+                transition: color 0.2s ease; display: inline-flex; align-items: center;
+                height: 100%; padding: 0 0.15rem;
+            }
+            header.site nav a:hover { color: var(--text); }
+            header.site nav a::before {
+                content: "> "; color: var(--faint); transition: color 0.2s ease;
+                margin-right: 0.2em;
+            }
+            header.site nav a:hover::before { color: var(--teal); }
+            header.site nav a[aria-current="page"] { color: var(--text); }
+            header.site nav a[aria-current="page"]::before { color: var(--teal); }
+            .icon-btn {
+                background: none; border: 1px solid var(--faint); border-radius: 4px;
+                font-family: var(--mono); font-size: 14px; color: var(--muted); cursor: pointer;
+                padding: 0 0.65rem; height: 28px; min-width: 44px; min-height: 44px;
+                display: inline-flex; align-items: center; justify-content: center;
+                margin: -8px 0; transition: color 0.2s ease, border-color 0.2s ease;
+                line-height: 1;
+            }
+            .icon-btn:hover { color: var(--text); border-color: var(--muted); }
+
+            /* Layout shell: optional left rail + main column.
+               On desktop the rail is sticky; on narrow viewports it collapses
+               into an accordion above the content. */
+            .shell {
+                display: grid;
+                grid-template-columns: 220px minmax(0, 1fr);
+                gap: clamp(1rem, 3vw, 2.5rem);
+                max-width: 1100px;
+                margin: 0 auto;
+                padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 4vw, 2rem);
+            }
+
+            aside.rail {
+                position: sticky;
+                top: 64px;
+                align-self: start;
+                max-height: calc(100dvh - 80px);
+                overflow-y: auto;
+                font-size: 0.78rem;
+            }
+            aside.rail ol {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 0.15rem;
+            }
+            aside.rail a {
+                color: var(--muted);
+                text-decoration: none;
+                display: flex;
+                gap: 0.6rem;
+                padding: 0.35rem 0.5rem;
+                border-radius: 4px;
+                border-left: 2px solid transparent;
+                transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+            }
+            aside.rail a:hover { color: var(--text); }
+            aside.rail a .num { color: var(--faint); width: 1.5em; flex-shrink: 0; }
+            aside.rail a.active {
+                color: var(--text);
+                border-left-color: var(--teal);
+                background: var(--surface);
+            }
+            .rail-title {
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 0.7rem;
+                padding-left: 0.5rem;
+            }
+
+            /* Mobile accordion form of the rail */
+            details.rail-accordion {
+                display: none;
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                padding: 0.5rem 0.8rem;
+                margin-bottom: 1.25rem;
+            }
+            details.rail-accordion summary {
+                cursor: pointer;
+                font-size: 0.78rem;
+                color: var(--text);
+                padding: 0.3rem 0;
+            }
+            details.rail-accordion ol {
+                list-style: none; padding: 0; margin: 0.5rem 0 0;
+                display: flex; flex-direction: column; gap: 0.1rem;
+            }
+            details.rail-accordion a {
+                color: var(--muted); text-decoration: none; display: block;
+                padding: 0.3rem 0; font-size: 0.78rem;
+            }
+            details.rail-accordion a:hover { color: var(--text); }
+
+            @media (max-width: 800px) {
+                .shell { grid-template-columns: minmax(0, 1fr); }
+                aside.rail { display: none; }
+                details.rail-accordion { display: block; }
+            }
+
+            main.tut { min-width: 0; }
+
+            /* Section card */
+            section.step {
+                padding: 1.5rem 0 2rem;
+                border-bottom: 1px solid var(--faint);
+                scroll-margin-top: 70px;
+            }
+            section.step:last-of-type { border-bottom: none; }
+            .step-label {
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 0.5rem;
+                display: flex;
+                gap: 0.7rem;
+                align-items: center;
+            }
+            .step-label .num {
+                color: var(--faint);
+            }
+            .step-heading {
+                font-size: clamp(1.15rem, 2.6vw, 1.6rem);
+                font-weight: 700;
+                color: var(--text);
+                letter-spacing: -0.022em;
+                line-height: 1.25;
+                margin-bottom: 0.7rem;
+            }
+            .intent {
+                font-size: 0.86rem;
+                color: var(--muted);
+                max-width: 64ch;
+                margin-bottom: 1.2rem;
+                line-height: 1.75;
+            }
+            .intent code, .step-body code, details code {
+                color: var(--teal-tx);
+                font-family: var(--mono);
+            }
+
+            /* "Coming soon" badge */
+            .coming-soon {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.45rem;
+                background: linear-gradient(
+                    90deg,
+                    rgba(242, 197, 124, 0.12),
+                    rgba(255, 122, 69, 0.10)
+                );
+                border: 1px solid var(--gold);
+                color: var(--gold-tx);
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                padding: 0.25rem 0.65rem;
+                border-radius: 999px;
+                margin-bottom: 0.55rem;
+            }
+            .coming-soon .dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--gold);
+            }
+            .coming-soon-note {
+                font-size: 0.78rem;
+                color: var(--muted);
+                margin-bottom: 1rem;
+                max-width: 60ch;
+                font-style: italic;
+            }
+
+            /* Terminal block + copy button (always dark, never themes) */
+            .terminal {
+                background: var(--term-bg);
+                border: 1px solid var(--term-border);
+                border-radius: 8px;
+                overflow: hidden;
+                font-size: 0.8rem;
+                margin-bottom: 1rem;
+                position: relative;
+            }
+            .term-bar {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0.55rem 1rem;
+                border-bottom: 1px solid var(--term-border);
+            }
+            .dot {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: var(--term-border);
+            }
+            .term-copy {
+                margin-left: auto;
+                background: none;
+                border: 1px solid var(--term-border);
+                color: var(--term-muted);
+                font-family: var(--mono);
+                font-size: 0.7rem;
+                padding: 0.18rem 0.55rem;
+                cursor: pointer;
+                border-radius: 4px;
+                transition: color 0.15s ease, border-color 0.15s ease;
+                min-height: 24px;
+            }
+            .term-copy:hover { color: var(--gold); border-color: var(--gold); }
+            .term-copy.copied { color: var(--gold); border-color: var(--gold); }
+            .term-body {
+                padding: 0.85rem 1.1rem;
+                line-height: 1.9;
+                overflow-x: auto;
+            }
+            .t-p { color: var(--teal); }
+            .t-cmd { color: var(--term-text); }
+            .t-out { color: var(--term-muted); display: block; }
+            .t-fwd { color: var(--teal); }
+            .t-bwd { color: var(--ember); }
+            .t-fsd { color: var(--gold); }
+            .t-dim { color: var(--term-faint); }
+            .t-gap { display: block; margin-top: 0.4rem; }
+
+            /* Why? expander */
+            details.why {
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                padding: 0.65rem 0.9rem;
+                margin: 0.6rem 0 0;
+            }
+            details.why summary {
+                cursor: pointer;
+                font-size: 0.78rem;
+                color: var(--text);
+                font-weight: 500;
+                list-style: none;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+            }
+            details.why summary::-webkit-details-marker { display: none; }
+            details.why summary::before {
+                content: "+";
+                color: var(--teal-tx);
+                font-weight: 700;
+                width: 1ch;
+                display: inline-block;
+            }
+            details.why[open] summary::before { content: "−"; }
+            details.why .body {
+                font-size: 0.78rem;
+                color: var(--muted);
+                margin-top: 0.55rem;
+                line-height: 1.7;
+            }
+            details.why .body p + p { margin-top: 0.6rem; }
+
+            /* Side rail callout (vs PyTorch / vs tinygrad) */
+            .compare {
+                border-left: 2px solid var(--ember);
+                background: var(--surface);
+                padding: 0.6rem 0.85rem;
+                margin: 0.6rem 0;
+                font-size: 0.76rem;
+                color: var(--muted);
+                border-radius: 0 4px 4px 0;
+            }
+            .compare .tag {
+                font-size: 0.62rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--ember-tx);
+                font-weight: 700;
+                margin-right: 0.4em;
+            }
+            .compare code { color: var(--teal-tx); }
+
+            /* Three-column hardware matrix */
+            .hw-matrix {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 1px;
+                background: var(--faint);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                overflow: hidden;
+                margin: 0.5rem 0 1rem;
+            }
+            .hw-cell {
+                background: var(--bg);
+                padding: 0.85rem 0.9rem;
+                font-size: 0.78rem;
+            }
+            .hw-cell .hw-tag {
+                font-size: 0.62rem;
+                letter-spacing: 0.11em;
+                text-transform: uppercase;
+                color: var(--teal-tx);
+                font-weight: 700;
+                margin-bottom: 0.35rem;
+            }
+            .hw-cell .hw-tag.gold { color: var(--gold-tx); }
+            .hw-cell .hw-tag.ember { color: var(--ember-tx); }
+            .hw-cell .hw-title {
+                color: var(--text);
+                font-weight: 500;
+                margin-bottom: 0.3rem;
+                font-size: 0.82rem;
+            }
+            .hw-cell .hw-body { color: var(--muted); font-size: 0.74rem; }
+            @media (max-width: 600px) { .hw-matrix { grid-template-columns: 1fr; } }
+
+            /* SVG diagram caption */
+            figure.diagram {
+                margin: 0.9rem 0;
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                padding: 0.9rem 0.9rem 0.6rem;
+            }
+            figure.diagram figcaption {
+                font-size: 0.72rem;
+                color: var(--muted);
+                margin-top: 0.4rem;
+                text-align: center;
+            }
+            figure.diagram svg { width: 100%; height: auto; max-width: 560px; display: block; margin: 0 auto; }
+
+            /* Inline link style for in-body links */
+            a.inline {
+                color: var(--teal-tx);
+                text-decoration: underline;
+                text-underline-offset: 2px;
+                text-decoration-color: var(--faint);
+            }
+            a.inline:hover { text-decoration-color: var(--teal-tx); }
+
+            /* Q&A bank */
+            .qa-bank h2 {
+                font-size: clamp(1.15rem, 2.6vw, 1.6rem);
+                font-weight: 700;
+                color: var(--text);
+                letter-spacing: -0.022em;
+                margin-bottom: 0.5rem;
+            }
+            .qa-bank .qa-intro {
+                color: var(--muted);
+                font-size: 0.82rem;
+                margin-bottom: 1.2rem;
+            }
+            .qa-group {
+                margin-bottom: 1.5rem;
+            }
+            .qa-group h3 {
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 0.7rem;
+            }
+            .qa-group details {
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 6px;
+                padding: 0.55rem 0.8rem;
+                margin-bottom: 0.4rem;
+            }
+            .qa-group details summary {
+                cursor: pointer;
+                font-size: 0.82rem;
+                color: var(--text);
+                list-style: none;
+                display: flex;
+                gap: 0.5rem;
+                align-items: baseline;
+            }
+            .qa-group details summary::-webkit-details-marker { display: none; }
+            .qa-group details summary::before {
+                content: "?";
+                color: var(--teal-tx);
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+            .qa-group details[open] summary::before { color: var(--gold-tx); }
+            .qa-group details .a {
+                font-size: 0.78rem;
+                color: var(--muted);
+                margin-top: 0.5rem;
+                line-height: 1.7;
+            }
+            .qa-group details code { color: var(--teal-tx); }
+
+            /* Footer with cross-links */
+            footer.site {
+                border-top: 1px solid var(--faint);
+                padding: 1.25rem clamp(1.5rem, 5vw, 3rem);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 0.74rem;
+                color: var(--muted);
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+            footer.site .links { display: inline-flex; gap: 1.25rem; }
+            footer.site a {
+                color: var(--muted);
+                text-decoration: none;
+                transition: color 0.2s ease;
+            }
+            footer.site a:hover { color: var(--text); }
+
+            /* Reduced motion */
+            @media (prefers-reduced-motion: reduce) {
+                *, *::before, *::after {
+                    animation-duration: 0.01ms !important;
+                    transition-duration: 0.01ms !important;
+                }
+                html { scroll-behavior: auto; }
+            }
+        </style>
+    </head>
+    <body>
+        <a href="#main-content" class="skip-link">skip to main content</a>
+
+        <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="js-progress"></div>
+        </div>
+
+        <header class="site">
+            <div class="brand">
+                <a
+                    class="gb-link"
+                    href="https://georgebuilds.github.io/"
+                    aria-label="georgebuilds: home"
+                >
+                    georgebuilds
+                </a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <a class="proj-name linkish" href="../">anneal</a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <span class="proj-name">tutorial</span>
+            </div>
+            <nav aria-label="site navigation">
+                <a href="../#architecture">how it works</a>
+                <a href="../#cli">cli</a>
+                <a href="../visualizer-demo/">visualizer</a>
+                <a
+                    href="https://github.com/georgebuilds/anneal"
+                    target="_blank"
+                    rel="noopener"
+                >github</a>
+                <button class="icon-btn" id="js-theme" aria-label="toggle theme">☀</button>
+            </nav>
+        </header>
+
+        <div class="shell">
+            <aside class="rail" aria-label="tutorial steps">
+                <div class="rail-title">contents</div>
+                <ol id="js-rail">
+                    <li><a href="#welcome"><span class="num">00</span><span>welcome</span></a></li>
+                    <li><a href="#prereqs"><span class="num">01</span><span>prereqs</span></a></li>
+                    <li><a href="#install"><span class="num">02</span><span>install</span></a></li>
+                    <li><a href="#sanity"><span class="num">03</span><span>sanity check</span></a></li>
+                    <li><a href="#nanogpt"><span class="num">04</span><span>train nanoGPT</span></a></li>
+                    <li><a href="#tour"><span class="num">05</span><span>compiler tour</span></a></li>
+                    <li><a href="#gpt2"><span class="num">06</span><span>run GPT-2-small</span></a></li>
+                    <li><a href="#further"><span class="num">07</span><span>going further</span></a></li>
+                    <li><a href="#troubleshooting"><span class="num">08</span><span>troubleshooting</span></a></li>
+                    <li><a href="#qa"><span class="num">qa</span><span>questions</span></a></li>
+                </ol>
+            </aside>
+
+            <main class="tut" id="main-content">
+                <details class="rail-accordion">
+                    <summary>contents (jump to step)</summary>
+                    <ol>
+                        <li><a href="#welcome">00. welcome</a></li>
+                        <li><a href="#prereqs">01. prereqs</a></li>
+                        <li><a href="#install">02. install</a></li>
+                        <li><a href="#sanity">03. sanity check</a></li>
+                        <li><a href="#nanogpt">04. train nanoGPT</a></li>
+                        <li><a href="#tour">05. compiler tour</a></li>
+                        <li><a href="#gpt2">06. run GPT-2-small</a></li>
+                        <li><a href="#further">07. going further</a></li>
+                        <li><a href="#troubleshooting">08. troubleshooting</a></li>
+                        <li><a href="#qa">qa</a></li>
+                    </ol>
+                </details>
+
+                <!-- ─── 0. Welcome ─────────────────────────────────────── -->
+                <section class="step" id="welcome">
+                    <p class="step-label"><span class="num">00</span><span>welcome</span></p>
+                    <h1 class="step-heading">Get anneal running, train a small transformer, sample from GPT-2.</h1>
+                    <p class="intent">
+                        This walkthrough takes about ten minutes of reading and a few minutes of waiting on a download. By the end you will have installed anneal, trained a tiny char-level transformer on Shakespeare end to end on your GPU (forward and backward fused into the same kernels), and produced a sample from GPT-2-small running entirely as Go on WebGPU. The point is not the models. The point is the compiler. Each command exposes one layer of it.
+                    </p>
+                    <details class="why">
+                        <summary>Why these three demos in this order?</summary>
+                        <div class="body">
+                            <p>Training nanoGPT is the thesis demo: it proves the forward graph, the gradient pass, and the scheduler fuse into one program. Running GPT-2-small forward is the breadth demo: same compiler, real production weights, correctness checkable against HuggingFace. Install and sanity check sit in front of both because the WebGPU adapter probe is the one thing worth confirming early.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 1. Prereqs ─────────────────────────────────────── -->
+                <section class="step" id="prereqs">
+                    <p class="step-label"><span class="num">01</span><span>prereqs</span></p>
+                    <h2 class="step-heading">A Go toolchain, a WebGPU adapter, and roughly 600 MB of disk.</h2>
+                    <p class="intent">
+                        anneal is zero-CGO and ships as a single static Go binary. You need Go 1.22 or newer (verify with <code>go version</code>), a WebGPU adapter on your platform (matrix below), about 600 MB of disk for the GPT-2 weights cache, and a network connection on first run so anneal can fetch tokenizer and weight assets.
+                    </p>
+
+                    <div class="hw-matrix" aria-label="hardware support matrix">
+                        <div class="hw-cell">
+                            <div class="hw-tag">primary</div>
+                            <div class="hw-title">macOS (M-series)</div>
+                            <div class="hw-body">Apple Silicon (M1, M2, M3, M4). WebGPU routes through Metal. The most exercised path; fastest first-run.</div>
+                        </div>
+                        <div class="hw-cell">
+                            <div class="hw-tag gold">supported</div>
+                            <div class="hw-title">Linux + wgpu</div>
+                            <div class="hw-body">Vulkan-capable GPU via wgpu-native. Works; less exercised than macOS. Driver setup is on you.</div>
+                        </div>
+                        <div class="hw-cell">
+                            <div class="hw-tag ember">experimental</div>
+                            <div class="hw-title">Windows + wgpu</div>
+                            <div class="hw-body">DirectX 12 path via wgpu-native. Builds; report issues on GitHub if you hit them.</div>
+                        </div>
+                    </div>
+
+                    <div class="compare">
+                        <span class="tag">vs PyTorch</span>
+                        No CUDA install, no driver-matched wheels, no virtualenv. The Go toolchain plus your platform's WebGPU adapter is the whole prereq list.
+                    </div>
+
+                    <details class="why">
+                        <summary>Why WebGPU and not CUDA?</summary>
+                        <div class="body">
+                            <p>WebGPU is the cross-vendor compute substrate that runs on Metal, Vulkan, and DirectX 12 from a single shader language (WGSL). It lets the entire stack stay zero-CGO and lets the same WGSL the CLI emits also drive the in-browser visualizer.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 2. Install ─────────────────────────────────────── -->
+                <section class="step" id="install">
+                    <p class="step-label"><span class="num">02</span><span>install</span></p>
+                    <h2 class="step-heading">One command. One binary.</h2>
+                    <p class="intent">
+                        Install the CLI with <code>go install</code>. The binary lands in <code>$GOPATH/bin</code> (or <code>$GOBIN</code> if you set it); make sure that directory is on your <code>$PATH</code>.
+                    </p>
+
+                    <div class="terminal" role="region" aria-label="install command">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy="go install github.com/georgebuilds/anneal/cmd/anneal@latest" aria-label="copy install command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">go install github.com/georgebuilds/anneal/cmd/anneal@latest</span></div>
+                            <span class="t-out">go: downloading github.com/georgebuilds/anneal v0.1.0</span>
+                            <span class="t-gap"></span>
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal --version</span></div>
+                            <span class="t-out">anneal v0.1.0 (commit e66de45, go1.22)</span>
+                        </div>
+                    </div>
+
+                    <div class="compare">
+                        <span class="tag">vs pip install torch + CUDA setup</span>
+                        anneal is a single static Go binary. No driver-matched wheels, no virtualenv to keep alive, no Python on the runtime side.
+                    </div>
+
+                    <details class="why">
+                        <summary>Why <code>go install</code> and not a release binary?</summary>
+                        <div class="body">
+                            <p>Pinning to <code>@latest</code> with <code>go install</code> gives you a reproducible build of a specific module version, signed by the Go module proxy. The result is a single statically linked binary; no runtime dependency on the Go toolchain after that.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 3. Sanity check ───────────────────────────────── -->
+                <section class="step" id="sanity">
+                    <p class="step-label"><span class="num">03</span><span>sanity check</span></p>
+                    <h2 class="step-heading">Confirm a WebGPU adapter is reachable.</h2>
+                    <p class="intent">
+                        <code>anneal doctor</code> probes for a WebGPU adapter on your platform and prints the device info it finds. Run this before anything else; it tells you in two seconds whether the rest of the tutorial can succeed.
+                    </p>
+
+                    <div class="terminal" role="region" aria-label="doctor command">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy="anneal doctor" aria-label="copy doctor command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal doctor</span></div>
+                            <span class="t-out">webgpu adapter: <span class="t-fwd">Apple M3 Max</span> (metal)</span>
+                            <span class="t-out">backend type: <span class="t-fwd">Metal</span></span>
+                            <span class="t-out">device features: shader-f16, timestamp-query</span>
+                            <span class="t-out">max buffer size: 2147483648 (2 GiB)</span>
+                            <span class="t-out">status: <span class="t-fsd">ok</span></span>
+                        </div>
+                    </div>
+
+                    <details class="why">
+                        <summary>What does <code>doctor</code> actually check?</summary>
+                        <div class="body">
+                            <p>It opens a real WebGPU instance, requests an adapter and device, and reports back the adapter name, backend type (Metal, Vulkan, or DX12), device features (notably <code>shader-f16</code>, which gates the f16 path), and the platform's max buffer size. No kernel runs; this is a connectivity probe.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 4. Train nanoGPT ───────────────────────────────── -->
+                <section class="step" id="nanogpt">
+                    <p class="step-label"><span class="num">04</span><span>train nanogpt</span></p>
+                    <span class="coming-soon"><span class="dot"></span>coming soon</span>
+                    <h2 class="step-heading">Train a char-level transformer on Shakespeare, end to end, on your GPU.</h2>
+                    <p class="coming-soon-note">
+                        This demo lands with PR XX; the structure below shows what you will see.
+                    </p>
+                    <p class="intent">
+                        <code>anneal train nanogpt</code> downloads the Tiny Shakespeare corpus (about 1 MB), constructs a small char-level transformer (vocab ~65, a few attention blocks, GELU MLPs), trains it for the requested number of steps, then prints a Shakespeare-flavored sample from the trained weights. The training loop runs through the standard <code>tensor.Backward()</code> + <code>tensor.Realize()</code> path, so what you see is the rangeify scheduler fusing the forward and backward passes into the same WGSL kernels.
+                    </p>
+
+                    <div class="terminal" role="region" aria-label="nanoGPT training">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy="anneal train nanogpt --steps=2000" aria-label="copy command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal train nanogpt --steps=2000</span></div>
+                            <span class="t-out"><span class="t-dim">[structure preview, not real output]</span></span>
+                            <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
+                            <span class="t-out">model nanogpt-char vocab=65 layers=4 heads=4 dmodel=128</span>
+                            <span class="t-out">device webgpu · apple m3 max</span>
+                            <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.17</span></span>
+                            <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.38</span></span>
+                            <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.52</span></span>
+                            <span class="t-out"><span class="t-fwd">forward</span> <span class="t-dim">62 uops</span> <span class="t-bwd">backward</span> <span class="t-dim">49 uops</span> → <span class="t-fsd">fused</span> <span class="t-dim">7 kernels</span></span>
+                            <span class="t-gap"></span>
+                            <span class="t-out">sample:</span>
+                            <span class="t-out"><span class="t-fwd">ROMEO: but soft, what light through yonder window</span></span>
+                            <span class="t-out"><span class="t-fwd">breaks? it is the east, and Juliet is the sun.</span></span>
+                        </div>
+                    </div>
+
+                    <figure class="diagram" aria-label="forward and backward fused into one kernel region">
+                        <svg viewBox="0 0 520 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="diagram of forward, backward, fused kernel region">
+                            <!-- gold fused region -->
+                            <rect x="120" y="40" width="280" height="120" rx="10" ry="10"
+                                  fill="rgba(242, 197, 124, 0.10)" stroke="#F2C57C" stroke-width="1.5" stroke-dasharray="3 4" />
+                            <text x="260" y="32" font-family="JetBrains Mono, monospace" font-size="11"
+                                  fill="#F2C57C" text-anchor="middle" font-weight="700">FUSED WGSL KERNEL</text>
+
+                            <!-- forward chain (teal solid) -->
+                            <circle cx="55" cy="80" r="10" fill="none" stroke="#00ADD8" stroke-width="2" />
+                            <text x="55" y="105" font-family="JetBrains Mono, monospace" font-size="10" fill="#00ADD8" text-anchor="middle">x</text>
+                            <line x1="65" y1="80" x2="155" y2="80" stroke="#00ADD8" stroke-width="2" />
+                            <polygon points="155,80 148,76 148,84" fill="#00ADD8" />
+
+                            <circle cx="170" cy="80" r="10" fill="none" stroke="#00ADD8" stroke-width="2" />
+                            <text x="170" y="105" font-family="JetBrains Mono, monospace" font-size="10" fill="#00ADD8" text-anchor="middle">matmul</text>
+                            <line x1="180" y1="80" x2="265" y2="80" stroke="#00ADD8" stroke-width="2" />
+                            <polygon points="265,80 258,76 258,84" fill="#00ADD8" />
+
+                            <circle cx="280" cy="80" r="10" fill="none" stroke="#00ADD8" stroke-width="2" />
+                            <text x="280" y="105" font-family="JetBrains Mono, monospace" font-size="10" fill="#00ADD8" text-anchor="middle">gelu</text>
+                            <line x1="290" y1="80" x2="375" y2="80" stroke="#00ADD8" stroke-width="2" />
+                            <polygon points="375,80 368,76 368,84" fill="#00ADD8" />
+
+                            <circle cx="390" cy="80" r="10" fill="none" stroke="#00ADD8" stroke-width="2" />
+                            <text x="390" y="105" font-family="JetBrains Mono, monospace" font-size="10" fill="#00ADD8" text-anchor="middle">loss</text>
+
+                            <!-- backward chain (ember dashed) -->
+                            <circle cx="390" cy="135" r="10" fill="none" stroke="#FF7A45" stroke-width="2" stroke-dasharray="3 3" />
+                            <text x="390" y="160" font-family="JetBrains Mono, monospace" font-size="10" fill="#FF7A45" text-anchor="middle">dL</text>
+                            <line x1="380" y1="135" x2="295" y2="135" stroke="#FF7A45" stroke-width="2" stroke-dasharray="4 3" />
+                            <polygon points="295,135 302,131 302,139" fill="#FF7A45" />
+
+                            <circle cx="280" cy="135" r="10" fill="none" stroke="#FF7A45" stroke-width="2" stroke-dasharray="3 3" />
+                            <text x="280" y="160" font-family="JetBrains Mono, monospace" font-size="10" fill="#FF7A45" text-anchor="middle">dgelu</text>
+                            <line x1="270" y1="135" x2="185" y2="135" stroke="#FF7A45" stroke-width="2" stroke-dasharray="4 3" />
+                            <polygon points="185,135 192,131 192,139" fill="#FF7A45" />
+
+                            <circle cx="170" cy="135" r="10" fill="none" stroke="#FF7A45" stroke-width="2" stroke-dasharray="3 3" />
+                            <text x="170" y="160" font-family="JetBrains Mono, monospace" font-size="10" fill="#FF7A45" text-anchor="middle">dW</text>
+
+                            <!-- seam annotation -->
+                            <line x1="100" y1="80" x2="100" y2="135" stroke="#5C544D" stroke-width="1" stroke-dasharray="2 3" />
+                            <line x1="420" y1="80" x2="420" y2="135" stroke="#5C544D" stroke-width="1" stroke-dasharray="2 3" />
+                            <text x="450" y="110" font-family="JetBrains Mono, monospace" font-size="9" fill="#8A817A">seam</text>
+                        </svg>
+                        <figcaption>
+                            Teal forward, ember backward, gold marks the fused region. The scheduler collapses both chains into one WGSL kernel where the indexing model agrees.
+                        </figcaption>
+                    </figure>
+
+                    <div class="compare">
+                        <span class="tag">vs PyTorch nanoGPT</span>
+                        About 150 lines vs about 300, because the optimizer and autograd are graph passes, not a separate framework around the model.
+                    </div>
+                    <div class="compare">
+                        <span class="tag">vs tinygrad</span>
+                        <code>nn.Embedding</code> goes through one-hot &times; W in tinygrad; anneal uses a real <code>Gather</code> op, which keeps the backward cheaper.
+                    </div>
+
+                    <details class="why">
+                        <summary>Why does forward + backward fuse into the same kernel?</summary>
+                        <div class="body">
+                            <p>In anneal, gradients are graph-rewrite output, not closures over Python objects. The backward UOps live in the same DAG as the forward UOps. The rangeify scheduler indexes both passes by output range, and when the forward producer and the backward consumer share that range, the scheduler collapses them into one WGSL kernel: no intermediate buffer materializes, and the seam between the two passes vanishes.</p>
+                            <p>This is the thesis. A tape-based autograd cannot do it: it sees the forward and backward as separate programs by construction.</p>
+                        </div>
+                    </details>
+
+                    <p class="intent" style="margin-top: 1rem">
+                        Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same kind of forward / backward / fused-kernel pipeline.
+                    </p>
+                </section>
+
+                <!-- ─── 5. Compiler tour ──────────────────────────────── -->
+                <section class="step" id="tour">
+                    <p class="step-label"><span class="num">05</span><span>what just happened</span></p>
+                    <h2 class="step-heading">A tour through the compiler that made the kernels.</h2>
+                    <p class="intent">
+                        The model is the boring part. The compiler is the interesting one. <code>anneal explain</code> shows you the rewrite rules that fire for a single op; <code>anneal kernels</code> shows you the final WGSL with fusion boundaries annotated; and the visualizer steps through every stage of the pipeline that produced them.
+                    </p>
+
+                    <div class="terminal" role="region" aria-label="compiler inspection commands">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy="anneal explain gather" aria-label="copy explain command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal explain gather</span></div>
+                            <span class="t-out"><span class="t-fwd">forward</span>: indexed load over an embedding table.</span>
+                            <span class="t-out"><span class="t-bwd">backward</span>: deterministic sort + segment-sum into the index axis.</span>
+                            <span class="t-out">rules fired: gather.fold-identity, gather.lift-permute</span>
+                            <span class="t-gap"></span>
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels nanogpt</span></div>
+                            <span class="t-out">kernel 0/7 attn.qkv  <span class="t-dim">// fused: matmul + add + reshape</span></span>
+                            <span class="t-out">kernel 3/7 mlp.gelu  <span class="t-dim">// fused: matmul + gelu + dropout</span></span>
+                            <span class="t-out">kernel 6/7 loss.ce   <span class="t-dim">// fused: log_softmax + nll + grad seed</span></span>
+                        </div>
+                    </div>
+
+                    <div class="compare">
+                        <span class="tag">vs PyTorch</span>
+                        There is no FX graph capture, no <code>torch.compile</code> backend layer, no extra trip through Triton. The CLI is already inside the compiler.
+                    </div>
+
+                    <details class="why">
+                        <summary>UOps, rangeify, and the <code>.upat</code> DSL in one sentence each</summary>
+                        <div class="body">
+                            <p><strong>UOps</strong>: a single immutable, interned, arena-allocated IR node that represents every operation, forward and backward (<a class="inline" href="https://github.com/georgebuilds/anneal/tree/main/uop">uop/</a>).</p>
+                            <p><strong>Rangeify</strong>: movement ops (reshape, permute, expand, pad, shrink, flip) become index arithmetic, never copies; the scheduler indexes every kernel by its output range (<a class="inline" href="https://github.com/georgebuilds/anneal/tree/main/schedule">schedule/</a>).</p>
+                            <p><strong>.upat DSL</strong>: per-op pattern files compiled at build time into match functions, so the rewrite hot path is reflection-free and inspectable (<a class="inline" href="https://github.com/georgebuilds/anneal/tree/main/rewrite">rewrite/</a>).</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 6. Run GPT-2-small ────────────────────────────── -->
+                <section class="step" id="gpt2">
+                    <p class="step-label"><span class="num">06</span><span>run gpt-2-small</span></p>
+                    <span class="coming-soon"><span class="dot"></span>coming soon</span>
+                    <h2 class="step-heading">Sample from the real GPT-2-small, end to end in Go.</h2>
+                    <p class="coming-soon-note">
+                        This demo lands with PR XX; the structure below shows what you will see.
+                    </p>
+                    <p class="intent">
+                        <code>anneal gpt2 sample</code> fetches the HuggingFace GPT-2-small weights (<code>model.safetensors</code>, about 548 MB), the vocab (<code>vocab.json</code>, about 1 MB), and the merges (<code>merges.txt</code>, about 500 KB), all SHA-pinned and atomically downloaded into <code>$ANNEAL_CACHE_DIR</code>. It then runs forward inference, BPE-decodes the output, and prints a sample.
+                    </p>
+
+                    <div class="terminal" role="region" aria-label="GPT-2 sample command">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world"' aria-label="copy command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world"</span></div>
+                            <span class="t-out"><span class="t-dim">[structure preview, not real output]</span></span>
+                            <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                            <span class="t-out">fetch vocab.json (1 MiB) <span class="t-fsd">sha ok</span></span>
+                            <span class="t-out">fetch merges.txt (445 KiB) <span class="t-fsd">sha ok</span></span>
+                            <span class="t-out">model gpt2-small layers=12 heads=12 dmodel=768</span>
+                            <span class="t-out">device webgpu · apple m3 max</span>
+                            <span class="t-out">compile <span class="t-dim">1.8s</span> · forward <span class="t-dim">42 uops</span> · fused <span class="t-fsd">11 kernels</span></span>
+                            <span class="t-gap"></span>
+                            <span class="t-out">sample:</span>
+                            <span class="t-out"><span class="t-fwd">Hello, world. It's good to see you again.</span></span>
+                        </div>
+                    </div>
+
+                    <div class="compare">
+                        <span class="tag">vs transformers.AutoModel.from_pretrained('gpt2')</span>
+                        Same model class, no Python, no CGO, no shim. The weights load through the pure-Go safetensors reader; the BPE tokenizer is pure Go too.
+                    </div>
+
+                    <details class="why">
+                        <summary>Why forward-only, and where does this fit?</summary>
+                        <div class="body">
+                            <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward proves correctness against a reference implementation: the same weights drive HuggingFace and anneal, the outputs should agree (to f32 noise).</p>
+                            <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op from the nanoGPT demo. Nothing changes at the compiler level: this is the same pipeline, with bigger weights.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── 7. Going further ──────────────────────────────── -->
+                <section class="step" id="further">
+                    <p class="step-label"><span class="num">07</span><span>going further</span></p>
+                    <h2 class="step-heading">Explore the compiler interactively.</h2>
+                    <p class="intent">
+                        From here the most useful surfaces are the visualizer, the graph dump, and the source.
+                    </p>
+                    <div class="terminal" role="region" aria-label="further commands">
+                        <div class="term-bar" aria-hidden="true">
+                            <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                            <button class="term-copy" data-copy="anneal viz" aria-label="copy viz command">copy</button>
+                        </div>
+                        <div class="term-body">
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal viz</span>          <span class="t-dim"># live visualizer in your browser (WASM)</span></div>
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal graph mlp</span>   <span class="t-dim"># dump the UOp DAG for a model</span></div>
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal explain add</span> <span class="t-dim"># trace rewrite rules for one op</span></div>
+                        </div>
+                    </div>
+                    <p class="intent">
+                        For a static walkthrough of an example pipeline without spinning up <code>anneal viz</code>, see the <a class="inline" href="../visualizer-demo/">visualizer demo</a>. To contribute, read <a class="inline" href="https://github.com/georgebuilds/anneal/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> and the architecture spec at <a class="inline" href="https://github.com/georgebuilds/anneal/blob/main/SPEC.md">SPEC.md</a>. The source lives at <a class="inline" href="https://github.com/georgebuilds/anneal">github.com/georgebuilds/anneal</a>.
+                    </p>
+                </section>
+
+                <!-- ─── 8. Troubleshooting ────────────────────────────── -->
+                <section class="step" id="troubleshooting">
+                    <p class="step-label"><span class="num">08</span><span>troubleshooting</span></p>
+                    <h2 class="step-heading">Common failure modes, and what to do about them.</h2>
+
+                    <details class="why" open>
+                        <summary>No WebGPU adapter detected</summary>
+                        <div class="body">
+                            <p>On macOS Apple Silicon the WebGPU adapter is built in; if <code>anneal doctor</code> reports no adapter, your Go build likely didn't link the Metal path. Reinstall with <code>go install</code> on the same machine you intend to run on.</p>
+                            <p>On Linux, install a Vulkan-capable driver for your GPU and re-run <code>anneal doctor</code>. On Windows, ensure DX12 is available.</p>
+                        </div>
+                    </details>
+
+                    <details class="why">
+                        <summary>Asset downloads keep retrying / network is sketchy</summary>
+                        <div class="body">
+                            <p>Set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is empty, so you don't waste a retry budget. Pre-populate <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>) from a machine that has network. The cache directory layout is stable.</p>
+                        </div>
+                    </details>
+
+                    <details class="why">
+                        <summary>SHA mismatch on a downloaded asset</summary>
+                        <div class="body">
+                            <p>This is fail-closed by design. The likely cause is a corrupted partial download (network was cut mid-stream). Delete the offending file in <code>$ANNEAL_CACHE_DIR</code> and re-run; anneal does not silently accept mismatched assets.</p>
+                        </div>
+                    </details>
+
+                    <details class="why">
+                        <summary>Training is much slower than the docs imply</summary>
+                        <div class="body">
+                            <p>First-run compile time is dominated by WGSL pipeline creation and (optionally) BEAM autotuning. Subsequent runs hit the disk cache and start in well under a second. On Linux + wgpu, expect ~2x the latency of an M3 Mac because the Vulkan path is less tuned and the driver layer is thicker.</p>
+                        </div>
+                    </details>
+
+                    <details class="why">
+                        <summary>Linux + wgpu setup notes</summary>
+                        <div class="body">
+                            <p>You need an up-to-date Mesa or a vendor Vulkan driver. <code>vulkaninfo</code> should list at least one device; <code>anneal doctor</code> will then find it. If <code>vulkaninfo</code> works but anneal reports no adapter, file an issue with the full <code>anneal doctor</code> output.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- ─── QA bank ────────────────────────────────────────── -->
+                <section class="step qa-bank" id="qa">
+                    <p class="step-label"><span class="num">qa</span><span>questions</span></p>
+                    <h2>Frequently asked.</h2>
+                    <p class="qa-intro">Grouped by topic. Click to expand.</p>
+
+                    <div class="qa-group">
+                        <h3>install &amp; environment</h3>
+                        <details>
+                            <summary>What if I have no GPU?</summary>
+                            <div class="a">A WebGPU-capable adapter is required by design. anneal does not ship a CPU execution path; the assumption that every program is a WGSL kernel is wired into the scheduler. If you only have CPU, you can still build, but <code>anneal run</code> will fail at device probe.</div>
+                        </details>
+                        <details>
+                            <summary>What if I'm on Windows?</summary>
+                            <div class="a">The wgpu-native DirectX 12 path works but is the least exercised of the three platforms. If something breaks, file an issue on the GitHub tracker with <code>anneal doctor</code> output attached.</div>
+                        </details>
+                        <details>
+                            <summary>Why Go, not Python?</summary>
+                            <div class="a">Zero-CGO is the deciding constraint: one static binary, no env management, no pip install, no driver-matched wheels. The visualizer ships as the same Go code compiled to WASM, so the live demo runs the real compiler.</div>
+                        </details>
+                    </div>
+
+                    <div class="qa-group">
+                        <h3>nanogpt</h3>
+                        <details>
+                            <summary>Why char-level instead of BPE?</summary>
+                            <div class="a">A vocab of about 65 keeps the embedding tiny and removes the tokenizer as a dependency. The point of this demo is forward + backward fusion across the scheduler seam, not language modeling. BPE comes in for GPT-2 because that is the format the released weights expect.</div>
+                        </details>
+                        <details>
+                            <summary>How long does training take?</summary>
+                            <div class="a">Roughly a few minutes for 2000 steps on an M3 Max; about 2x that on a typical Linux + wgpu box. Numbers vary with kernel cache warmth.</div>
+                        </details>
+                        <details>
+                            <summary>Can I change the model size?</summary>
+                            <div class="a">The flags exposed in v1 are <code>--steps</code>, <code>--batch</code>, and <code>--seed</code>. Architectural knobs (layers, heads, dmodel) live in the example source, not on the command line, because the goal here is a stable reference, not a hyperparam playground.</div>
+                        </details>
+                    </div>
+
+                    <div class="qa-group">
+                        <h3>gpt-2</h3>
+                        <details>
+                            <summary>Why no GPT-2 fine-tuning or training?</summary>
+                            <div class="a">Training from scratch needs OpenWebText (about 40 GB) and a multi-day budget on a single device; fine-tuning needs a curated dataset and a stable evaluation. Both are out of scope for v1. Forward proves the model class is correct against HuggingFace; that is the load-bearing check.</div>
+                        </details>
+                        <details>
+                            <summary>Where do the GPT-2 weights come from?</summary>
+                            <div class="a">From HuggingFace's <code>gpt2</code> model repository: <code>model.safetensors</code>, <code>vocab.json</code>, <code>merges.txt</code>. Each asset is SHA-pinned in code and atomically downloaded into the cache.</div>
+                        </details>
+                        <details>
+                            <summary>Why 548 MB? Can I get smaller?</summary>
+                            <div class="a">That is FP32 weight storage. F16 storage is on the roadmap (the device feature is already gated through <code>anneal doctor</code>); when it lands, the same checkpoint will load at half the size.</div>
+                        </details>
+                        <details>
+                            <summary>Can I run a different model size?</summary>
+                            <div class="a">Not in v1. The architecture and weight layout are pinned to GPT-2-small to keep the compiler-correctness check tight against a single reference. Medium / large are deferred.</div>
+                        </details>
+                    </div>
+
+                    <div class="qa-group">
+                        <h3>compiler concepts</h3>
+                        <details>
+                            <summary>What is a UOp?</summary>
+                            <div class="a">A UOp is one immutable IR node: an op kind, a dtype, an output shape, and pointers to its source UOps. They live in an arena, they are interned, and they are never mutated. Structural equality is identity equality, so deep comparison disappears from the hot path. See <a class="inline" href="https://github.com/georgebuilds/anneal/tree/main/uop">uop/</a>.</div>
+                        </details>
+                        <details>
+                            <summary>What is rangeify?</summary>
+                            <div class="a">A scheduling model where every kernel is indexed by its output range, and movement ops (reshape, permute, expand, pad, shrink, flip) are absorbed as index arithmetic rather than data copies. The only thing that materializes a buffer is the scheduler when it decides to. See <a class="inline" href="https://github.com/georgebuilds/anneal/blob/main/SPEC.md">SPEC.md</a> for the full design.</div>
+                        </details>
+                        <details>
+                            <summary>How is anneal's gather different from PyTorch's?</summary>
+                            <div class="a">Forward is the same: an indexed load. The backward is what differs: anneal lowers to deterministic sort + segment-sum into the index axis, so gradients are stable and cheap. tinygrad emulates gather via one-hot &times; W, which is correct but pays an O(VxN) tensor multiply on the backward; anneal avoids that.</div>
+                        </details>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <footer class="site">
+            <div class="brand">
+                <a class="gb-link" href="https://georgebuilds.github.io/" aria-label="georgebuilds: home">georgebuilds</a>
+                <span class="brand-sep" aria-hidden="true">/</span>
+                <a class="proj-name linkish" href="../">anneal</a>
+            </div>
+            <div class="links">
+                <a href="../">home</a>
+                <a href="./" aria-current="page">tutorial</a>
+                <a href="../visualizer-demo/">visualizer</a>
+                <a href="https://github.com/georgebuilds/anneal" target="_blank" rel="noopener">github</a>
+            </div>
+        </footer>
+
+        <script>
+            (function () {
+                "use strict";
+
+                /* Theme toggle: shares localStorage["anneal-theme"] with the site. */
+                var themeBtn = document.getElementById("js-theme");
+                function applyTheme(t) {
+                    document.documentElement.setAttribute("data-theme", t);
+                    themeBtn.textContent = t === "light" ? "☾" : "☀";
+                    themeBtn.setAttribute(
+                        "aria-label",
+                        "switch to " + (t === "light" ? "dark" : "light") + " mode"
+                    );
+                }
+                applyTheme(
+                    document.documentElement.getAttribute("data-theme") || "dark"
+                );
+                themeBtn.addEventListener("click", function () {
+                    var cur = document.documentElement.getAttribute("data-theme") === "light"
+                        ? "dark" : "light";
+                    try { localStorage.setItem("anneal-theme", cur); } catch (e) {}
+                    applyTheme(cur);
+                });
+
+                /* Sticky scroll progress bar */
+                var fill = document.getElementById("js-progress");
+                function updateProgress() {
+                    var doc = document.documentElement;
+                    var max = doc.scrollHeight - doc.clientHeight;
+                    var pct = max > 0 ? (window.scrollY / max) * 100 : 0;
+                    fill.style.width = pct.toFixed(1) + "%";
+                }
+                window.addEventListener("scroll", updateProgress, { passive: true });
+                window.addEventListener("resize", updateProgress);
+                updateProgress();
+
+                /* Active rail link highlighting via IntersectionObserver */
+                var railLinks = document.querySelectorAll("#js-rail a");
+                var byHash = {};
+                railLinks.forEach(function (a) { byHash[a.getAttribute("href")] = a; });
+                if ("IntersectionObserver" in window) {
+                    var io = new IntersectionObserver(function (entries) {
+                        entries.forEach(function (e) {
+                            if (e.isIntersecting) {
+                                var id = "#" + e.target.id;
+                                railLinks.forEach(function (a) { a.classList.remove("active"); });
+                                if (byHash[id]) byHash[id].classList.add("active");
+                            }
+                        });
+                    }, { rootMargin: "-40% 0px -55% 0px" });
+                    document.querySelectorAll("section.step").forEach(function (s) { io.observe(s); });
+                }
+
+                /* Terminal copy buttons */
+                document.querySelectorAll(".term-copy").forEach(function (btn) {
+                    btn.addEventListener("click", function () {
+                        var cmd = btn.getAttribute("data-copy") || "";
+                        if (!cmd || !navigator.clipboard) return;
+                        navigator.clipboard.writeText(cmd).then(function () {
+                            var prev = btn.textContent;
+                            btn.textContent = "copied";
+                            btn.classList.add("copied");
+                            setTimeout(function () {
+                                btn.textContent = prev;
+                                btn.classList.remove("copied");
+                            }, 1600);
+                        });
+                    });
+                });
+            })();
+        </script>
+    </body>
+</html>
