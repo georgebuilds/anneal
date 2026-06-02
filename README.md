@@ -10,6 +10,7 @@
 [![backend](https://img.shields.io/badge/backend-WebGPU-0d9488)](#backend)
 [![go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![model](https://img.shields.io/badge/it's%20a-compiler-f59e0b)](#what-anneal-is)
+[![codecov](https://codecov.io/github/georgebuilds/anneal/branch/main/graph/badge.svg?token=1S9OUTWWG8)](https://codecov.io/github/georgebuilds/anneal)
 [![license](https://img.shields.io/badge/license-AGPL3-blue)](LICENSE)
 
 [Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Contributing](CONTRIBUTING.md)
