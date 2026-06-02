@@ -818,6 +818,21 @@ func (l *lowerer) lowerSink() []Instr {
 	// renderer skips it — same effective behavior as static, where per-axis
 	// guards are the sole padding mask.
 	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: false})
+
+	// Pre-emit cross-scope shared ALU UOps at the kernel top so they live in
+	// scope for every reduce-body that references them AND for any post-reduce
+	// code that references them. Without this, emitReduce caches an inside-loop
+	// `let t<i>` in exprOf and a later emitExpr call reuses the cached name
+	// outside the closed loop, producing WGSL like:
+	//
+	//   for (var r51 ...) { ... let t1288: i32 = ...; ... }
+	//   let t1291: i32 = (t1288 / 4);  // unresolved: t1288 went out of scope
+	//
+	// The pre-pass identifies any ALU UOp reachable from inside an OpReduce
+	// elem-subtree AND from outside it, then runs emitExpr on each at the
+	// kernel-top scope. The renderer puts those Lets before the reduce loop,
+	// so subsequent emitExpr calls hit the cache regardless of scope.
+	l.hoistCrossScopeShared(body)
 	bodyExpr := l.emitExpr(body)
 
 	var outBufDType *uop.DType
@@ -885,6 +900,150 @@ func (l *lowerer) lowerSink() []Instr {
 	}
 
 	return l.instrs
+}
+
+// hoistCrossScopeShared pre-emits ALU/index UOps that are reachable from both
+// inside an OpReduce's elem-subtree AND from outside that subtree (i.e. would
+// otherwise be emitted as an `InstrLet` inside the reduce loop scope but also
+// referenced from the post-reduce scope where the let is no longer visible).
+//
+// Hash-consing in the UOp arena interns identical sub-expressions to a single
+// node, so a loop-invariant index expression that appears in both the reduce
+// body and the post-reduce store body resolves to the same arena UOp. The
+// default emitExpr walk caches the in-loop emission keyed by arena index, and
+// the second reference (outside the loop) hits the cache without re-emitting,
+// producing WGSL that references an out-of-scope identifier.
+//
+// The fix walks `body` twice:
+//   - innerReachable: from each OpReduce's elemNode (Src(0)), recursively
+//     collect all reachable ALU/Index UOps.
+//   - outerReachable: from `body`, recursively collect all reachable UOps,
+//     treating OpReduce as a barrier (don't descend into its elemNode).
+//
+// The intersection is the set of cross-scope-shared UOps. For each, we walk
+// its subgraph in topological order and call emitExpr — that emits the InstrLet
+// at the current emit depth (kernel-top, before any reduce loop opens) and
+// populates l.exprOf so the subsequent emitExpr(body) walk hits the cache from
+// both inside and outside reduce bodies.
+//
+// We do NOT hoist Range / Const / DefineVar / Param / Buffer / DefineLocal /
+// Barrier nodes (those either have no Let or have scope-specific naming that
+// emitExpr handles correctly).
+func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
+	innerReachable := make(map[uint32]bool)
+	var walkInner func(u uop.UOp)
+	walkInner = func(u uop.UOp) {
+		if innerReachable[u.Index()] {
+			return
+		}
+		innerReachable[u.Index()] = true
+		for i := 0; i < u.NSrc(); i++ {
+			walkInner(u.Src(i))
+		}
+	}
+
+	// Find every OpReduce reachable from body (including nested reduces) and
+	// mark its elemNode subtree as "inside-reduce-reachable".
+	var findReduces func(u uop.UOp, seen map[uint32]bool)
+	findReduces = func(u uop.UOp, seen map[uint32]bool) {
+		if seen[u.Index()] {
+			return
+		}
+		seen[u.Index()] = true
+		if u.Op() == uop.OpReduce && u.NSrc() >= 1 {
+			walkInner(u.Src(0))
+		}
+		for i := 0; i < u.NSrc(); i++ {
+			findReduces(u.Src(i), seen)
+		}
+	}
+	findReduces(body, make(map[uint32]bool))
+	if len(innerReachable) == 0 {
+		return
+	}
+
+	// Walk body but treat OpReduce as a barrier (skip its elemNode).
+	outerReachable := make(map[uint32]bool)
+	var walkOuter func(u uop.UOp)
+	walkOuter = func(u uop.UOp) {
+		if outerReachable[u.Index()] {
+			return
+		}
+		outerReachable[u.Index()] = true
+		if u.Op() == uop.OpReduce {
+			// Skip Src(0) (elemNode), but still visit the range sources so
+			// their UOps are seen at the outer level.
+			for i := 1; i < u.NSrc(); i++ {
+				walkOuter(u.Src(i))
+			}
+			return
+		}
+		for i := 0; i < u.NSrc(); i++ {
+			walkOuter(u.Src(i))
+		}
+	}
+	walkOuter(body)
+
+	// Intersection: shared across scopes.
+	shared := make(map[uint32]bool)
+	for idx := range innerReachable {
+		if outerReachable[idx] {
+			shared[idx] = true
+		}
+	}
+	if len(shared) == 0 {
+		return
+	}
+
+	// Topologically order the shared UOps so we emit producers before consumers.
+	// Reuse the body topo, filtering by `shared`.
+	order := topoSortForHoist(body)
+	for _, u := range order {
+		if !shared[u.Index()] {
+			continue
+		}
+		if !hoistEligible(u) {
+			continue
+		}
+		// Trigger emission of u (and any unmemoized deps it references).
+		// emitExpr is the canonical entry; calling it at kernel-top depth
+		// emits InstrLet at this depth and caches the name in exprOf.
+		l.emitExpr(u)
+	}
+}
+
+// hoistEligible reports whether u should participate in the cross-scope hoist.
+// Excludes nodes that emitExpr handles specially (no Let, or scope-specific
+// naming the outer caller registers — Ranges/Consts/DefineVars/Params/etc).
+func hoistEligible(u uop.UOp) bool {
+	switch u.Op() {
+	case uop.OpConst, uop.OpRange, uop.OpDefineVar, uop.OpParam,
+		uop.OpBuffer, uop.OpDefineLocal, uop.OpBarrier,
+		uop.OpReduce, uop.OpEnd, uop.OpStore, uop.OpSink, uop.OpAfter:
+		return false
+	}
+	return true
+}
+
+// topoSortForHoist returns body's reachable subgraph in topological order
+// (producers before consumers). Standalone from rangeify.topoSort to avoid a
+// package-level import cycle and to scope traversal to the body subgraph.
+func topoSortForHoist(root uop.UOp) []uop.UOp {
+	var order []uop.UOp
+	seen := make(map[uint32]bool)
+	var visit func(u uop.UOp)
+	visit = func(u uop.UOp) {
+		if seen[u.Index()] {
+			return
+		}
+		seen[u.Index()] = true
+		for i := 0; i < u.NSrc(); i++ {
+			visit(u.Src(i))
+		}
+		order = append(order, u)
+	}
+	visit(root)
+	return order
 }
 
 func (l *lowerer) emitExpr(u uop.UOp) string {
