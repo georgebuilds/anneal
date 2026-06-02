@@ -36,7 +36,21 @@ func trainCmdW(args []string, w io.Writer) int {
 	plain := fs.Bool("plain", false, "plain text output (disables the TUI)")
 	batch := fs.Int64("batch", 16, "batch size for dynamic-batch models; static models ignore this")
 
-	if err := fs.Parse(args); err != nil {
+	// Extract the model name from anywhere in args so callers can write either
+	// "anneal train --steps=N nanogpt" or the more natural
+	// "anneal train nanogpt --steps=N". The Go flag package stops at the
+	// first non-flag, so without this swap the trailing flags are silently
+	// dropped (defaults win). The first non-flag arg is treated as the model.
+	parseArgs := make([]string, 0, len(args))
+	var model string
+	for _, a := range args {
+		if model == "" && a != "" && a[0] != '-' {
+			model = a
+			continue
+		}
+		parseArgs = append(parseArgs, a)
+	}
+	if err := fs.Parse(parseArgs); err != nil {
 		fmt.Fprintln(w, err)
 		return 1
 	}
@@ -59,19 +73,24 @@ func trainCmdW(args []string, w io.Writer) int {
 	_ = *debug
 	_ = *viz
 
-	rest := fs.Args()
-	if len(rest) == 0 {
-		fmt.Fprintln(w, "usage: anneal train <model> [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]")
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "available models:")
-		for _, e := range examples.All() {
-			fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+	// If no positional model was provided in pre-parse, fall back to fs.Args()
+	// (in case the caller passed the model AFTER the flags via the older
+	// "anneal train --steps=N <model>" form).
+	if model == "" {
+		rest := fs.Args()
+		if len(rest) == 0 {
+			fmt.Fprintln(w, "usage: anneal train <model> [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]")
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "available models:")
+			for _, e := range examples.All() {
+				fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+			}
+			return 1
 		}
-		return 1
+		model = rest[0]
 	}
 
-	name := rest[0]
-	ex, err := examples.Get(name)
+	ex, err := examples.Get(model)
 	if err != nil {
 		fmt.Fprintln(w, formatError(err.Error()))
 		return 1
@@ -96,6 +115,11 @@ func trainCmdW(args []string, w io.Writer) int {
 		LogEvery: *logEvery,
 		Batch:    *batch,
 	}
+	// LogText sink routes arbitrary text (e.g. a nanoGPT generation sample
+	// at end of training) into the same writer used for loss lines. Plain
+	// path: write to w (which may be a bytes.Buffer in tests). TUI path:
+	// wired below in trainWithTUI.
+	cfg.LogText = func(s string) { fmt.Fprint(w, s) }
 
 	// Activate the TUI when writing to an interactive TTY, NO_COLOR is not set,
 	// and --plain was not requested. The plain path is the CI/pipe/test path.
@@ -152,6 +176,11 @@ func trainWithTUI(
 	cfg.OnStep = func(step int) {
 		p.Send(tui.StepMsg{Step: step})
 	}
+
+	// Route arbitrary text emissions (e.g. nanoGPT's final sample) to
+	// stderr while the TUI owns stdout. The user sees the sample after the
+	// TUI exits.
+	cfg.LogText = func(s string) { fmt.Fprint(os.Stderr, s) }
 
 	// Loss callback: sent every LogEvery steps.
 	logFn := func(step int, loss float32) {

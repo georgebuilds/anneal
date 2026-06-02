@@ -26,6 +26,11 @@ type TrainConfig struct {
 	LogEvery int       // log loss every N steps
 	OnStep   func(int) // called on every step (nil = no-op); used by the TUI for smooth progress
 	Batch    int64     // symbolic batch size; 0 = use example default; static examples ignore it
+	// LogText is an optional sink for arbitrary text emitted by an example
+	// (e.g. a generation sample at end of nanoGPT training). When nil the
+	// example falls back to os.Stdout. cmd_train.go wires this to its plain
+	// output writer so the CLI / TUI / tests share one sink.
+	LogText func(string)
 }
 
 // Example is a named, runnable model example.
