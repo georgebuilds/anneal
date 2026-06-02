@@ -18,7 +18,7 @@
 
 ---
 
-anneal is a from-scratch Go port of [tinygrad](https://github.com/tinygrad/tinygrad)'s modern, *rangeify-era* core. It takes tensor programs, lowers them through a graph-rewrite compiler, and emits fused GPU kernels. It currently trains a small MLP and a small convolutional network end-to-end on real GPU hardware via WebGPU.
+anneal is a from-scratch Go port of [tinygrad](https://github.com/tinygrad/tinygrad)'s modern, *rangeify-era* core. It takes tensor programs, lowers them through a graph-rewrite compiler, and emits fused GPU kernels. It trains a small MLP, a small convolutional network, and a char-level nanoGPT end-to-end on real GPU hardware via WebGPU, and runs GPT-2-small forward with bit-identical output to HuggingFace's reference implementation.
 
 It is a research project and a learning vehicle, built deliberately in phases. It is not (yet) a drop-in replacement for a production framework — see [Status](#status) for exactly what v1 does and doesn't do.
 
@@ -29,7 +29,7 @@ Most autodiff libraries record a tape and replay it. anneal doesn't.
 - **It's a compiler, not an autodiff library.** Everything — forward ops, gradients, movement ops — is a single immutable IR node (the `UOp`). Computation is suspended until you `Realize()`, at which point the whole program is one graph the compiler can rewrite, schedule, and fuse.
 - **Gradients are a rewrite pass.** `Backward()` doesn't build closures; it injects gradient `UOp`s into the *same* graph as the forward pass. The scheduler then fuses kernels across the forward/backward boundary — an optimization that's structurally impossible with a tape.
 - **Movement ops are range arithmetic, not copies.** reshape, permute, expand, pad, shrink, and flip never move data. They become index math (the *rangeify* model), and the only thing that ever materializes a buffer is the scheduler.
-- **It runs in the browser.** The same compiler builds to WASM and powers the [live visualizer](https://georgebuilds.github.io/anneal/) — which runs the *real* compiler, not a mock.
+- **It runs in the browser.** The same compiler builds to WASM and powers the [live visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/), which runs the *real* compiler, not a mock.
 
 In the visualizer (and throughout the project) color encodes architecture:
 
@@ -51,11 +51,13 @@ go build ./cmd/anneal
 Then:
 
 ```bash
-anneal doctor      # check your environment can reach a WebGPU device
-anneal train mlp   # train the MLP with a live TUI dashboard (also: conv, dynmlp --batch=N)
-anneal graph       # dump the UOp graph for a program
-anneal kernels     # show the scheduled, fused kernels and their WGSL
-anneal explain add  # explain the rewrite/gradient rules for an op
+anneal doctor               # check your environment can reach a WebGPU device
+anneal train mlp            # train the MLP with a live TUI dashboard (also: conv, dynmlp --batch=N)
+anneal train nanogpt        # char-level transformer trained end to end on Shakespeare
+anneal gpt2 sample "Hello"  # forward GPT-2-small from HuggingFace weights, sample text
+anneal graph                # dump the UOp graph for a program
+anneal kernels              # show the scheduled, fused kernels and their WGSL
+anneal explain add          # explain the rewrite/gradient rules for an op
 ```
 
 `anneal doctor` is the right first command: anneal links the platform WebGPU driver at runtime (zero-CGO), so `doctor` tells you whether a usable device is present before anything else.
@@ -73,7 +75,7 @@ loss.Backward()   // injects gradient UOps into the same graph (teal → ember)
 loss.Realize()    // schedule, fuse across the seam (gold), compile to WGSL, run
 ```
 
-For runnable, end-to-end code, including parameter setup, the training loop, and an SGD step — see [`examples/`](examples) (`mlp.go`, `conv.go`, `dynmlp.go`). Those are the canonical reference for the current API surface.
+For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
 
 ## Project layout
 
@@ -85,10 +87,13 @@ schedule/    rangeify, realize-map, bufferize, kernel split
 codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel transforms), beam.go (BEAM autotuning)
 backend/     device abstraction; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
-  nn/        Linear, Conv2d, MaxPool2D, activations, SGD, Parameter
+  nn/        Linear, Conv2d, MaxPool2D, Embedding, LayerNorm, CausalSelfAttention,
+             MLP, Block, GPT, activations, SGD, Adam, Parameter
 cmd/anneal/  the CLI
 viz/         the WASM visualizer
-examples/    mlp.go, conv.go, dynmlp.go
+examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, gpt2/
+internal/
+  assets/    SHA-pinned downloader for Shakespeare corpus and HF GPT-2 weights
 ```
 
 The full architecture — the UOp arena and interning model, the rewrite driver, the rangeify indexing model, the 10-pass scheduler, and the design decisions behind them — lives in **[SPEC.md](SPEC.md)**. Read it before making non-trivial changes.

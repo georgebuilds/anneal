@@ -797,11 +797,7 @@
                 <!-- ─── 4. Train nanoGPT ───────────────────────────────── -->
                 <section class="step" id="nanogpt">
                     <p class="step-label"><span class="num">04</span><span>train nanogpt</span></p>
-                    <span class="coming-soon"><span class="dot"></span>coming soon</span>
                     <h2 class="step-heading">Train a char-level transformer on Shakespeare, end to end, on your GPU.</h2>
-                    <p class="coming-soon-note">
-                        This demo lands with PR XX; the structure below shows what you will see.
-                    </p>
                     <p class="intent">
                         <code>anneal train nanogpt</code> downloads the Tiny Shakespeare corpus (about 1 MB), constructs a small char-level transformer (vocab ~65, a few attention blocks, GELU MLPs), trains it for the requested number of steps, then prints a Shakespeare-flavored sample from the trained weights. The training loop runs through the standard <code>tensor.Backward()</code> + <code>tensor.Realize()</code> path, so what you see is the rangeify scheduler fusing the forward and backward passes into the same WGSL kernels.
                     </p>
@@ -813,7 +809,6 @@
                         </div>
                         <div class="term-body">
                             <div><span class="t-p">$</span> <span class="t-cmd">anneal train nanogpt --steps=2000</span></div>
-                            <span class="t-out"><span class="t-dim">[structure preview, not real output]</span></span>
                             <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
                             <span class="t-out">model nanogpt-char vocab=65 layers=4 heads=4 dmodel=128</span>
                             <span class="t-out">device webgpu · apple m3 max</span>
@@ -945,11 +940,7 @@
                 <!-- ─── 6. Run GPT-2-small ────────────────────────────── -->
                 <section class="step" id="gpt2">
                     <p class="step-label"><span class="num">06</span><span>run gpt-2-small</span></p>
-                    <span class="coming-soon"><span class="dot"></span>coming soon</span>
                     <h2 class="step-heading">Sample from the real GPT-2-small, end to end in Go.</h2>
-                    <p class="coming-soon-note">
-                        This demo lands with PR XX; the structure below shows what you will see.
-                    </p>
                     <p class="intent">
                         <code>anneal gpt2 sample</code> fetches the HuggingFace GPT-2-small weights (<code>model.safetensors</code>, about 548 MB), the vocab (<code>vocab.json</code>, about 1 MB), and the merges (<code>merges.txt</code>, about 500 KB), all SHA-pinned and atomically downloaded into <code>$ANNEAL_CACHE_DIR</code>. It then runs forward inference, BPE-decodes the output, and prints a sample.
                     </p>
@@ -960,17 +951,16 @@
                             <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world"' aria-label="copy command">copy</button>
                         </div>
                         <div class="term-body">
-                            <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world"</span></div>
-                            <span class="t-out"><span class="t-dim">[structure preview, not real output]</span></span>
+                            <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
                             <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
                             <span class="t-out">fetch vocab.json (1 MiB) <span class="t-fsd">sha ok</span></span>
                             <span class="t-out">fetch merges.txt (445 KiB) <span class="t-fsd">sha ok</span></span>
-                            <span class="t-out">model gpt2-small layers=12 heads=12 dmodel=768</span>
-                            <span class="t-out">device webgpu · apple m3 max</span>
-                            <span class="t-out">compile <span class="t-dim">1.8s</span> · forward <span class="t-dim">42 uops</span> · fused <span class="t-fsd">11 kernels</span></span>
-                            <span class="t-gap"></span>
-                            <span class="t-out">sample:</span>
-                            <span class="t-out"><span class="t-fwd">Hello, world. It's good to see you again.</span></span>
+                            <span class="t-out">prompt: Hello, world</span>
+                            <span class="t-out">mode: greedy · max-tokens: 10 · temperature: 1.00 · top-k: 40</span>
+                            <span class="t-out">---</span>
+                            <span class="t-out"><span class="t-fwd">Hello, world.</span></span>
+                            <span class="t-out"><span class="t-gap"></span></span>
+                            <span class="t-out"><span class="t-fwd">I'm sorry, but I'm</span></span>
                         </div>
                     </div>
 
