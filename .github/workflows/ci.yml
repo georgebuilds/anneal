@@ -28,9 +28,18 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -coverprofile=coverage.txt ./...
         env:
           GOTRACEBACK: crash
+
+      # NOTE to maintainer: add CODECOV_TOKEN as a repository secret in
+      # repo Settings, Secrets and variables, Actions. Without it, uploads
+      # from private repos or protected forks will fail.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Vet
         run: go vet ./...
