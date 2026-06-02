@@ -679,12 +679,12 @@
                     <p class="step-label"><span class="num">00</span><span>welcome</span></p>
                     <h1 class="step-heading">Get anneal running, train a small transformer, sample from GPT-2.</h1>
                     <p class="intent">
-                        This walkthrough takes about ten minutes of reading and a few minutes of waiting on a download. By the end you will have installed anneal, trained a tiny char-level transformer on Shakespeare end to end on your GPU (forward and backward fused into the same kernels), and produced a sample from GPT-2-small running entirely as Go on WebGPU. The point is not the models. The point is the compiler. Each command exposes one layer of it.
+                        This walkthrough takes about ten minutes of reading and a few minutes of waiting on a download. By the end you will have installed anneal, trained a tiny char-level transformer on Shakespeare end to end on your GPU, and produced a sample from GPT-2-small running entirely as Go on WebGPU. Along the way you'll see how these models are put together (the embedding table, attention heads, the autoregressive sampling loop) and how anneal compiles them into fused WGSL kernels. Each command surfaces one layer of either the model or the compiler.
                     </p>
                     <details class="why">
                         <summary>Why these three demos in this order?</summary>
                         <div class="body">
-                            <p>Training nanoGPT is the thesis demo: it proves the forward graph, the gradient pass, and the scheduler fuse into one program. Running GPT-2-small forward is the breadth demo: same compiler, real production weights, correctness checkable against HuggingFace. Install and sanity check sit in front of both because the WebGPU adapter probe is the one thing worth confirming early.</p>
+                            <p>Training nanoGPT walks the full pipeline end to end: a tiny transformer learns to write Shakespeare-ish text from scratch, and you see how the forward graph, the gradient pass, and the scheduler all run through one immutable IR. Running GPT-2-small forward shows the same compiler handling a real production checkpoint from HuggingFace, with byte-level agreement on the next-token logits. Install and sanity check sit in front of both because the WebGPU adapter probe is the one thing worth confirming early.</p>
                         </div>
                     </details>
                 </section>
@@ -892,7 +892,7 @@
                         <summary>Why does forward + backward fuse into the same kernel?</summary>
                         <div class="body">
                             <p>In anneal, gradients are graph-rewrite output, not closures over Python objects. The backward UOps live in the same DAG as the forward UOps. The rangeify scheduler indexes both passes by output range, and when the forward producer and the backward consumer share that range, the scheduler collapses them into one WGSL kernel: no intermediate buffer materializes, and the seam between the two passes vanishes.</p>
-                            <p>This is the thesis. A tape-based autograd cannot do it: it sees the forward and backward as separate programs by construction.</p>
+                            <p>A tape-based autograd cannot do this: it sees forward and backward as separate programs by construction. Because anneal's gradients live in the same graph, the boundary between the two passes is something the scheduler can see and decide to collapse.</p>
                         </div>
                     </details>
 
@@ -906,7 +906,7 @@
                     <p class="step-label"><span class="num">05</span><span>what just happened</span></p>
                     <h2 class="step-heading">A tour through the compiler that made the kernels.</h2>
                     <p class="intent">
-                        The model is the boring part. The compiler is the interesting one. <code>anneal explain</code> shows you the rewrite rules that fire for a single op; <code>anneal kernels</code> shows you the final WGSL with fusion boundaries annotated; and the visualizer steps through every stage of the pipeline that produced them.
+                        Now that you've seen the model run, let's look at how anneal built the kernels. <code>anneal explain</code> shows you the rewrite rules that fire for a single op; <code>anneal kernels</code> shows you the final WGSL with fusion boundaries annotated; and the visualizer steps through every stage of the pipeline that produced them.
                     </p>
 
                     <div class="terminal" role="region" aria-label="compiler inspection commands">
@@ -982,7 +982,7 @@
                     <details class="why">
                         <summary>Why forward-only, and where does this fit?</summary>
                         <div class="body">
-                            <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward proves correctness against a reference implementation: the same weights drive HuggingFace and anneal, the outputs should agree (to f32 noise).</p>
+                            <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward inference gives you a clean side-by-side against a reference implementation: the same weights drive HuggingFace and anneal, and the outputs should agree (to f32 noise).</p>
                             <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op from the nanoGPT demo. Nothing changes at the compiler level: this is the same pipeline, with bigger weights.</p>
                         </div>
                     </details>
@@ -1095,7 +1095,7 @@
                         <h3>gpt-2</h3>
                         <details>
                             <summary>Why no GPT-2 fine-tuning or training?</summary>
-                            <div class="a">Training from scratch needs OpenWebText (about 40 GB) and a multi-day budget on a single device; fine-tuning needs a curated dataset and a stable evaluation. Both are out of scope for v1. Forward proves the model class is correct against HuggingFace; that is the load-bearing check.</div>
+                            <div class="a">Training from scratch needs OpenWebText (about 40 GB) and a multi-day budget on a single device; fine-tuning needs a curated dataset and a stable evaluation. Both are out of scope for v1. Forward inference gives you a side-by-side check against HuggingFace, which is what matters most for the model class: same weights, same outputs.</div>
                         </details>
                         <details>
                             <summary>Where do the GPT-2 weights come from?</summary>

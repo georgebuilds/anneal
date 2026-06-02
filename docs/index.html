@@ -607,14 +607,25 @@
                 color: var(--gold-tx);
             }
 
-            /* Entry-point cards (tutorial + visualizer): mirror install-row chrome */
-            .entry-row { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 1rem; opacity: 0; transition: opacity 0.5s ease 0.74s; }
-            .entry-row.visible { opacity: 1; }
-            .entry-card { display: inline-flex; align-items: center; gap: 0.6rem; background: var(--surface); border: 1px solid var(--faint); border-radius: 6px; padding: 0.55rem 0.95rem; font-size: 0.8rem; color: var(--text); text-decoration: none; transition: border-color 0.2s ease; }
-            .entry-card:hover { border-color: var(--teal); }
-            .entry-card .ec-label { color: var(--teal-tx); font-weight: 500; }
-            .entry-card .ec-desc { color: var(--muted); font-size: 0.74rem; }
-            .entry-card .ec-arrow { color: var(--teal-tx); }
+            /* Inline links inside prose (tutorial, visualizer demo, etc.) */
+            .il {
+                color: var(--teal-tx);
+                text-decoration: none;
+                border-bottom: 1px dotted var(--teal);
+                transition: color 0.2s ease, border-bottom-style 0.2s ease;
+            }
+            .il:hover {
+                color: var(--teal);
+                border-bottom-style: solid;
+            }
+
+            /* Architecture-section closing CTA */
+            .arch-cta {
+                margin-top: 2rem;
+                text-align: center;
+                color: var(--muted);
+                font-size: 0.88rem;
+            }
 
             /* ─── Screen-reader only ────────────────────────────────────────── */
 
@@ -754,6 +765,37 @@
                 background: var(--bg);
                 padding: 1.6rem;
                 transition: background 0.2s ease;
+                position: relative;
+                overflow: hidden;
+            }
+
+            /* Subtle crackle-on-hover: micro-cracks in glass, wiggling */
+            .arch-card::before {
+                content: "";
+                position: absolute;
+                inset: -2px;
+                background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23c)' opacity='0.55'/></svg>");
+                mix-blend-mode: soft-light;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.5s ease;
+                will-change: opacity, transform, background-position;
+            }
+            .arch-card:hover::before {
+                opacity: 0.22;
+                animation: crackle-wiggle 0.9s ease-in-out infinite;
+            }
+            @keyframes crackle-wiggle {
+                0%   { background-position: 0 0;     transform: translate(0, 0) scale(1); }
+                25%  { background-position: 3px -2px; transform: translate(0.3px, -0.2px) scale(1.0015); }
+                50%  { background-position: -2px 3px; transform: translate(-0.2px, 0.3px) scale(1); }
+                75%  { background-position: 4px 1px;  transform: translate(0.4px, 0.1px) scale(0.9985); }
+                100% { background-position: 0 0;     transform: translate(0, 0) scale(1); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .arch-card:hover::before {
+                    animation: none;
+                }
             }
 
             .card-tag {
@@ -1162,18 +1204,6 @@
                     id="js-copy-live"
                 ></span>
 
-                <div class="entry-row" id="js-entry">
-                    <a class="entry-card" href="tutorial/">
-                        <span class="ec-label">tutorial</span>
-                        <span class="ec-desc">install, train nanoGPT, run GPT-2</span>
-                        <span class="ec-arrow" aria-hidden="true">&rarr;</span>
-                    </a>
-                    <a class="entry-card" href="visualizer-demo/">
-                        <span class="ec-label">visualizer</span>
-                        <span class="ec-desc">step through a real compile</span>
-                        <span class="ec-arrow" aria-hidden="true">&rarr;</span>
-                    </a>
-                </div>
             </div>
             <!-- /.hero -->
 
@@ -1321,6 +1351,10 @@
                         </p>
                     </div>
                 </div>
+
+                <p class="arch-cta" data-i18n-html="arch.cta">
+                    Want to walk through this in practice? <a class="il" href="tutorial/">Install anneal and train nanoGPT on Shakespeare</a>.
+                </p>
             </section>
 
             <div class="divider" role="separator" aria-hidden="true"></div>
@@ -1644,6 +1678,8 @@
                         "card.iop.title": "Bring your own weights",
                         "card.iop.body":
                             "Read and write safetensors and .npy/.npz bidirectionally, in pure Go. Load a checkpoint, train or run it, export it back. The whole stack is zero-CGO: no C toolchain in the build, and it runs on Metal today through WebGPU.",
+                        "arch.cta":
+                            "Want to walk through this in practice? <a class=\"il\" href=\"tutorial/\">Install anneal and train nanoGPT on Shakespeare</a>.",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
@@ -1672,7 +1708,7 @@
                             "A hard invariant. Pattern matching against the IR uses typed accessors, not runtime introspection. The hot path stays predictable, verifiable, and fast.",
                         "phil.viz.h": "The visualizer runs the real compiler",
                         "phil.viz.b":
-                            "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. JSON output carries per-node rule attribution. The marketing artifact and the integration test for the rewrite path are the same artifact.",
+                            "<code>anneal viz</code> compiles the frontend and rewrite engine to WASM and renders the actual UOp graph in-browser. JSON output carries per-node rule attribution. The marketing artifact and the integration test for the rewrite path are the same artifact. Or scrub through <a class=\"il\" href=\"visualizer-demo/\">a captured trace</a> without leaving the docs.",
                         "phil.go.h": "Written in Go",
                         "phil.go.b":
                             "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI, so the visualizer and the trainer are always in sync, by construction.",
@@ -1722,6 +1758,8 @@
                             "Formas simbólicas, JIT, soporte f16/bf16",
                         "card.rt.body":
                             "Formas simbólicas: un kernel se compila una vez y se ejecuta con cualquier tamaño de batch, y la unión se extiende a dividir/fusionar un eje simbólico, cantidades de pad/shrink simbólicas, y dispatch simbólico multidimensional. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
+                        "arch.cta":
+                            "¿Quieres recorrerlo en la práctica? <a class=\"il\" href=\"tutorial/\">Instala anneal y entrena nanoGPT con Shakespeare</a>.",
                         "cli.label": "la cli",
                         "cli.heading": "Verbos que reflejan el pipeline.",
                         "cli.body":
@@ -1754,7 +1792,7 @@
                         "phil.viz.h":
                             "El visualizador ejecuta el compilador real",
                         "phil.viz.b":
-                            "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. La salida JSON incluye atribución de reglas por nodo. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto.",
+                            "<code>anneal viz</code> compila el frontend y el motor de reescritura a WASM y renderiza el grafo UOp real en el navegador. La salida JSON incluye atribución de reglas por nodo. El artefacto de marketing y la prueba de integración de la ruta de reescritura son el mismo artefacto. O recorre <a class=\"il\" href=\"visualizer-demo/\">una traza capturada</a> sin salir de los documentos.",
                         "phil.go.h": "Escrito en Go",
                         "phil.go.b":
                             "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI, por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
@@ -1980,7 +2018,6 @@
                     "js-subhead",
                     "js-secondary",
                     "js-install",
-                    "js-entry",
                 ].forEach(function (id) {
                     document.getElementById(id).classList.add("visible");
                 });
