@@ -13,7 +13,7 @@
 [![codecov](https://codecov.io/github/georgebuilds/anneal/branch/main/graph/badge.svg?token=1S9OUTWWG8)](https://codecov.io/github/georgebuilds/anneal)
 [![license](https://img.shields.io/badge/license-AGPL3-blue)](LICENSE)
 
-[Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Contributing](CONTRIBUTING.md)
+[Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Limitations](LIMITATIONS.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -118,6 +118,8 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Multi-device | ⛔ Deferred |
 | Image dtypes | ⛔ Deferred |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
+
+For the specific shape of each deferral and the platform ceilings behind them (8-buffer-per-kernel WGSL limit, single-adapter WebGPU constraint, non-matmul `OptUpcast`/`OptVectorize`, the WGSL `var<workgroup>` ceiling that gates `OptTile` on symbolic axes), see [LIMITATIONS.md](LIMITATIONS.md).
 
 The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), general symbolic axis movement (split/merge a symbolic dim, sym pad/shrink, multi-dim sym dispatch with the symbolic axis in any position on both kernel-output and input buffers), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional. Kernel autotuning: `LOCAL` applies to multi-dim symbolic kernels; `TILE` stays unavailable on symbolic axes because WGSL forbids non-const workgroup sizes, a hard platform ceiling; `UPCAST` and `VECTORIZE` bail outside matmul shapes for a pre-existing reason unrelated to symbolic. Symbolic kernels still run correctly via the identity codegen path.
 
