@@ -289,6 +289,11 @@ function renderTimelineSkeleton(data, svgRoot) {
     g.setAttribute('transform', `translate(${p.x},${p.y})`);
     g.setAttribute('role', 'img');
     g.setAttribute('aria-label', `${n.class} ${n.op} node: ${n.label}`);
+    // data-node-id is the arena index serialised as the viz-side string
+    // identifier. The standalone `anneal viz` page does not read this; the
+    // studio's W4 visualize embed (web/visualize_embed.html) uses it to
+    // post {type:"nodeClick", nodeId} to the parent on click.
+    g.setAttribute('data-node-id', `n${n.id}`);
 
     // Shape: container we'll mutate on stage change. We render the union's
     // shape here; applyStage swaps if a stage overrides kind (e.g. reduce

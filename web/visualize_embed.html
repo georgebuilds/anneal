@@ -1,0 +1,212 @@
+<!doctype html>
+<!-- W4 visualize embed: served at /visualize/embed by cmd_web.go.
+     This page wraps the existing viz artifact (loaded into the same DOM the
+     standalone `anneal viz` page uses) and adds the W4 postMessage protocol
+     so the parent studio's node-inspector drawer can open on click:
+
+       iframe → parent: {type:"nodeClick", graphId, nodeId}
+       parent → iframe: {type:"nodeSelected", nodeId}
+
+     The standalone `anneal viz` command does NOT load this file; it serves
+     /index.html as before. This isolation is the spec hard rule (DD2 + the
+     "viz standalone keeps working unchanged" requirement). -->
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>anneal visualize embed</title>
+  <meta name="description" content="W4 visualize embed — the viz artifact wrapped with the node-inspector postMessage protocol.">
+  <!-- Theme tokens + viz CSS come from the same /visualize/static/ mount the
+       standalone viz serves; we are not duplicating them here. -->
+  <link rel="stylesheet" href="/visualize/static/style.css">
+</head>
+<body>
+  <header>
+    <span class="wordmark">anneal <span class="viz-label">viz</span></span>
+    <nav class="model-selector" aria-label="model selector">
+      <label>
+        <input type="radio" name="model" value="mlp" checked
+               aria-label="MLP: 2 to 8 to 1 multilayer perceptron">
+        mlp
+      </label>
+      <label>
+        <input type="radio" name="model" value="conv"
+               aria-label="conv net: conv2d + linear">
+        conv
+      </label>
+    </nav>
+    <button class="theme-toggle" id="themeToggle"
+            title="cycle theme (system / dark / light)"
+            aria-label="cycle colour theme">◑</button>
+  </header>
+
+  <main>
+    <div id="status" class="status" role="status" aria-live="polite">loading…</div>
+    <section class="timeline" aria-label="compiler pipeline timeline">
+      <div class="timeline-header">
+        <span class="stage-label" id="stageLabel" aria-live="polite">—</span>
+        <span class="stage-desc"  id="stageDesc"></span>
+      </div>
+      <div class="timeline-track" id="timelineTrack" role="group"
+           aria-label="pipeline stage scrubber — left / right arrows to step"></div>
+      <input type="range" id="timelineSlider" class="timeline-slider"
+             min="0" max="0" step="1" value="0"
+             aria-label="scrub through pipeline stages">
+    </section>
+    <section class="rules-timeline" id="rulesTimeline" hidden aria-hidden="true"
+             aria-label="gradient rules firing animation">
+      <div class="rules-header">
+        <span class="rules-label">rules fired</span>
+        <span class="rules-current" id="rulesCurrent" aria-live="polite">-</span>
+        <span class="rules-counter" id="rulesCounter"></span>
+      </div>
+      <input type="range" id="rulesSlider" class="rules-slider"
+             min="0" max="0" step="1" value="0"
+             aria-label="scrub through gradient rule firings">
+    </section>
+    <div id="graph-container" role="img" aria-label="UOp computation graph">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"
+           aria-hidden="true" focusable="false"></svg>
+    </div>
+  </main>
+
+  <footer>
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <nav class="legend" aria-label="graph legend">
+      <span class="legend-item forward"
+            aria-label="forward pass node: solid circle, teal">● forward</span>
+      <span class="legend-item backward"
+            aria-label="backward pass node: dashed circle, ember">⊙ backward</span>
+      <span class="legend-item reduce"
+            aria-label="reduce / kernel boundary: diamond, gold">◆ kernel boundary</span>
+      <span class="legend-item leaf"
+            aria-label="buffer / parameter: rounded rect, teal">▭ buffer/leaf</span>
+    </nav>
+  </footer>
+
+  <!-- The viz WASM path: same wasm_exec.js + anneal.wasm that the standalone
+       `anneal viz` page uses, served from /visualize/static/.
+       If anneal.wasm is not yet built, app.js falls back to REST. -->
+  <script src="/visualize/static/wasm_exec.js" onerror="window._wasmExecMissing=true"></script>
+
+  <!-- The W4 wrapper runs BEFORE app.js so we can patch its WASM fetch base.
+       app.js does `fetch('anneal.wasm')` relative to the page; since this
+       page is served from /visualize/embed but the asset lives under
+       /visualize/static/, we intercept that one path and rewrite it. -->
+  <script>
+    (function () {
+      // Rewrite the anneal.wasm fetch app.js uses (`fetch('anneal.wasm')`).
+      // Same-origin only — passes through everything else unchanged.
+      const _fetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        if (typeof input === 'string' && input === 'anneal.wasm') {
+          return _fetch('/visualize/static/anneal.wasm', init);
+        }
+        // app.js also calls /api/timeline?name=... as the REST fallback.
+        // Forward to the standalone viz REST mount.
+        if (typeof input === 'string' && input.startsWith('/api/')) {
+          return _fetch('/visualize' + input, init);
+        }
+        return _fetch(input, init);
+      };
+    })();
+  </script>
+  <script src="/visualize/static/app.js"></script>
+
+  <!-- ── W4 postMessage protocol bridge ──────────────────────────────────
+       Wires up:
+         click on a node group  → postMessage({type:"nodeClick", graphId, nodeId})
+         parent → us nodeSelected message → highlight the matching node
+       The iframe runs inside `sandbox="allow-scripts allow-same-origin"` so
+       postMessage works in both directions without further opt-in. -->
+  <script>
+    (function () {
+      'use strict';
+
+      // Track current model name. app.js owns the radio handlers; we read
+      // the selected radio value as the source of truth.
+      function currentModel() {
+        const r = document.querySelector('input[name="model"]:checked');
+        return r ? r.value : 'mlp';
+      }
+
+      // ── click handler: walk up from event target to a node group ──────
+      // app.js renders each node as <g class="node forward/backward ..."
+      // transform="translate(x,y)">; we attach a delegated click on the
+      // SVG root so dynamically-built nodes work.
+      function nodeGroupOf(target) {
+        let el = target;
+        while (el && el !== document) {
+          if (el.tagName && el.tagName.toLowerCase() === 'g' &&
+              el.classList && el.classList.contains('node')) {
+            return el;
+          }
+          el = el.parentNode;
+        }
+        return null;
+      }
+
+      // Each node group is stamped data-node-id="n<index>" by app.js.
+      function nodeIdOf(g) {
+        return g.getAttribute('data-node-id');
+      }
+
+      const svg = document.getElementById('graph-svg');
+      if (svg) {
+        svg.addEventListener('click', function (ev) {
+          const g = nodeGroupOf(ev.target);
+          if (!g) return;
+          const id = nodeIdOf(g);
+          if (id == null) return;
+          // Parent expects the "n<index>" form used by the W4 backend.
+          window.parent.postMessage({
+            type: 'nodeClick',
+            graphId: currentModel(),
+            nodeId: 'n' + id,
+          }, '*');
+        });
+      }
+
+      // ── inbound: nodeSelected highlights the node in the iframe ─────────
+      window.addEventListener('message', function (ev) {
+        const m = ev.data;
+        if (!m || typeof m !== 'object') return;
+        if (m.type !== 'nodeSelected') return;
+        const want = String(m.nodeId || '');
+        const idNum = parseInt(want.replace(/^n/, ''), 10);
+        if (!isFinite(idNum)) return;
+        // Clear previous highlight, mark the requested node.
+        document.querySelectorAll('.node.parent-selected').forEach(function (el) {
+          el.classList.remove('parent-selected');
+        });
+        const st = window.timelineState;
+        if (st && st.nodeEls && st.nodeEls.has(idNum)) {
+          const refs = st.nodeEls.get(idNum);
+          refs.g.classList.add('parent-selected');
+        }
+      });
+
+      // Tell the parent we are ready so it can replay an initial selection.
+      window.addEventListener('load', function () {
+        window.parent.postMessage({ type: 'embedReady' }, '*');
+      });
+    })();
+  </script>
+
+  <style>
+    /* W4 highlight ring for nodes selected from the parent drawer. Pairs the
+       gold (kernel-boundary) colour with a thick stroke so DD1 (color + shape)
+       holds even under forced-colors. */
+    .node.parent-selected .node-shape {
+      stroke: #F2C57C !important;
+      stroke-width: 4 !important;
+    }
+    @media (forced-colors: active) {
+      .node.parent-selected .node-shape {
+        stroke: Highlight !important;
+        stroke-width: 4 !important;
+      }
+    }
+  </style>
+</body>
+</html>

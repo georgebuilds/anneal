@@ -13,6 +13,15 @@ import (
 //go:embed static
 var staticFiles embed.FS
 
+// StaticFS returns the embedded static directory (index.html, style.css,
+// app.js, optional anneal.wasm, wasm_exec.js). The studio's W4 visualize
+// view mounts these under /visualize/ so the existing viz artifact runs
+// verbatim inside an iframe. Other callers should treat the returned FS
+// as read-only.
+func StaticFS() (fs.FS, error) {
+	return fs.Sub(staticFiles, "static")
+}
+
 // Serve starts an HTTP server on addr that serves the visualizer SPA and a
 // REST API endpoint at /api/graph?name=<model>.
 //

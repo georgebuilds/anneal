@@ -137,7 +137,7 @@ const VIEW_TO_PATH = {
   studio:    '/',
   visualize: '/v/mlp',
   kernels:   '/k/mlp',
-  explain:   '/x/matmul',
+  explain:   '/x/Add',
   train:     '/t/mlp',
   generate:  '/g/nanogpt',
   history:   '/h',
@@ -247,10 +247,10 @@ function initSkipLink() {
 
 const RENDERERS = {
   studio:    function renderStudio()    { /* W1+ */ },
-  visualize: function renderVisualize() { /* W2 */ },
+  visualize: function renderVisualize() { renderVisualizeView(); },
   kernels:   function renderKernels()   { renderKernelsView(); },
-  explain:   function renderExplain()   { /* W4 */ },
-  train:     function renderTrain()     { /* W5 */ },
+  explain:   function renderExplain()   { renderExplainView(); },
+  train:     function renderTrain()     { renderTrainView(); },
   generate:  function renderGenerate()  { /* W6 */ },
   history:   function renderHistory()   { /* W8 */ },
   doctor:    function renderDoctor()    { /* W7 */ },
@@ -977,6 +977,1026 @@ function initKernelsDiffToggle() {
   });
 }
 
+// ── train view (W6) ───────────────────────────────────────────────────────
+// SSE-driven live dashboard. The renderer is invoked on every navigation to
+// /t/<model>; it (re)wires the controls and primes the UI. Starting a run
+// opens an EventSource against /sse/train?model=...&steps=...&bundle=...
+// and pushes each Snapshot into the DOM + a ring buffer for the sparkline.
+//
+// a11y (web/A11Y.md §3d):
+//   - Every control is labelled (model select, steps input, buttons,
+//     checkbox).
+//   - The progressbar updates aria-valuenow as it animates.
+//   - The stat region is aria-live="polite" — every value change is
+//     announced without stealing focus.
+//   - The loss SVG's <desc> is rewritten on each step ("loss decreased
+//     from X to Y over N steps") as a textual fallback.
+//   - The sparkline updates batched into rAF so a fast trainer can't
+//     starve the main thread.
+//   - Reduced-motion: the kernel-dot gold pulse is replaced by an instant
+//     fill flash via the CSS rule already in studio.css.
+
+const _trainState = {
+  model: 'mlp',
+  es: null,                // active EventSource, null when idle
+  buf: new Array(200),     // ring buffer of last 200 loss values
+  bufLen: 0,
+  bufIdx: 0,
+  minLoss: Infinity,
+  maxLoss: -Infinity,
+  step: 0,
+  maxSteps: 100,
+  bundle: true,
+  pendingFrame: false,     // rAF coalescing flag
+};
+
+function modelFromTrainPath(pathname) {
+  const m = /^\/t\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : 'mlp';
+}
+
+function renderTrainView() {
+  const sel = document.getElementById('train-model');
+  const steps = document.getElementById('train-steps');
+  const start = document.getElementById('train-start');
+  const cancel = document.getElementById('train-cancel');
+  const bundle = document.getElementById('train-bundle');
+  if (!sel || !steps || !start || !cancel) return;
+
+  // Sync model select from the URL deep link (/t/<model>).
+  const model = modelFromTrainPath(window.location.pathname);
+  _trainState.model = model;
+  if (sel.value !== model) {
+    // If the URL specifies an unknown model the <option> won't exist; in
+    // that case leave the default selection and let the user pick again.
+    const opt = Array.from(sel.options).find((o) => o.value === model);
+    if (opt) sel.value = model;
+  }
+
+  // Wire controls (idempotent: replace handlers each time).
+  start.onclick = trainStart;
+  cancel.onclick = trainCancel;
+  const openViz = document.getElementById('train-open-viz');
+  if (openViz) {
+    openViz.onclick = () => {
+      navigate('visualize');
+      history.pushState({ viewId: 'visualize' }, '', '/v/' + encodeURIComponent(_trainState.model));
+    };
+  }
+  const saveRun = document.getElementById('train-save-run');
+  if (saveRun) {
+    // Bundle is already written server-side when ?bundle=1 (default).
+    // The button is a no-op affordance for screen-reader users; it
+    // announces the bundle's status when activated.
+    saveRun.onclick = () => {
+      announce(bundle && bundle.checked
+        ? 'bundle saved to ~/.cache/anneal/runs/'
+        : 'bundle disabled; re-run with save bundle checked');
+    };
+  }
+}
+
+function trainStart() {
+  // If a stream is already open, cancel it first so a double-press
+  // doesn't fork two parallel runs.
+  trainCancel();
+
+  const sel = document.getElementById('train-model');
+  const steps = document.getElementById('train-steps');
+  const bundle = document.getElementById('train-bundle');
+  const start = document.getElementById('train-start');
+  const cancel = document.getElementById('train-cancel');
+
+  const model = (sel && sel.value) || 'mlp';
+  const nSteps = Math.max(1, Math.min(10000, parseInt(steps && steps.value, 10) || 100));
+  const wantBundle = !!(bundle && bundle.checked);
+
+  _trainState.model = model;
+  _trainState.maxSteps = nSteps;
+  _trainState.bundle = wantBundle;
+  _trainState.buf = new Array(200);
+  _trainState.bufLen = 0;
+  _trainState.bufIdx = 0;
+  _trainState.minLoss = Infinity;
+  _trainState.maxLoss = -Infinity;
+  _trainState.step = 0;
+
+  // Update URL deep link so a reload/share resumes at the right model.
+  try {
+    const url = '/t/' + encodeURIComponent(model);
+    if (window.location.pathname !== url) {
+      history.replaceState({ viewId: 'train' }, '', url);
+    }
+  } catch (_) {}
+
+  // Reset display.
+  setTrainText('t-step', '0 / ' + nSteps);
+  setTrainText('t-loss', '—');
+  setTrainText('t-uops', '—');
+  setTrainText('t-kernels', '—');
+  setTrainText('t-fused', '—');
+  setProgress(0, nSteps);
+  drawSparkline();
+
+  // Disable start, enable cancel.
+  if (start)  start.disabled = true;
+  if (cancel) cancel.disabled = false;
+  const openViz = document.getElementById('train-open-viz');
+  const saveRun = document.getElementById('train-save-run');
+  if (openViz) openViz.disabled = true;
+  if (saveRun) saveRun.disabled = true;
+
+  const url = '/sse/train?model=' + encodeURIComponent(model)
+            + '&steps=' + nSteps
+            + '&bundle=' + (wantBundle ? '1' : '0');
+  let es;
+  try {
+    es = new EventSource(url);
+  } catch (e) {
+    announce('train: cannot open SSE: ' + (e && e.message));
+    trainCancel();
+    return;
+  }
+  _trainState.es = es;
+  announce('training ' + model + ' started');
+
+  es.addEventListener('message', (ev) => {
+    let snap;
+    try { snap = JSON.parse(ev.data); }
+    catch (e) { return; }
+    onSnapshot(snap);
+  });
+  es.addEventListener('done', () => {
+    announce('training complete');
+    finishTrain();
+  });
+  es.addEventListener('error', (_ev) => {
+    // EventSource fires `error` on close as well as on network failure;
+    // distinguish via readyState.
+    if (es.readyState === EventSource.CLOSED) {
+      finishTrain();
+      return;
+    }
+    announce('train: stream error');
+    finishTrain();
+  });
+}
+
+function trainCancel() {
+  if (_trainState.es) {
+    try { _trainState.es.close(); } catch (_) {}
+    _trainState.es = null;
+    announce('training cancelled');
+  }
+  const start = document.getElementById('train-start');
+  const cancel = document.getElementById('train-cancel');
+  if (start)  start.disabled = false;
+  if (cancel) cancel.disabled = true;
+}
+
+function finishTrain() {
+  if (_trainState.es) {
+    try { _trainState.es.close(); } catch (_) {}
+    _trainState.es = null;
+  }
+  const start = document.getElementById('train-start');
+  const cancel = document.getElementById('train-cancel');
+  const openViz = document.getElementById('train-open-viz');
+  const saveRun = document.getElementById('train-save-run');
+  if (start)  start.disabled = false;
+  if (cancel) cancel.disabled = true;
+  if (openViz) openViz.disabled = false;
+  if (saveRun) saveRun.disabled = !_trainState.bundle;
+}
+
+function onSnapshot(snap) {
+  if (typeof snap.step === 'number') _trainState.step = snap.step;
+  if (typeof snap.max_steps === 'number' && snap.max_steps > 0) {
+    _trainState.maxSteps = snap.max_steps;
+  }
+
+  setTrainText('t-step', _trainState.step + ' / ' + _trainState.maxSteps);
+  if (snap.has_loss) {
+    setTrainText('t-loss', formatLoss(snap.loss));
+    pushLoss(snap.loss);
+  }
+  if (typeof snap.uops_count === 'number')    setTrainText('t-uops',    String(snap.uops_count));
+  if (typeof snap.kernels_count === 'number') setTrainText('t-kernels', String(snap.kernels_count));
+  if (typeof snap.fused_count === 'number')   setTrainText('t-fused',   String(snap.fused_count));
+
+  setProgress(_trainState.step, _trainState.maxSteps);
+
+  if (snap.last_kernel_id) {
+    pulseKernelDot(snap.last_kernel_id);
+  }
+
+  // Coalesce sparkline redraws into the next animation frame so a fast
+  // trainer doesn't repaint per snapshot. Reduced-motion users still get
+  // updates; rAF is not motion, it is throttling.
+  if (!_trainState.pendingFrame) {
+    _trainState.pendingFrame = true;
+    requestAnimationFrame(() => {
+      _trainState.pendingFrame = false;
+      drawSparkline();
+    });
+  }
+
+  if (snap.phase === 'done') {
+    finishTrain();
+  } else if (snap.phase === 'error') {
+    announce('train error: ' + (snap.error || 'unknown'));
+    finishTrain();
+  }
+}
+
+function setTrainText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function setProgress(step, max) {
+  const bar = document.getElementById('train-progress-bar');
+  const fill = document.getElementById('train-progress-fill');
+  if (!bar || !fill) return;
+  const pct = max > 0 ? Math.max(0, Math.min(100, (step / max) * 100)) : 0;
+  fill.style.width = pct.toFixed(1) + '%';
+  bar.setAttribute('aria-valuenow', String(Math.round(pct)));
+}
+
+function pushLoss(loss) {
+  if (typeof loss !== 'number' || !isFinite(loss)) return;
+  const i = _trainState.bufIdx % _trainState.buf.length;
+  _trainState.buf[i] = loss;
+  _trainState.bufIdx++;
+  _trainState.bufLen = Math.min(_trainState.bufLen + 1, _trainState.buf.length);
+  if (loss < _trainState.minLoss) _trainState.minLoss = loss;
+  if (loss > _trainState.maxLoss) _trainState.maxLoss = loss;
+}
+
+function getLossWindow() {
+  const N = _trainState.bufLen;
+  const cap = _trainState.buf.length;
+  const startIdx = _trainState.bufIdx - N;
+  const out = new Array(N);
+  for (let i = 0; i < N; i++) {
+    out[i] = _trainState.buf[((startIdx + i) % cap + cap) % cap];
+  }
+  return out;
+}
+
+function formatLoss(loss) {
+  if (typeof loss !== 'number' || !isFinite(loss)) return '—';
+  const a = Math.abs(loss);
+  if (a !== 0 && (a < 1e-3 || a >= 1e4)) return loss.toExponential(3);
+  return loss.toFixed(6);
+}
+
+function drawSparkline() {
+  const svg = document.getElementById('loss-svg');
+  const path = document.getElementById('loss-path');
+  const desc = document.getElementById('loss-svg-desc');
+  if (!svg || !path) return;
+  const vals = getLossWindow();
+  if (vals.length < 2) {
+    path.setAttribute('d', '');
+    if (desc) desc.textContent = vals.length === 1
+      ? 'loss sparkline: one sample at ' + formatLoss(vals[0])
+      : 'loss sparkline: no data yet';
+    return;
+  }
+  const w = 400, h = 80, pad = 2;
+  const lo = _trainState.minLoss, hi = _trainState.maxLoss;
+  const range = hi - lo || 1;
+  let d = '';
+  for (let i = 0; i < vals.length; i++) {
+    const x = pad + ((w - 2 * pad) * i) / Math.max(1, vals.length - 1);
+    const y = pad + ((h - 2 * pad) * (1 - (vals[i] - lo) / range));
+    d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  }
+  path.setAttribute('d', d);
+  if (desc) {
+    // Textual fallback for screen-reader users; updated every snapshot
+    // so the latest value is reported in the SVG's <desc>.
+    const first = formatLoss(vals[0]);
+    const last  = formatLoss(vals[vals.length - 1]);
+    const dir = vals[0] > vals[vals.length - 1] ? 'decreased' : 'changed';
+    desc.textContent = 'loss sparkline: ' + dir + ' from '
+                     + first + ' to ' + last
+                     + ' over ' + vals.length + ' samples';
+  }
+}
+
+// pulseKernelDot ensures there is a gold dot for kernelID in the thumb SVG
+// and adds the .dispatched class to drive the gold pulse animation (or the
+// reduced-motion instant flash).
+function pulseKernelDot(kernelID) {
+  const svg = document.getElementById('kernel-svg');
+  if (!svg) return;
+  const dotId = 'kd-' + cssEscapeID(kernelID);
+  let dot = svg.querySelector('#' + dotId);
+  if (!dot) {
+    const dots = svg.querySelectorAll('.kernel-dot');
+    const n = dots.length;
+    // Lay out dots in a horizontal row across the viewBox (200x80).
+    const cx = 12 + n * 16;
+    const cy = 40;
+    dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('id', dotId);
+    dot.setAttribute('class', 'kernel-dot');
+    dot.setAttribute('cx', String(cx));
+    dot.setAttribute('cy', String(cy));
+    dot.setAttribute('r', '5');
+    svg.appendChild(dot);
+  }
+  // Drop the dispatched class from siblings so only the most recent
+  // dispatch pulses (the CSS animation is infinite; we want one at a
+  // time visually).
+  svg.querySelectorAll('.kernel-dot.dispatched').forEach((el) => {
+    if (el !== dot) el.classList.remove('dispatched');
+  });
+  dot.classList.add('dispatched');
+}
+
+function cssEscapeID(s) {
+  // Conservative: keep [a-zA-Z0-9-_], replace everything else with '-'.
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+// ── visualize view (W4) ───────────────────────────────────────────────────
+// Spec: notes/anneal_web_spec.md §5.2.
+// Two pieces share this section:
+//   1. renderVisualizeView()  — runs every time we navigate to /v/<model>;
+//      reads the URL, sets the iframe src to /visualize/embed (or sends an
+//      inbound nodeSelected for a pre-opened deep link), and ensures the
+//      message + Escape handlers are armed exactly once.
+//   2. The drawer state machine — open / close / focus management. The
+//      drawer is `role="region"` + `aria-label`; opening it captures focus,
+//      Escape closes it and returns focus to the iframe (per A11Y.md §3c).
+
+const _vizState = {
+  // The element that had focus before the drawer opened; we restore here.
+  previousActiveElement: null,
+  // Last node we showed; suppresses redundant work when the iframe sends
+  // the same nodeClick (e.g. user double-clicks).
+  currentNodeId: null,
+  // Has the iframe sent embedReady? Until then, parent → iframe
+  // nodeSelected messages have nothing to highlight; we queue the most
+  // recent intent and resend on ready.
+  embedReady: false,
+  pendingNodeId: null,
+  // armed === true once the wireVisualizeListeners() one-shot has run.
+  armed: false,
+};
+
+function modelFromVizPath(pathname) {
+  const m = /^\/v\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : 'mlp';
+}
+
+function nodeIdFromQuery() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get('node');
+  } catch (_) { return null; }
+}
+
+function renderVisualizeView() {
+  wireVisualizeListeners();
+
+  // If the URL carries ?node=<id>, pre-open the drawer with that node
+  // selected once the iframe says it is ready.
+  const wantNode = nodeIdFromQuery();
+  if (wantNode) {
+    _vizState.pendingNodeId = wantNode;
+    if (_vizState.embedReady) {
+      sendNodeSelectedToIframe(wantNode);
+      fetchAndShowNodeDetail(modelFromVizPath(window.location.pathname), wantNode);
+    }
+  }
+}
+
+// wireVisualizeListeners arms the postMessage and Escape handlers exactly
+// once per page load. We listen on window for the iframe messages and on
+// document for Escape; the close button has its own click handler.
+function wireVisualizeListeners() {
+  if (_vizState.armed) return;
+  _vizState.armed = true;
+
+  window.addEventListener('message', onVizMessage);
+
+  const closeBtn = document.getElementById('node-inspector-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => closeNodeInspector());
+  }
+
+  // Escape on the visualize view closes the drawer if open. We attach to
+  // document so the iframe focus does not block the key path — the iframe
+  // itself runs in a sandbox and will not capture Escape from the parent.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const drawer = document.getElementById('node-inspector');
+    if (!drawer || drawer.hidden) return;
+    // Only on the visualize view.
+    const view = document.getElementById('view-visualize');
+    if (!view || !view.classList.contains('active')) return;
+    e.preventDefault();
+    closeNodeInspector();
+  });
+}
+
+function onVizMessage(ev) {
+  const m = ev && ev.data;
+  if (!m || typeof m !== 'object') return;
+  switch (m.type) {
+    case 'embedReady':
+      _vizState.embedReady = true;
+      if (_vizState.pendingNodeId) {
+        sendNodeSelectedToIframe(_vizState.pendingNodeId);
+        fetchAndShowNodeDetail(
+          modelFromVizPath(window.location.pathname),
+          _vizState.pendingNodeId
+        );
+      }
+      return;
+    case 'nodeClick': {
+      const graphId = String(m.graphId || modelFromVizPath(window.location.pathname));
+      const nodeId  = String(m.nodeId || '');
+      if (!nodeId) return;
+      fetchAndShowNodeDetail(graphId, nodeId);
+      // Reflect the selection in the URL so deep-link copy/paste preserves it.
+      try {
+        const url = '/v/' + encodeURIComponent(graphId) + '?node=' + encodeURIComponent(nodeId);
+        if (window.location.pathname + window.location.search !== url) {
+          history.pushState({ viewId: 'visualize', node: nodeId }, '', url);
+        }
+      } catch (_) {}
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function sendNodeSelectedToIframe(nodeId) {
+  const iframe = document.getElementById('viz-iframe');
+  if (!iframe || !iframe.contentWindow) return;
+  iframe.contentWindow.postMessage({ type: 'nodeSelected', nodeId }, '*');
+}
+
+async function fetchAndShowNodeDetail(graphId, nodeId) {
+  const drawer = document.getElementById('node-inspector');
+  if (!drawer) return;
+
+  // The drawer's first interactive element is the close button; capture
+  // the previously-focused element BEFORE we open so Escape restores
+  // it correctly.
+  if (drawer.hidden) {
+    _vizState.previousActiveElement = document.activeElement;
+  }
+
+  // Open + show a loading placeholder so the screen-reader user hears
+  // "inspecting node X" promptly even if the WASM call takes a beat.
+  drawer.hidden = false;
+  setNodeInspectorContent({
+    op: nodeId,
+    dtype: 'loading…',
+    shape: [],
+    phase: '',
+    arg: '',
+    source_file: '',
+    parents: [],
+    children: [],
+  });
+  announce('inspecting node ' + nodeId);
+
+  let raw;
+  try {
+    raw = await wasm.call('annealNodeDetail', graphId, nodeId);
+  } catch (e) {
+    setNodeInspectorError((e && e.message) || String(e));
+    focusDrawerClose();
+    return;
+  }
+  let nd;
+  try { nd = JSON.parse(raw); }
+  catch (e) {
+    setNodeInspectorError('invalid JSON from annealNodeDetail');
+    focusDrawerClose();
+    return;
+  }
+  if (nd && nd.error) {
+    setNodeInspectorError(nd.error);
+    focusDrawerClose();
+    return;
+  }
+  _vizState.currentNodeId = nodeId;
+  setNodeInspectorContent(nd);
+  focusDrawerClose();
+}
+
+function focusDrawerClose() {
+  const btn = document.getElementById('node-inspector-close');
+  if (btn && typeof btn.focus === 'function') btn.focus();
+}
+
+function setNodeInspectorContent(nd) {
+  setText('node-inspector-op', nd.op || '');
+  setText('ni-dtype', nd.dtype || '');
+  setText('ni-shape', Array.isArray(nd.shape) && nd.shape.length
+    ? '[' + nd.shape.join(',') + ']'
+    : '');
+  setText('ni-phase', nd.phase || '');
+  setText('ni-arg', nd.arg || '');
+  setText('ni-source', (nd.source_file && nd.source_line)
+    ? (nd.source_file + ':' + nd.source_line)
+    : '');
+  renderRelationList('ni-parents', nd.parents || []);
+  renderRelationList('ni-children', nd.children || []);
+}
+
+function setNodeInspectorError(msg) {
+  setText('node-inspector-op', 'error');
+  setText('ni-dtype', msg);
+  setText('ni-shape', '');
+  setText('ni-phase', '');
+  setText('ni-arg', '');
+  setText('ni-source', '');
+  renderRelationList('ni-parents', []);
+  renderRelationList('ni-children', []);
+}
+
+function setText(id, txt) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(txt);
+}
+
+function renderRelationList(id, items) {
+  const ul = document.getElementById(id);
+  if (!ul) return;
+  ul.innerHTML = '';
+  for (const it of items) {
+    const li = document.createElement('li');
+    li.textContent = (it.op || '?') + ' · ' + (it.id || '');
+    if (it.label && it.label !== it.op) {
+      const small = document.createElement('span');
+      small.className = 'ni-label';
+      small.textContent = ' (' + it.label + ')';
+      li.appendChild(small);
+    }
+    ul.appendChild(li);
+  }
+}
+
+function closeNodeInspector() {
+  const drawer = document.getElementById('node-inspector');
+  if (!drawer) return;
+  drawer.hidden = true;
+  _vizState.currentNodeId = null;
+
+  // Restore focus to the previously-active element (WCAG 2.4.3 / 2.4.11).
+  // Falls back to the iframe so keyboard users land somewhere usable.
+  const prev = _vizState.previousActiveElement;
+  if (prev && typeof prev.focus === 'function' &&
+      document.body.contains(prev)) {
+    prev.focus();
+  } else {
+    const iframe = document.getElementById('viz-iframe');
+    if (iframe && typeof iframe.focus === 'function') iframe.focus();
+  }
+  _vizState.previousActiveElement = null;
+}
+
+// ── explain view (W3) ─────────────────────────────────────────────────────
+// Driven by the annealExplainOp WASM bridge. State lives outside the
+// renderer so navigating back to /x/<op> preserves filter + selection.
+//
+// The op list is the master list (parsed once from the WASM bridge's first
+// payload, or fallback to a hard-coded set for the wasm-not-loaded path);
+// search input filters it client-side with a 100ms debounce so the keyboard
+// stays responsive. Detail panel renders rules + gradient + mini-graph.
+//
+// a11y plan (web/A11Y.md §3b):
+//   - Focus order: search input → op list → detail (description → rules →
+//     gradient pre → play button).
+//   - aria-live="polite" on the detail article announces selection changes.
+//   - The play-rewrite button announces "rule X fired" during the animation.
+//   - prefers-reduced-motion replaces the animation with an instant swap.
+
+// Fallback op list when WASM has not loaded. Sourced from uop/ops.go opNames;
+// the studio still renders a usable picker so the user can browse op names
+// without the compiler being available.
+const FALLBACK_OPS = [
+  'Add', 'And', 'Bind', 'Bitcast', 'Buffer', 'Cast', 'CmpEq', 'CmpLt', 'CmpNe',
+  'Const', 'DefineVar', 'Erf', 'Exp2', 'Expand', 'FDiv', 'Flip', 'Gather',
+  'IDiv', 'Log2', 'Max', 'Min', 'Mod', 'Mul', 'MulAcc', 'Neg', 'Or', 'Pad',
+  'Permute', 'Pow', 'Reciprocal', 'ReduceAxis', 'Reshape', 'Shl', 'Shrink',
+  'Shr', 'Sin', 'Sink', 'Sqrt', 'Sub', 'ThreeFry', 'Trunc', 'Where', 'Xor',
+];
+
+const _explainState = {
+  ops: FALLBACK_OPS.slice(),  // visible op list (full set, pre-filter)
+  filter: '',
+  selectedOp: null,
+  detail: null,           // last successful annealExplainOp payload
+  loading: false,
+  error: null,
+};
+
+let _explainDebounce = null;
+
+function opFromExplainPath(pathname) {
+  const m = /^\/x\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : 'Add';
+}
+
+async function renderExplainView() {
+  const wantOp = opFromExplainPath(window.location.pathname);
+  _explainState.selectedOp = wantOp;
+
+  drawOpList();
+  await loadExplain(wantOp);
+}
+
+// loadExplain calls annealExplainOp and renders the detail panel. Falls
+// through to an empty-state render if the bridge rejects (no WASM loaded).
+async function loadExplain(opName) {
+  _explainState.loading = true;
+  _explainState.error = null;
+  drawExplainDetail();
+
+  let raw;
+  try {
+    raw = await wasm.call('annealExplainOp', opName);
+  } catch (e) {
+    _explainState.loading = false;
+    _explainState.error = (e && e.message) || String(e);
+    drawExplainDetail();
+    announce('explain view: wasm not loaded');
+    return;
+  }
+  let payload;
+  try { payload = JSON.parse(raw); }
+  catch (_) {
+    _explainState.loading = false;
+    _explainState.error = 'invalid JSON from annealExplainOp';
+    drawExplainDetail();
+    return;
+  }
+  if (payload && payload.error) {
+    _explainState.loading = false;
+    _explainState.error = payload.error;
+    drawExplainDetail();
+    announce('explain: ' + payload.error);
+    return;
+  }
+  _explainState.loading = false;
+  _explainState.detail = payload;
+  drawExplainDetail();
+  announce('explain: ' + payload.op + ' selected');
+}
+
+// drawOpList renders the filterable op list. Items are real <li role="option">
+// so the listbox role on the parent UL is honoured.
+function drawOpList() {
+  const ul = document.getElementById('op-list-items');
+  if (!ul) return;
+  const q = _explainState.filter.toLowerCase();
+  const visible = _explainState.ops.filter((op) =>
+    !q || op.toLowerCase().includes(q));
+  ul.innerHTML = '';
+  if (visible.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'op-list-empty';
+    li.textContent = 'no ops match';
+    ul.appendChild(li);
+    return;
+  }
+  for (const op of visible) {
+    const li = document.createElement('li');
+    li.className = 'op-list-item';
+    li.setAttribute('role', 'option');
+    li.id = 'op-opt-' + op;
+    li.textContent = op;
+    const sel = (op === _explainState.selectedOp);
+    li.setAttribute('aria-selected', sel ? 'true' : 'false');
+    li.addEventListener('click', () => selectOp(op));
+    ul.appendChild(li);
+  }
+  if (_explainState.selectedOp) {
+    ul.setAttribute('aria-activedescendant', 'op-opt-' + _explainState.selectedOp);
+  }
+}
+
+// drawExplainDetail renders the right pane: name, description, rules list,
+// gradient pre, and the mini-graph SVG. Defensive against null/error states
+// so the view always has SOMETHING legible on screen.
+function drawExplainDetail() {
+  const nameEl  = document.getElementById('exp-op-name');
+  const descEl  = document.getElementById('exp-desc');
+  const rulesEl = document.getElementById('exp-rules');
+  const gradEl  = document.getElementById('exp-grad');
+  const miniEl  = document.getElementById('exp-mini');
+  if (!nameEl || !descEl || !rulesEl || !gradEl || !miniEl) return;
+
+  if (_explainState.error) {
+    nameEl.textContent = _explainState.selectedOp || '';
+    descEl.textContent = 'wasm not loaded — build anneal.wasm to populate this view';
+    rulesEl.innerHTML = '';
+    gradEl.textContent = '';
+    const svg = miniEl.querySelector('svg');
+    if (svg) svg.innerHTML = '';
+    return;
+  }
+  if (_explainState.loading || !_explainState.detail) {
+    nameEl.textContent = _explainState.selectedOp || '';
+    descEl.textContent = 'loading…';
+    return;
+  }
+  const d = _explainState.detail;
+  nameEl.textContent = d.op;
+  descEl.textContent = d.description || '';
+  // Rules list. Each row pairs a monospace pattern + arrow + rewrite. The
+  // notes line is rendered as a small caption so colour is not the only
+  // channel of meaning (DD1).
+  rulesEl.innerHTML = '';
+  if (!d.symbolic_rules || d.symbolic_rules.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'rules-list-empty';
+    li.textContent = 'no symbolic rewrite rules registered for this op';
+    rulesEl.appendChild(li);
+  } else {
+    for (const r of d.symbolic_rules) {
+      const li = document.createElement('li');
+      li.className = 'rules-list-item';
+      const code = document.createElement('code');
+      code.className = 'rule-pattern';
+      code.textContent = r.pattern + '  →  ' + (r.rewrite || '');
+      li.appendChild(code);
+      if (r.notes) {
+        const note = document.createElement('span');
+        note.className = 'rule-note';
+        note.textContent = r.notes;
+        li.appendChild(note);
+      }
+      const src = document.createElement('span');
+      src.className = 'rule-source';
+      src.textContent = r.source;
+      li.appendChild(src);
+      rulesEl.appendChild(li);
+    }
+  }
+  // Gradient pre.
+  if (d.gradient_rule) {
+    gradEl.textContent = d.gradient_rule.pattern + '\n\nsource: ' + d.gradient_rule.source;
+  } else {
+    gradEl.textContent = 'no gradient registered (this op is non-differentiable or has a derived gradient via primitives).';
+  }
+  // Mini-graph SVG.
+  drawMiniGraph(d.mini_graph, 'before');
+}
+
+// drawMiniGraph renders the before/after node trees into the SVG. side is
+// 'before' or 'after' (the play-rewrite button animates from before to
+// after; the JS just calls drawMiniGraph again with the other side).
+function drawMiniGraph(mg, side) {
+  const miniEl = document.getElementById('exp-mini');
+  if (!miniEl) return;
+  const svg = miniEl.querySelector('svg');
+  if (!svg) return;
+  svg.innerHTML = '';
+  if (!mg) return;
+  const nodes = (side === 'after' ? mg.after : mg.before) || [];
+  const edges = (side === 'after' ? [] : mg.edges) || [];
+
+  // Layout: simple top-down with the operation node at the bottom. We anchor
+  // the operation node (the last entry that has incoming edges) at the
+  // bottom-centre; leaves spread along the top.
+  const W = 360, H = 140;
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('width', '100%');
+  // A descriptive title for screen readers; the SVG role="img" is set in HTML.
+  const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+  titleEl.textContent = 'rewrite ' + side + ' state';
+  svg.appendChild(titleEl);
+
+  // Distinguish "operation" node (has incoming edges) from "leaf" (no
+  // incoming). Simple in-degree count.
+  const inDeg = {};
+  for (const n of nodes) inDeg[n.id] = 0;
+  for (const e of edges) {
+    if (inDeg[e.to] !== undefined) inDeg[e.to] += 1;
+  }
+  const op = nodes.find((n) => inDeg[n.id] > 0);
+  const leaves = nodes.filter((n) => inDeg[n.id] === 0);
+
+  const yLeaf = 28, yOp = H - 28;
+  const positions = {};
+  if (leaves.length > 0) {
+    const step = W / (leaves.length + 1);
+    leaves.forEach((n, i) => {
+      positions[n.id] = { x: step * (i + 1), y: yLeaf };
+    });
+  }
+  if (op) {
+    positions[op.id] = { x: W / 2, y: yOp };
+  } else if (nodes.length === 1) {
+    // Single-node side (the "After" of a typical identity rewrite).
+    positions[nodes[0].id] = { x: W / 2, y: H / 2 };
+  }
+
+  // Edges first so they sit beneath the nodes.
+  for (const e of edges) {
+    const from = positions[e.from];
+    const to   = positions[e.to];
+    if (!from || !to) continue;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+    line.setAttribute('x2', to.x);   line.setAttribute('y2', to.y);
+    line.setAttribute('class', 'mini-edge');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+  }
+
+  // Nodes.
+  for (const n of nodes) {
+    const p = positions[n.id];
+    if (!p) continue;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'mini-node mini-node-' + nodeShapeClass(n.op));
+    g.setAttribute('id', 'mini-' + n.id);
+    g.setAttribute('transform', 'translate(' + p.x + ',' + p.y + ')');
+
+    // Shape per node kind (DD1: shape carries meaning, not just colour).
+    const shape = nodeShape(n.op);
+    svgAppendShape(g, shape);
+
+    // Inner title for assistive tech.
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    t.textContent = n.op + ': ' + n.label;
+    g.appendChild(t);
+
+    // Label text.
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'central');
+    text.setAttribute('class', 'mini-label');
+    text.textContent = n.label;
+    g.appendChild(text);
+    svg.appendChild(g);
+  }
+}
+
+// nodeShape returns the SVG primitive description for a given op kind. Each
+// shape is distinct so a screen reader without colour can still tell a Const
+// (square) from a Var (circle) from an ALU node (hexagon).
+function nodeShape(op) {
+  if (op === 'Const')     return { type: 'rect', w: 38, h: 22 };
+  if (op === 'DefineVar') return { type: 'circle', r: 14 };
+  if (op === 'Var')       return { type: 'circle', r: 14 };
+  // Default: rounded rect (ALU op).
+  return { type: 'rounded', w: 44, h: 22, rx: 6 };
+}
+function nodeShapeClass(op) {
+  if (op === 'Const')     return 'const';
+  if (op === 'DefineVar' || op === 'Var') return 'leaf';
+  return 'alu';
+}
+function svgAppendShape(g, s) {
+  if (s.type === 'rect') {
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', -s.w / 2); r.setAttribute('y', -s.h / 2);
+    r.setAttribute('width', s.w); r.setAttribute('height', s.h);
+    r.setAttribute('class', 'mini-shape');
+    g.appendChild(r);
+  } else if (s.type === 'circle') {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('r', s.r);
+    c.setAttribute('class', 'mini-shape');
+    g.appendChild(c);
+  } else {
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', -s.w / 2); r.setAttribute('y', -s.h / 2);
+    r.setAttribute('width', s.w); r.setAttribute('height', s.h);
+    r.setAttribute('rx', s.rx);
+    r.setAttribute('class', 'mini-shape');
+    g.appendChild(r);
+  }
+}
+
+function selectOp(op) {
+  _explainState.selectedOp = op;
+  // Push deep link.
+  try {
+    const url = '/x/' + encodeURIComponent(op);
+    if (window.location.pathname !== url) {
+      history.pushState({ viewId: 'explain', op }, '', url);
+    }
+  } catch (_) {}
+  drawOpList();
+  loadExplain(op);
+}
+
+function initExplainSearch() {
+  const input = document.getElementById('op-search');
+  if (!input) return;
+  input.addEventListener('input', (e) => {
+    const v = e.target.value || '';
+    if (_explainDebounce) clearTimeout(_explainDebounce);
+    _explainDebounce = setTimeout(() => {
+      _explainState.filter = v;
+      drawOpList();
+    }, 100);
+  });
+}
+
+function initExplainKeyboard() {
+  const listEl = document.getElementById('op-list-items');
+  if (!listEl) return;
+  listEl.addEventListener('keydown', (e) => {
+    // Compute the currently-visible filtered ops so ArrowDown/Up navigate the
+    // SAME set the user sees.
+    const q = _explainState.filter.toLowerCase();
+    const visible = _explainState.ops.filter((op) =>
+      !q || op.toLowerCase().includes(q));
+    if (visible.length === 0) return;
+    const cur = visible.indexOf(_explainState.selectedOp);
+    let next = cur;
+    switch (e.key) {
+      case 'ArrowDown': next = Math.min(visible.length - 1, cur + 1); break;
+      case 'ArrowUp':   next = Math.max(0, cur - 1);                  break;
+      case 'Home':      next = 0;                                     break;
+      case 'End':       next = visible.length - 1;                    break;
+      case 'Enter':
+      case ' ':
+        if (_explainState.selectedOp) {
+          e.preventDefault();
+          announce('op ' + _explainState.selectedOp);
+        }
+        return;
+      case 'Escape': {
+        e.preventDefault();
+        const navItem = document.querySelector('.nav-item[data-view="explain"]');
+        if (navItem && typeof navItem.focus === 'function') navItem.focus();
+        return;
+      }
+      default: return;
+    }
+    if (next !== cur && next >= 0) {
+      e.preventDefault();
+      selectOp(visible[next]);
+      const el = document.getElementById('op-opt-' + visible[next]);
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  });
+}
+
+function initExplainPlayButton() {
+  const btn = document.getElementById('play-rewrite');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const detail = _explainState.detail;
+    if (!detail || !detail.mini_graph) return;
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Announce the rule that's about to fire (first symbolic rule when
+    // present; otherwise the gradient rule). The polite live region picks
+    // it up without stealing focus.
+    let ruleName = 'identity';
+    if (detail.symbolic_rules && detail.symbolic_rules.length > 0) {
+      ruleName = detail.symbolic_rules[0].name;
+    }
+    announce('rule ' + ruleName + ' fired');
+    if (reduced) {
+      drawMiniGraph(detail.mini_graph, 'after');
+      // After a beat, restore the before so the user can replay.
+      setTimeout(() => drawMiniGraph(detail.mini_graph, 'before'), 1200);
+      return;
+    }
+    // Animated path: a CSS class on the SVG pulses the op node before swap.
+    const miniEl = document.getElementById('exp-mini');
+    const svg = miniEl && miniEl.querySelector('svg');
+    if (svg) {
+      svg.classList.add('rewriting');
+      // Find the op (in-degree > 0) node and pulse it.
+      const opNode = svg.querySelector('.mini-node-alu');
+      if (opNode) {
+        const shape = opNode.querySelector('.mini-shape');
+        if (shape) {
+          shape.classList.add('rule-just-fired');
+          setTimeout(() => shape.classList.remove('rule-just-fired'), 700);
+        }
+      }
+    }
+    setTimeout(() => {
+      drawMiniGraph(detail.mini_graph, 'after');
+      if (svg) svg.classList.remove('rewriting');
+      // Re-render the before after a short pause so the user can replay.
+      setTimeout(() => drawMiniGraph(detail.mini_graph, 'before'), 1400);
+    }, 600);
+  });
+}
+
 // ── boot ──────────────────────────────────────────────────────────────────
 
 function boot() {
@@ -988,6 +2008,9 @@ function boot() {
   initIgnite();
   initKernelsKeyboard();
   initKernelsDiffToggle();
+  initExplainSearch();
+  initExplainKeyboard();
+  initExplainPlayButton();
 }
 
 if (document.readyState === 'loading') {
@@ -1002,4 +2025,10 @@ export const __studio = {
   helpOpen, helpClose,
   // W2 hooks (kernels view) — exported so manual console tests can drive them.
   tokenizeWGSL, renderKernelsView, selectKernel, modelFromPath,
+  // W6 hooks (train view).
+  renderTrainView, trainStart, trainCancel, modelFromTrainPath,
+  // W4 hooks (visualize view).
+  renderVisualizeView, closeNodeInspector, modelFromVizPath, nodeIdFromQuery,
+  // W3 hooks (explain view).
+  renderExplainView, selectOp, opFromExplainPath, drawMiniGraph,
 };

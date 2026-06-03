@@ -18,7 +18,7 @@ import (
 	"io/fs"
 )
 
-//go:embed studio.html studio.css studio.js worker.js wasm_exec.js
+//go:embed studio.html studio.css studio.js worker.js wasm_exec.js visualize_embed.html
 var files embed.FS
 
 // FS returns the embedded studio assets rooted at this package (so a caller

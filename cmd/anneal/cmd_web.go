@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/georgebuilds/anneal/internal/bundle"
+	"github.com/georgebuilds/anneal/viz"
 	"github.com/georgebuilds/anneal/web"
 )
 
@@ -63,6 +64,7 @@ func serveMux() *http.ServeMux {
 			// Studio uses History API routing; every non-/static path returns
 			// the shell so the client-side router can resolve it.
 			if strings.HasPrefix(r.URL.Path, "/static/") ||
+				strings.HasPrefix(r.URL.Path, "/visualize/") ||
 				strings.HasPrefix(r.URL.Path, "/api/") ||
 				strings.HasPrefix(r.URL.Path, "/sse/") {
 				http.NotFound(w, r)
@@ -74,14 +76,83 @@ func serveMux() *http.ServeMux {
 
 	mux.Handle("/static/", http.StripPrefix("/static/", staticFileServer(staticFS)))
 
+	// W4 visualize embed: serve the viz artifact (verbatim) under
+	// /visualize/static/* and the embed-wrapper HTML at /visualize/embed.
+	// The standalone `anneal viz` command is unaffected; it still mounts
+	// viz/static at /. Spec: notes/anneal_web_spec.md §5.2.
+	mux.HandleFunc("/visualize/embed", serveVisualizeEmbed(staticFS))
+	mux.HandleFunc("/visualize/api/graph",    visualizeAPIHandler())
+	mux.HandleFunc("/visualize/api/timeline", visualizeAPIHandler())
+	if vizFS, err := viz.StaticFS(); err == nil {
+		mux.Handle("/visualize/static/", http.StripPrefix("/visualize/static/", staticFileServer(vizFS)))
+	}
+
 	mux.HandleFunc("/api/device",         stubJSON("device probe not yet implemented"))
 	mux.HandleFunc("/api/runs",           runsHandler())
 	mux.HandleFunc("/api/runs/",          runsHandler())
 	mux.HandleFunc("/api/compile/tuned",  stubJSON("native BEAM compile not yet implemented"))
-	mux.HandleFunc("/sse/train",          stubJSON("train SSE not yet implemented"))
+	mux.HandleFunc("/sse/train",          handleSSETrain)
 	mux.HandleFunc("/sse/generate",       stubJSON("generate SSE not yet implemented"))
 
 	return mux
+}
+
+// serveVisualizeEmbed serves the W4 iframe wrapper HTML (web/visualize_embed.html).
+// The page loads the viz artifact from /visualize/static/, intercepts the
+// app.js wasm fetch (which uses a relative URL) to point at the right path,
+// and adds the iframe-side postMessage bridge that maps node clicks to the
+// studio's drawer. The standalone `anneal viz` command never serves this.
+func serveVisualizeEmbed(staticFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		b, err := fs.ReadFile(staticFS, "visualize_embed.html")
+		if err != nil {
+			http.Error(w, "visualize_embed.html: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(b)
+	}
+}
+
+// visualizeAPIHandler answers the REST fallback the embedded viz uses when
+// anneal.wasm is not present. It mirrors viz.Serve's /api/graph and
+// /api/timeline endpoints under the /visualize/ prefix so the studio's
+// iframe and the standalone `anneal viz` command can both reach them.
+func visualizeAPIHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			name = "mlp"
+		}
+		var b []byte
+		var err error
+		switch r.URL.Path {
+		case "/visualize/api/graph":
+			var g *viz.GraphData
+			g, err = viz.BuildGraph(name)
+			if err == nil {
+				b, err = g.ToJSON()
+			}
+		case "/visualize/api/timeline":
+			var t *viz.TimelineData
+			t, err = viz.BuildTimeline(name)
+			if err == nil {
+				b, err = t.ToJSON()
+			}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(b)
+	}
 }
 
 // runsHandler dispatches the /api/runs[/...] family (W1). The split is:

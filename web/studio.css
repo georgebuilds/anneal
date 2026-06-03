@@ -833,3 +833,666 @@ main {
   .kernel-list-item,
   .diff-toggle { transition: none !important; }
 }
+
+/* ── train view (W6) ──────────────────────────────────────────────────────
+   Layout: a single column inside .train-pane. Controls row up top, then
+   the progressbar, then a row of stat cards (step / loss / uops / kernels
+   / fused), then the loss sparkline figure, then the kernel-graph thumb,
+   then the action row. The two stat cards that pair colour with meaning
+   are border-accented per DD1 (loss = teal, fused = gold). */
+
+.train-pane {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.train-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+}
+.train-controls select,
+.train-controls input[type="number"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  /* Touch target 44px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  min-width: 44px;
+}
+.train-controls select { min-width: 120px; }
+.train-controls input[type="number"] { width: 96px; }
+.train-controls button {
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  /* Touch target 44px. */
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.train-controls button:hover { background: var(--surface-2); }
+.train-controls button.primary {
+  border-color: var(--gold);
+  color: var(--text);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  font-weight: 600;
+}
+.train-controls button.primary:hover {
+  background: color-mix(in srgb, var(--gold) 24%, transparent);
+}
+.train-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.train-controls .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.train-controls input[type="checkbox"] {
+  /* Touch target 24x24 visually; surrounding label brings the hit area
+     above 44x44 via min-height above. */
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+}
+
+/* Progressbar: a fixed-height strip with a fill child. The width of the
+   fill tracks aria-valuenow via inline style. Border-aware so it reads
+   in forced-colors mode without the fill colour. */
+.train-progress {
+  position: relative;
+  height: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.train-progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(to right, var(--teal), var(--gold));
+  transition: width 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .train-progress-fill { transition: none !important; }
+}
+
+/* Stat cards: a horizontal row that wraps. Each card pairs label and
+   value vertically. DD1: the meaning colour is the BORDER on the
+   semantic cards, never the only signal. */
+.train-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  border-left-width: 3px;
+}
+.stat-card-loss { border-left-color: var(--teal); }
+.stat-card-fused { border-left-color: var(--gold); }
+.stat-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.stat-value {
+  font-size: 1rem;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+  color: var(--text);
+}
+
+/* Loss sparkline. The SVG itself is fluid-width and fixed-height; the
+   path stroke is the forward teal (solid; the brand convention uses
+   dasharray for backward, so the forward path stays solid here). The
+   focusable SVG gets the global :focus-visible ring via :focus-visible. */
+.loss-sparkline {
+  margin: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+}
+.sparkline-caption {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+#loss-svg {
+  width: 100%;
+  height: 80px;
+  display: block;
+}
+#loss-path { stroke: var(--teal); }
+/* In forced-colors mode the stroke collapses to a system color so it
+   still renders. */
+@media (forced-colors: active) {
+  #loss-path { stroke: LinkText; }
+}
+
+/* Kernel thumb: a tiny graph of currently-fused kernels. Dots are gold;
+   the dispatch pulse animates the most recently-dispatched dot. Honours
+   reduced-motion. */
+.kernel-thumb {
+  margin: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+}
+.kernel-thumb figcaption {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+#kernel-svg {
+  width: 100%;
+  height: 80px;
+  display: block;
+}
+.kernel-dot {
+  fill: var(--gold);
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.kernel-dot.dispatched {
+  animation: dispatch-pulse 1.8s ease-in-out infinite;
+}
+/* Reduced motion: replace the gold pulse with an instant flash via a
+   one-shot opacity blip. */
+@media (prefers-reduced-motion: reduce) {
+  .kernel-dot.dispatched {
+    animation: none !important;
+    /* Flash once: brightness jump signals dispatch without motion. */
+    fill: var(--gold);
+    stroke: var(--gold);
+    stroke-width: 2;
+  }
+}
+
+/* Train actions row. Buttons share the kernels-view diff-toggle styling. */
+.train-actions {
+  display: flex;
+  gap: 10px;
+}
+.train-actions button {
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  min-height: 44px;
+  padding: 4px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.train-actions button:hover:not(:disabled) { background: var(--surface-2); }
+.train-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* prefers-contrast: more — sharpen the cards. */
+@media (prefers-contrast: more) {
+  .stat-card,
+  .train-controls,
+  .train-progress,
+  .loss-sparkline,
+  .kernel-thumb { border-width: 2px; }
+}
+
+/* ── visualize view (W4) ──────────────────────────────────────────────────
+   Layout: an iframe on the left running the existing viz artifact verbatim,
+   a node-inspector drawer on the right. The drawer is `hidden` by default
+   and slides in from the right when an iframe nodeClick arrives. Closes
+   on Escape or the close button.
+
+   DD1 (color is never alone): the parent/child lists use a leading arrow
+   glyph so the teal/ember/gold semantics carry both shape and colour. */
+.visualize-pane {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+  height: calc(100vh - 200px);
+  min-height: 420px;
+}
+.visualize-pane #viz-iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.visualize-pane #viz-iframe:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* When the drawer is hidden the iframe spans the full pane. */
+.visualize-pane:has(.node-inspector[hidden]) {
+  grid-template-columns: 1fr;
+}
+@media (max-width: 720px) {
+  .visualize-pane {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+  .visualize-pane #viz-iframe {
+    height: 60vh;
+    min-height: 320px;
+  }
+}
+
+/* The drawer itself. role="region" + aria-label="node inspector"; the close
+   button is the first focusable child so Tab order is predictable. */
+.node-inspector {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: auto;
+  min-height: 0;
+  /* Slide in from the right; replaced by an instant show under
+     prefers-reduced-motion below. */
+  animation: ni-slide-in 180ms ease-out;
+}
+@keyframes ni-slide-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-inspector { animation: none !important; }
+}
+.node-inspector .close {
+  align-self: flex-end;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.node-inspector .close:hover { background: var(--surface-2); }
+.node-inspector h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--text);
+}
+.node-inspector h3 {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+.node-attrs {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+}
+.node-attrs dt {
+  color: var(--muted);
+  font-weight: 400;
+}
+.node-attrs dd {
+  margin: 0;
+  color: var(--text);
+  font-feature-settings: "tnum";
+  word-break: break-word;
+}
+.node-inspector ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+}
+/* DD1: pair the colour with a shape (a leading glyph) and a font weight
+   bump. The teal forward / ember backward semantics carry without colour. */
+.node-inspector section[aria-label="parents"] ul li::before {
+  content: "↑ ";
+  color: var(--teal);
+  font-weight: 600;
+}
+.node-inspector section[aria-label="children"] ul li::before {
+  content: "↓ ";
+  color: var(--ember);
+  font-weight: 600;
+}
+.node-inspector .ni-label {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Forced-colors: keep the drawer / iframe boundary readable; the glyphs
+   carry the parent / child distinction so the colours collapsing to
+   CanvasText does not erase the semantic. */
+@media (forced-colors: active) {
+  .visualize-pane #viz-iframe,
+  .node-inspector { border-color: CanvasText; }
+  .node-inspector section[aria-label="parents"] ul li::before,
+  .node-inspector section[aria-label="children"] ul li::before {
+    color: CanvasText;
+  }
+}
+
+/* prefers-contrast: more — sharpen the drawer. */
+@media (prefers-contrast: more) {
+  .visualize-pane #viz-iframe,
+  .node-inspector { border-width: 2px; }
+}
+
+/* ── explain view (W3) ────────────────────────────────────────────────────
+   Two-column layout: a searchable op list on the left, the selected op's
+   detail (description, rewrite rules, gradient rule, mini-graph) on the
+   right. Visual language inherited from the kernels view; brand tokens
+   pair colour with shape and weight per DD1. */
+
+.explain-pane {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  /* Reserve the full visible main height minus the lede so the rules /
+     gradient panes scroll inside the right column rather than the page. */
+  height: calc(100vh - 200px);
+  min-height: 360px;
+}
+@media (max-width: 720px) {
+  .explain-pane {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+.explain-list {
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.explain-list .search-stub {
+  width: 100%;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+}
+.op-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.op-list-item {
+  /* Touch target floor: 44px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text);
+  /* DD1: active state pairs colour with a left border. */
+  border-left: 2px solid transparent;
+  font-size: 0.75rem;
+  font-feature-settings: "tnum";
+  user-select: none;
+}
+.op-list-item:hover { background: var(--surface-2); }
+.op-list-item[aria-selected="true"] {
+  background: var(--surface-2);
+  border-left-color: var(--gold);
+  font-weight: 600;
+}
+.op-list-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.explain-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.explain-header h2 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+.exp-desc {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.explain-detail h3 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  margin: 4px 0 6px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: 4px;
+}
+
+/* ── rules list ──────────────────────────────────────────────────────────── */
+.rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rules-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  background: var(--surface);
+}
+.rules-list-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+.rule-pattern {
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+  font-weight: 500;
+  white-space: pre-wrap;
+  word-break: break-word;
+  grid-column: 1 / -1;
+}
+.rule-note {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-style: italic;
+  grid-column: 1;
+}
+.rule-source {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-feature-settings: "tnum";
+  grid-column: 2;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── gradient rule pre ───────────────────────────────────────────────────── */
+.gradient-rule {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--ember);  /* DD1: ember = backward, paired with a 3px bar */
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+/* ── mini-graph SVG ──────────────────────────────────────────────────────── */
+.mini-graph {
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  background: var(--surface);
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+}
+.mini-svg {
+  max-width: 100%;
+  height: 140px;
+}
+.mini-svg .mini-edge {
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  fill: none;
+}
+.mini-svg .mini-shape {
+  fill: var(--surface-2);
+  stroke: var(--text);
+  stroke-width: 1.4;
+}
+.mini-svg .mini-node-const .mini-shape {
+  /* Forward = teal; pair colour with rectangular shape via nodeShape. */
+  stroke: var(--teal);
+  fill: var(--teal-dim);
+}
+.mini-svg .mini-node-leaf .mini-shape {
+  /* Variable / DefineVar — circle. */
+  stroke: var(--teal);
+  fill: var(--teal-dim);
+}
+.mini-svg .mini-node-alu .mini-shape {
+  /* ALU op — rounded rect, gold (fused/rewrite target). */
+  stroke: var(--gold);
+  fill: var(--gold-dim);
+}
+.mini-svg .mini-label {
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.6875rem;
+  fill: var(--text);
+  pointer-events: none;
+}
+.mini-svg.rewriting .mini-edge {
+  /* Subtle hint that a rewrite is in flight. */
+  stroke-dasharray: 4 3;
+}
+
+.play-rewrite {
+  align-self: flex-start;
+  margin-top: 6px;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  /* Touch target 44px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  padding: 4px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.play-rewrite:hover { background: var(--surface-2); }
+
+/* Reduced-motion: the play-rewrite button still works; it just swaps
+   instantly via the JS branch on prefers-reduced-motion. The CSS rule below
+   neutralises any future transition that might creep in. */
+@media (prefers-reduced-motion: reduce) {
+  .op-list-item,
+  .play-rewrite,
+  .mini-svg .mini-shape { transition: none !important; }
+  .mini-svg.rewriting .mini-edge { stroke-dasharray: none !important; }
+}
+
+/* Forced-colors: the mini-graph still reads because shape, not colour,
+   carries the distinction (Const = square, Var = circle, ALU = rounded rect).
+   The strokes collapse to CanvasText; the fills collapse to Canvas. */
+@media (forced-colors: active) {
+  .mini-svg .mini-shape {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .mini-svg .mini-edge {
+    stroke: CanvasText;
+  }
+  .mini-svg .mini-label {
+    fill: CanvasText;
+  }
+  .gradient-rule {
+    border-color: CanvasText;
+    border-left-color: CanvasText;
+  }
+}

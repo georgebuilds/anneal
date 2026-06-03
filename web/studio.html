@@ -138,10 +138,48 @@
       </div>
     </section>
 
+    <!-- W4: visualize view embeds the existing viz artifact verbatim in an
+         iframe (per spec §5.2) and adds a node-inspector drawer that opens
+         on a postMessage from the iframe. The iframe sandbox is the minimum
+         needed for the WASM viz to run — allow-scripts so the inline
+         bridge + app.js execute, allow-same-origin so WebAssembly fetch
+         can load anneal.wasm. No allow-forms, no allow-top-navigation. -->
     <section class="view" id="view-visualize" aria-labelledby="view-visualize-heading">
       <h1 id="view-visualize-heading">visualize</h1>
       <div class="lede">the wasm-compiled compiler with a node inspector and deep-linkable state.</div>
-      <div class="stub">view: visualize coming soon.</div>
+      <div class="visualize-pane">
+        <iframe id="viz-iframe"
+                src="/visualize/embed"
+                sandbox="allow-scripts allow-same-origin"
+                title="anneal visualize timeline"
+                tabindex="0"></iframe>
+        <aside class="node-inspector"
+               id="node-inspector"
+               hidden
+               aria-label="node inspector"
+               role="region">
+          <button class="close"
+                  id="node-inspector-close"
+                  type="button"
+                  aria-label="close inspector">close</button>
+          <h2 id="node-inspector-op"></h2>
+          <dl class="node-attrs" id="node-attrs" aria-live="polite">
+            <dt>dtype</dt><dd id="ni-dtype"></dd>
+            <dt>shape</dt><dd id="ni-shape"></dd>
+            <dt>phase</dt><dd id="ni-phase"></dd>
+            <dt>arg</dt><dd id="ni-arg"></dd>
+            <dt>source</dt><dd id="ni-source"></dd>
+          </dl>
+          <section aria-label="parents">
+            <h3>parents</h3>
+            <ul id="ni-parents"></ul>
+          </section>
+          <section aria-label="children">
+            <h3>children</h3>
+            <ul id="ni-children"></ul>
+          </section>
+        </aside>
+      </div>
     </section>
 
     <!-- W2: kernels view. Two-pane layout: a keyboard-navigable kernel list
@@ -182,16 +220,154 @@
       </div>
     </section>
 
+    <!-- W3: explain view. Two-pane layout: a searchable, keyboard-navigable
+         op list on the left; the selected op's symbolic rules, gradient rule,
+         and a before/after mini-graph on the right. The rules and gradient
+         pattern come from the real rewrite engine (symbolic.upat parsed at
+         runtime + tensor.Gradient.RegisteredOps()); only the op descriptions
+         are hand-curated (docs, not behaviour — DD2). -->
     <section class="view" id="view-explain" aria-labelledby="view-explain-heading">
       <h1 id="view-explain-heading">explain</h1>
-      <div class="lede">pick an op, see the rewrite and gradient rules that fire.</div>
-      <div class="stub">view: explain coming soon.</div>
+      <div class="lede">pick an op, see the rewrite rules that fire and the gradient that's registered.</div>
+      <div class="explain-pane">
+        <aside class="explain-list" aria-label="op list">
+          <label for="op-search" class="visually-hidden">search ops</label>
+          <input type="search"
+                 id="op-search"
+                 class="search-stub"
+                 placeholder="search ops · type to filter"
+                 aria-label="search ops"
+                 aria-controls="op-list-items">
+          <ul id="op-list-items"
+              class="op-list"
+              role="listbox"
+              aria-label="ops in the anneal IR"
+              tabindex="0"></ul>
+        </aside>
+        <article class="explain-detail" aria-live="polite" aria-atomic="false">
+          <header class="explain-header">
+            <h2 id="exp-op-name"></h2>
+            <p class="exp-desc" id="exp-desc"></p>
+          </header>
+          <section aria-label="rewrite rules">
+            <h3>rewrite rules</h3>
+            <ul class="rules-list" id="exp-rules"></ul>
+          </section>
+          <section aria-label="gradient rule">
+            <h3>gradient rule</h3>
+            <pre class="gradient-rule"
+                 id="exp-grad"
+                 tabindex="0"
+                 aria-label="gradient rule pattern"></pre>
+          </section>
+          <section aria-label="mini-graph">
+            <h3>before / after</h3>
+            <div class="mini-graph" id="exp-mini">
+              <svg class="mini-svg" aria-label="rewrite mini-graph" role="img"></svg>
+            </div>
+            <button class="play-rewrite"
+                    id="play-rewrite"
+                    type="button"
+                    aria-label="play rewrite animation">play rewrite</button>
+          </section>
+        </article>
+      </div>
     </section>
 
+    <!-- W6: train view. SSE-driven live dashboard for the trainer. The
+         controls row launches a real /sse/train run; the progress bar +
+         stat cards + loss sparkline + kernel thumb update on each frame.
+         a11y: every control is labelled, the progressbar exposes valuemin/
+         max/now, the stat region is aria-live="polite", and the sparkline
+         SVG carries an aria-label plus a textual fallback updated each
+         step. See web/A11Y.md §3d. -->
     <section class="view" id="view-train" aria-labelledby="view-train-heading">
       <h1 id="view-train-heading">train</h1>
       <div class="lede">the tui dashboard, in the browser. loss, compiler stats, live fused-kernel pulses.</div>
-      <div class="stub">view: train coming soon.</div>
+      <div class="train-pane">
+        <div class="train-controls">
+          <label for="train-model" class="visually-hidden">model</label>
+          <select id="train-model" aria-label="model to train">
+            <option value="mlp">mlp</option>
+            <option value="conv">conv</option>
+            <option value="dynmlp">dynmlp</option>
+            <option value="nanogpt">nanogpt</option>
+            <option value="vit">vit</option>
+          </select>
+          <label for="train-steps" class="visually-hidden">steps</label>
+          <input id="train-steps" type="number" min="1" max="10000" value="100"
+                 aria-label="number of training steps">
+          <button id="train-start" type="button" class="primary"
+                  aria-label="start training">start</button>
+          <button id="train-pause" type="button" class="ghost" disabled
+                  aria-label="pause training (not yet wired)">pause</button>
+          <button id="train-cancel" type="button" class="ghost" disabled
+                  aria-label="cancel training">cancel</button>
+          <label class="checkbox-label">
+            <input id="train-bundle" type="checkbox" checked
+                   aria-label="save run bundle to ~/.cache/anneal/runs/">
+            save bundle
+          </label>
+        </div>
+        <div class="train-progress"
+             role="progressbar"
+             aria-valuemin="0"
+             aria-valuemax="100"
+             aria-valuenow="0"
+             aria-label="training progress"
+             id="train-progress-bar">
+          <div class="train-progress-fill" id="train-progress-fill"></div>
+        </div>
+        <div class="train-stats" aria-live="polite" aria-atomic="false" id="train-stats">
+          <div class="stat-card stat-card-loss">
+            <span class="stat-label">step</span>
+            <span class="stat-value" id="t-step">—</span>
+          </div>
+          <div class="stat-card stat-card-loss">
+            <span class="stat-label">loss</span>
+            <span class="stat-value" id="t-loss">—</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">uops</span>
+            <span class="stat-value" id="t-uops">—</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">kernels</span>
+            <span class="stat-value" id="t-kernels">—</span>
+          </div>
+          <div class="stat-card stat-card-fused">
+            <span class="stat-label">fused</span>
+            <span class="stat-value" id="t-fused">—</span>
+          </div>
+        </div>
+        <figure class="loss-sparkline">
+          <figcaption class="sparkline-caption">loss</figcaption>
+          <svg id="loss-svg"
+               role="img"
+               aria-label="loss sparkline"
+               tabindex="0"
+               viewBox="0 0 400 80"
+               preserveAspectRatio="none">
+            <desc id="loss-svg-desc">loss sparkline: no data yet</desc>
+            <path id="loss-path" stroke="#00ADD8" stroke-width="1.5"
+                  fill="none" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </figure>
+        <figure class="kernel-thumb">
+          <figcaption>fused kernels</figcaption>
+          <svg id="kernel-svg"
+               role="img"
+               aria-label="kernel graph thumbnail"
+               viewBox="0 0 200 80"
+               preserveAspectRatio="none"></svg>
+        </figure>
+        <div class="train-actions">
+          <button id="train-open-viz" type="button" disabled
+                  aria-label="open this model in the visualize view">open in viz</button>
+          <button id="train-save-run" type="button" disabled
+                  aria-label="save run (bundle already written when checkbox enabled)">save run</button>
+        </div>
+      </div>
     </section>
 
     <section class="view" id="view-generate" aria-labelledby="view-generate-heading">
