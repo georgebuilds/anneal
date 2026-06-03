@@ -641,3 +641,195 @@ main {
   .kbd-help-backdrop { background: Canvas; opacity: 0.85; }
   .kbd-list kbd { background: ButtonFace; color: ButtonText; border-color: CanvasText; }
 }
+
+/* ── kernels view (W2) ────────────────────────────────────────────────────
+   Two-pane layout: left = kernel list, right = WGSL detail. The list is a
+   real <ul role="listbox"> with arrow-key navigation, aria-activedescendant
+   tracking, and aria-selected on the current item. The WGSL pre is
+   tabindex=0 so the keyboard user can land in it and scroll. */
+
+.kernels-pane {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  /* Reserve the full visible main height minus the lede so the WGSL
+     scroller is genuinely scrollable rather than pushing the page. */
+  height: calc(100vh - 200px);
+  min-height: 360px;
+}
+@media (max-width: 720px) {
+  .kernels-pane {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+.kernel-list-pane {
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: auto;
+  min-height: 0;
+}
+.kernel-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.kernel-list-item {
+  /* Touch target floor: 44px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text);
+  /* DD1: active state pairs colour with a left border. */
+  border-left: 2px solid transparent;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  user-select: none;
+}
+.kernel-list-item:hover { background: var(--surface-2); }
+.kernel-list-item[aria-selected="true"] {
+  background: var(--surface-2);
+  border-left-color: var(--gold);
+  font-weight: 600;
+}
+.kernel-list-item .k-id {
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.kernel-list-item .k-meta {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-feature-settings: "tnum";
+}
+
+.kernel-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.kernel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hair);
+}
+.kernel-header .kernel-id {
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.kernel-header .kernel-shape,
+.kernel-header .kernel-counts {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-feature-settings: "tnum";
+}
+.diff-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  /* Touch target 44px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.diff-toggle:hover { background: var(--surface-2); }
+.diff-toggle[aria-pressed="true"] {
+  background: var(--gold-dim);
+  border-color: var(--gold);
+}
+
+.kernel-source-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+/* WGSL block: JetBrains Mono per DESIGN.md §4. The pre element is the
+   scroll container's child so the gutter (fusion-span labels) sits
+   alongside the source via a left-padding + absolute-positioned spans. */
+.wgsl {
+  margin: 0;
+  padding: 10px 12px 10px 70px;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre;
+  position: relative;
+  tab-size: 2;
+  /* When this pre is keyboard-focused, the global :focus-visible ring
+     already applies; ensure scrolling still feels natural. */
+}
+.wgsl .wgsl-line {
+  display: block;
+  position: relative;
+  padding-left: 0;
+}
+.wgsl .gutter {
+  position: absolute;
+  left: -64px;
+  width: 56px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-feature-settings: "tnum";
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.wgsl .gutter.fwd   { color: var(--teal); }
+.wgsl .gutter.bwd   { color: var(--ember); }
+.wgsl .gutter.fused { color: var(--gold); }
+
+/* ── WGSL syntax-highlighting spans (W2 tokenizer) ────────────────────────
+   DD1: colour is never alone. Each token kind pairs colour with a font
+   style (bold / italic / slant) so the meaning survives forced-colors and
+   low-contrast renders. */
+.tk-keyword     { color: var(--teal);  font-weight: 600; }
+.tk-type        { color: var(--teal);  font-style: italic; }
+.tk-attribute   { color: var(--gold);  font-weight: 600; } /* @compute, @binding */
+.tk-number      { color: var(--ember); font-feature-settings: "tnum"; }
+.tk-string      { color: var(--ember); }
+.tk-comment     { color: var(--muted); font-style: italic; }
+.tk-punct       { color: var(--text); }
+.tk-ident       { color: var(--text); }
+.tk-builtin     { color: var(--gold); }                    /* main, gid, lid, wid */
+
+/* In forced-colors mode tokenizer colours collapse to CanvasText; the
+   weight / italic axes carry the distinction. */
+@media (forced-colors: active) {
+  .tk-keyword, .tk-type, .tk-attribute, .tk-number, .tk-string,
+  .tk-comment, .tk-punct, .tk-ident, .tk-builtin {
+    color: CanvasText;
+  }
+  .tk-keyword     { font-weight: bold; }
+  .tk-type        { font-style: italic; }
+  .tk-attribute   { font-weight: bold; }
+  .tk-comment     { font-style: italic; }
+  .wgsl .gutter.fwd,
+  .wgsl .gutter.bwd,
+  .wgsl .gutter.fused { color: CanvasText; }
+}
+
+/* Reduced-motion: nothing here animates, but pin the rule so the gate
+   notices any future addition. */
+@media (prefers-reduced-motion: reduce) {
+  .kernel-list-item,
+  .diff-toggle { transition: none !important; }
+}

@@ -7,8 +7,15 @@
   <meta name="description" content="anneal studio — a local browser surface for the anneal tensor compiler. forward, backward, and fused kernels share one immutable IR.">
 
   <!-- Worker / WASM gating: studio.js only instantiates web/worker.js when this
-       meta is present. W0 ships without anneal.wasm, so this stays absent until
-       the WASM build lands (avoids 404 noise during foundation testing). -->
+       meta is present. W2 added the annealGetKernels export to viz/wasm, but
+       the .wasm artifact is still NOT embedded (~13MB; deferred until the
+       embed strategy is settled). To exercise the kernels view live, build
+       and copy the wasm artifact, then flip this meta tag on:
+         GOOS=js GOARCH=wasm CGO_ENABLED=0 \
+             go build -o web/anneal.wasm ./viz/wasm/
+         (add anneal.wasm to the //go:embed line in embed.go)
+       Without the meta, wasm.call(...) rejects with a clear "worker not
+       loaded" message and the kernels view renders an inline hint. -->
   <!-- <meta name="anneal-worker" content="/static/worker.js"> -->
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -137,10 +144,42 @@
       <div class="stub">view: visualize coming soon.</div>
     </section>
 
+    <!-- W2: kernels view. Two-pane layout: a keyboard-navigable kernel list
+         on the left, the selected kernel's WGSL on the right with fusion
+         spans rendered in a gutter. The WGSL text is the real compiler's
+         output (DD2) delivered via the annealGetKernels WASM bridge.
+         The "tuned vs default" toggle is a stub until W6+ ships the native
+         BEAM endpoint; it announces "tuned compile pending" today. -->
     <section class="view" id="view-kernels" aria-labelledby="view-kernels-heading">
       <h1 id="view-kernels-heading">kernels</h1>
       <div class="lede">scheduled, fused, lowered. tuned vs default WGSL diff inline.</div>
-      <div class="stub">view: kernels coming soon.</div>
+      <div class="kernels-pane">
+        <aside class="kernel-list-pane" aria-label="kernel list">
+          <ul id="kernel-list-items"
+              class="kernel-list"
+              role="listbox"
+              aria-label="kernels in this model"
+              tabindex="0"></ul>
+        </aside>
+        <article class="kernel-detail" aria-live="polite" aria-atomic="false">
+          <header class="kernel-header">
+            <span class="kernel-id" id="k-id"></span>
+            <span class="kernel-shape" id="k-shape"></span>
+            <span class="kernel-counts" id="k-counts"></span>
+            <button class="diff-toggle"
+                    id="diff-toggle"
+                    type="button"
+                    aria-pressed="false"
+                    aria-label="show tuned vs default WGSL diff (not yet wired)">tuned vs default</button>
+          </header>
+          <div class="kernel-source-wrap">
+            <pre class="wgsl"
+                 id="k-wgsl"
+                 tabindex="0"
+                 aria-label="WGSL source"></pre>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="view" id="view-explain" aria-labelledby="view-explain-heading">

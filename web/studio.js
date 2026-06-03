@@ -248,7 +248,7 @@ function initSkipLink() {
 const RENDERERS = {
   studio:    function renderStudio()    { /* W1+ */ },
   visualize: function renderVisualize() { /* W2 */ },
-  kernels:   function renderKernels()   { /* W3 */ },
+  kernels:   function renderKernels()   { renderKernelsView(); },
   explain:   function renderExplain()   { /* W4 */ },
   train:     function renderTrain()     { /* W5 */ },
   generate:  function renderGenerate()  { /* W6 */ },
@@ -490,6 +490,493 @@ function initIgnite() {
   }
 }
 
+// ── WGSL tokenizer (W2) ───────────────────────────────────────────────────
+// Single-pass hand-rolled scanner. Walks the WGSL text once and emits a list
+// of {start, end, kind} spans the kernels-view renderer wraps into <span>
+// elements. No regex backtracking, no JS deps.
+//
+// Token kinds emitted:
+//   keyword   — control flow + storage classes (fn, var, let, for, if, …)
+//   type      — primitive scalar + vector + matrix types
+//   builtin   — main, gid, lid, wid, the @builtin identifiers
+//   attribute — @compute, @workgroup_size, @binding, @group, @builtin, …
+//   number    — int, float, hex literals (123, 12.5, 0xCAFE, 64u, 1.0f, ...)
+//   string    — "..." literals (rare in WGSL but tokenized for safety)
+//   comment   — // line comments AND /* block comments */
+//   ident     — everything else that starts with a letter/underscore
+//   punct     — every other single-char token (operators, braces, semi, …)
+//
+// Reduced-motion + forced-colors are CSS concerns; the tokenizer is pure
+// structure. Token boundaries are byte-offset into the input string.
+
+const WGSL_KEYWORDS = new Set([
+  'fn', 'var', 'let', 'for', 'while', 'if', 'else', 'return', 'break',
+  'continue', 'struct', 'enable', 'override', 'const', 'switch', 'case',
+  'default', 'discard', 'loop', 'true', 'false', 'storage', 'uniform',
+  'read', 'read_write', 'workgroup', 'function', 'private',
+]);
+
+const WGSL_TYPES = new Set([
+  'f32', 'i32', 'u32', 'f16', 'bool',
+  'vec2', 'vec3', 'vec4',
+  'mat2x2', 'mat2x3', 'mat2x4',
+  'mat3x2', 'mat3x3', 'mat3x4',
+  'mat4x2', 'mat4x3', 'mat4x4',
+  'array', 'atomic', 'ptr',
+  'texture_1d', 'texture_2d', 'texture_3d', 'texture_cube',
+  'sampler', 'sampler_comparison',
+]);
+
+// Identifiers WGSL builds in (@builtin parameter names + the kernel entry
+// point). Stays small; everything else is treated as a regular identifier.
+const WGSL_BUILTINS = new Set([
+  'main', 'gid', 'lid', 'wid',
+  'global_invocation_id', 'local_invocation_id', 'workgroup_id',
+  'num_workgroups', 'local_invocation_index', 'vertex_index',
+  'instance_index', 'position', 'front_facing', 'frag_depth',
+  'sample_index', 'sample_mask',
+  'bitcast', 'select', 'min', 'max', 'abs', 'clamp',
+  'workgroupBarrier', 'storageBarrier',
+]);
+
+function tokenizeWGSL(text) {
+  const spans = [];
+  const N = text.length;
+  let i = 0;
+
+  const isLetter = (c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_';
+  const isDigit  = (c) => c >= '0' && c <= '9';
+  const isAlnum  = (c) => isLetter(c) || isDigit(c);
+  const isHex    = (c) => isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+
+  while (i < N) {
+    const c = text[i];
+
+    // Whitespace — skipped (not emitted as a token).
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i++;
+      continue;
+    }
+
+    // Line comment.
+    if (c === '/' && text[i + 1] === '/') {
+      const start = i;
+      while (i < N && text[i] !== '\n') i++;
+      spans.push({ start, end: i, kind: 'comment' });
+      continue;
+    }
+    // Block comment.
+    if (c === '/' && text[i + 1] === '*') {
+      const start = i;
+      i += 2;
+      while (i < N - 1 && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      if (i < N) i += 2;
+      spans.push({ start, end: i, kind: 'comment' });
+      continue;
+    }
+    // String.
+    if (c === '"') {
+      const start = i;
+      i++;
+      while (i < N && text[i] !== '"') {
+        if (text[i] === '\\' && i + 1 < N) i++;
+        i++;
+      }
+      if (i < N) i++;
+      spans.push({ start, end: i, kind: 'string' });
+      continue;
+    }
+    // Attribute (@compute, @binding, @group, @builtin, @workgroup_size).
+    if (c === '@') {
+      const start = i;
+      i++;
+      while (i < N && (isAlnum(text[i]) || text[i] === '_')) i++;
+      spans.push({ start, end: i, kind: 'attribute' });
+      continue;
+    }
+    // Number. Handles decimal, hex (0x...), suffix u/f.
+    if (isDigit(c) || (c === '.' && isDigit(text[i + 1]))) {
+      const start = i;
+      if (c === '0' && (text[i + 1] === 'x' || text[i + 1] === 'X')) {
+        i += 2;
+        while (i < N && isHex(text[i])) i++;
+      } else {
+        while (i < N && isDigit(text[i])) i++;
+        if (i < N && text[i] === '.') {
+          i++;
+          while (i < N && isDigit(text[i])) i++;
+        }
+        if (i < N && (text[i] === 'e' || text[i] === 'E')) {
+          i++;
+          if (i < N && (text[i] === '+' || text[i] === '-')) i++;
+          while (i < N && isDigit(text[i])) i++;
+        }
+      }
+      // Numeric suffix (u, f, h, i).
+      if (i < N && (text[i] === 'u' || text[i] === 'f' || text[i] === 'h' || text[i] === 'i')) i++;
+      spans.push({ start, end: i, kind: 'number' });
+      continue;
+    }
+    // Identifier or keyword.
+    if (isLetter(c)) {
+      const start = i;
+      while (i < N && isAlnum(text[i])) i++;
+      const word = text.slice(start, i);
+      let kind = 'ident';
+      if (WGSL_KEYWORDS.has(word))      kind = 'keyword';
+      else if (WGSL_TYPES.has(word))    kind = 'type';
+      else if (WGSL_BUILTINS.has(word)) kind = 'builtin';
+      spans.push({ start, end: i, kind });
+      continue;
+    }
+    // Single-char punctuation (operators, braces, commas, semis, …).
+    spans.push({ start: i, end: i + 1, kind: 'punct' });
+    i++;
+  }
+  return spans;
+}
+
+// ── kernels view (W2) ─────────────────────────────────────────────────────
+// State held outside the renderer so navigation back to the kernels view
+// preserves the selection (per spec deep-link contract).
+
+const _kernelsState = {
+  model: null,        // currently-loaded model name
+  set: null,          // KernelSet JSON (the annealGetKernels payload)
+  selectedIdx: -1,    // index into set.kernels
+  loading: false,
+  error: null,
+};
+
+// modelFromPath extracts the model name from /k/<model>. Defaults to 'mlp'.
+function modelFromPath(pathname) {
+  const m = /^\/k\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : 'mlp';
+}
+
+// kernelIdFromQuery reads ?kernel=K3 off the URL. Returns null if absent.
+function kernelIdFromQuery() {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get('kernel');
+  } catch (_) { return null; }
+}
+
+async function renderKernelsView() {
+  const listEl = document.getElementById('kernel-list-items');
+  if (!listEl) return;
+
+  const model = modelFromPath(window.location.pathname);
+  const wantKernel = kernelIdFromQuery();
+
+  // If we already have data for this model, just (re)render and pick
+  // the kernel from the URL (deep-link case).
+  if (_kernelsState.model === model && _kernelsState.set) {
+    let idx = _kernelsState.selectedIdx;
+    if (wantKernel) {
+      const found = _kernelsState.set.kernels.findIndex((k) => k.id === wantKernel);
+      if (found >= 0) idx = found;
+    }
+    drawKernelList(_kernelsState.set, idx);
+    drawKernelDetail(_kernelsState.set, idx);
+    return;
+  }
+
+  // Fresh load. Show a placeholder while we fetch from the worker.
+  _kernelsState.model = model;
+  _kernelsState.set = null;
+  _kernelsState.selectedIdx = -1;
+  _kernelsState.loading = true;
+  _kernelsState.error = null;
+  listEl.innerHTML = '<li class="kernel-list-loading" aria-live="polite">loading kernels…</li>';
+
+  let raw;
+  try {
+    raw = await wasm.call('annealGetKernels', model);
+  } catch (e) {
+    _kernelsState.loading = false;
+    _kernelsState.error = (e && e.message) || String(e);
+    listEl.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'kernel-list-error';
+    li.textContent = 'wasm not loaded — build anneal.wasm to populate this view';
+    listEl.appendChild(li);
+    announce('kernels view: wasm not loaded');
+    return;
+  }
+
+  let set;
+  try {
+    set = JSON.parse(raw);
+  } catch (e) {
+    _kernelsState.loading = false;
+    _kernelsState.error = 'invalid JSON from annealGetKernels';
+    listEl.innerHTML = '<li class="kernel-list-error">kernels view: invalid JSON from compiler</li>';
+    return;
+  }
+  if (set && set.error) {
+    _kernelsState.loading = false;
+    _kernelsState.error = set.error;
+    listEl.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'kernel-list-error';
+    li.textContent = 'compiler error: ' + set.error;
+    listEl.appendChild(li);
+    return;
+  }
+
+  _kernelsState.loading = false;
+  _kernelsState.set = set;
+
+  let initialIdx = 0;
+  if (wantKernel) {
+    const found = set.kernels.findIndex((k) => k.id === wantKernel);
+    if (found >= 0) initialIdx = found;
+  }
+  _kernelsState.selectedIdx = initialIdx;
+  drawKernelList(set, initialIdx);
+  drawKernelDetail(set, initialIdx);
+}
+
+function drawKernelList(set, selectedIdx) {
+  const listEl = document.getElementById('kernel-list-items');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (!set || !set.kernels || set.kernels.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'kernel-list-empty';
+    li.textContent = 'no kernels';
+    listEl.appendChild(li);
+    return;
+  }
+  for (let i = 0; i < set.kernels.length; i++) {
+    const k = set.kernels[i];
+    const li = document.createElement('li');
+    li.className = 'kernel-list-item';
+    li.setAttribute('role', 'option');
+    li.id = 'k-opt-' + k.id;
+    li.dataset.idx = String(i);
+    const sel = (i === selectedIdx);
+    li.setAttribute('aria-selected', sel ? 'true' : 'false');
+    // Two channels (DD1): the active id is bold + has a left border (via
+    // CSS [aria-selected="true"]); the id text itself is the label.
+    const idSpan = document.createElement('span');
+    idSpan.className = 'k-id';
+    idSpan.textContent = k.id;
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'k-meta';
+    const shape = Array.isArray(k.shape) && k.shape.length ? '[' + k.shape.join(',') + ']' : '';
+    metaSpan.textContent =
+      k.op_count + ' ops · ' + k.buffers_in + ' in / ' + k.buffers_out + ' out' +
+      (shape ? ' · ' + shape : '');
+    li.appendChild(idSpan);
+    li.appendChild(metaSpan);
+    li.addEventListener('click', () => selectKernel(i, { focus: false, fromKeyboard: false }));
+    listEl.appendChild(li);
+  }
+  // aria-activedescendant tracks the keyboard-active item without moving
+  // focus from the listbox container.
+  if (selectedIdx >= 0 && selectedIdx < set.kernels.length) {
+    listEl.setAttribute('aria-activedescendant', 'k-opt-' + set.kernels[selectedIdx].id);
+  }
+}
+
+function drawKernelDetail(set, idx) {
+  const idEl     = document.getElementById('k-id');
+  const shapeEl  = document.getElementById('k-shape');
+  const countsEl = document.getElementById('k-counts');
+  const preEl    = document.getElementById('k-wgsl');
+  if (!idEl || !shapeEl || !countsEl || !preEl) return;
+  if (!set || !set.kernels || idx < 0 || idx >= set.kernels.length) {
+    idEl.textContent = '';
+    shapeEl.textContent = '';
+    countsEl.textContent = '';
+    preEl.innerHTML = '';
+    return;
+  }
+  const k = set.kernels[idx];
+  idEl.textContent = k.id;
+  shapeEl.textContent = (Array.isArray(k.shape) && k.shape.length)
+    ? '[' + k.shape.join(',') + ']' : '';
+  countsEl.textContent = k.op_count + ' ops · ' + k.buffers_in + ' in / ' + k.buffers_out + ' out';
+  preEl.innerHTML = '';
+  preEl.appendChild(renderWGSL(k.wgsl, k.fusion_spans));
+}
+
+// renderWGSL produces a DocumentFragment that the WGSL <pre> consumes. Each
+// source line is wrapped in a .wgsl-line span; the leading edge of each
+// fusion span carries a gutter label (fwd / bwd / fused) coloured per
+// DESIGN.md §1 (teal / ember / gold).
+function renderWGSL(text, fusionSpans) {
+  const frag = document.createDocumentFragment();
+  if (!text) return frag;
+  const tokens = tokenizeWGSL(text);
+
+  // Split text into physical lines for the gutter mapping (1-based).
+  const lines = text.split('\n');
+  // Token-offset → which (1-based) line it belongs to.
+  // We compute line breakpoints once for the per-token line lookup.
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') lineStarts.push(i + 1);
+  }
+  function lineOf(off) {
+    // Binary search; lineStarts[k] <= off < lineStarts[k+1].
+    let lo = 0, hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= off) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1; // 1-based
+  }
+
+  // Build the per-line label map up-front (line → label or null).
+  const lineLabel = new Array(lines.length + 1).fill(null);
+  if (Array.isArray(fusionSpans)) {
+    for (const sp of fusionSpans) {
+      // Stamp the gutter on the first line of every span.
+      if (sp.start_line >= 1 && sp.start_line <= lines.length) {
+        lineLabel[sp.start_line] = sp.label;
+      }
+    }
+  }
+
+  // Group tokens by line.
+  const tokensByLine = {};
+  for (const tok of tokens) {
+    const ln = lineOf(tok.start);
+    if (!tokensByLine[ln]) tokensByLine[ln] = [];
+    tokensByLine[ln].push(tok);
+  }
+
+  for (let ln = 1; ln <= lines.length; ln++) {
+    const line = lines[ln - 1];
+    const lineEl = document.createElement('span');
+    lineEl.className = 'wgsl-line';
+
+    // Gutter (fusion-span label), if this line is the start of a span.
+    if (lineLabel[ln]) {
+      const g = document.createElement('span');
+      g.className = 'gutter ' + lineLabel[ln];
+      g.textContent = lineLabel[ln];
+      g.setAttribute('aria-hidden', 'true');
+      lineEl.appendChild(g);
+    }
+
+    // Token spans within the line. We translate token (start,end) into the
+    // line-local substring; non-tokenized gaps are emitted as plain text.
+    const startOfLine = lineStarts[ln - 1];
+    const endOfLine = (ln < lineStarts.length ? lineStarts[ln] - 1 : text.length);
+    const ts = tokensByLine[ln] || [];
+    let cursor = startOfLine;
+    for (const tok of ts) {
+      if (tok.start > cursor) {
+        lineEl.appendChild(document.createTextNode(text.slice(cursor, tok.start)));
+      }
+      const sp = document.createElement('span');
+      sp.className = 'tk-' + tok.kind;
+      sp.textContent = text.slice(tok.start, Math.min(tok.end, endOfLine));
+      lineEl.appendChild(sp);
+      cursor = tok.end;
+    }
+    if (cursor < endOfLine) {
+      lineEl.appendChild(document.createTextNode(text.slice(cursor, endOfLine)));
+    }
+    lineEl.appendChild(document.createTextNode('\n'));
+    frag.appendChild(lineEl);
+  }
+  return frag;
+}
+
+// selectKernel updates state + URL + DOM. fromKeyboard=true scrolls the new
+// active item into view (so arrow-key navigation in long kernel lists is
+// usable without a mouse).
+function selectKernel(idx, { focus = false, fromKeyboard = false } = {}) {
+  const set = _kernelsState.set;
+  if (!set || idx < 0 || idx >= set.kernels.length) return;
+  _kernelsState.selectedIdx = idx;
+  const k = set.kernels[idx];
+
+  // Push a new history entry so the deep-link reflects the active kernel.
+  // Use pushState so back/forward navigates between kernels.
+  try {
+    const url = '/k/' + encodeURIComponent(_kernelsState.model) +
+                '?kernel=' + encodeURIComponent(k.id);
+    if (window.location.pathname + window.location.search !== url) {
+      history.pushState({ viewId: 'kernels', kernel: k.id }, '', url);
+    }
+  } catch (_) {}
+
+  drawKernelList(set, idx);
+  drawKernelDetail(set, idx);
+  announce('kernel ' + k.id + ' selected');
+
+  if (fromKeyboard) {
+    const el = document.getElementById('k-opt-' + k.id);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  }
+  if (focus) {
+    const el = document.getElementById('k-opt-' + k.id);
+    if (el && typeof el.focus === 'function') el.focus();
+  }
+}
+
+// Keyboard navigation on the kernel list. ArrowUp/Down move selection;
+// Home/End jump to the ends; Enter activates (re-announces the current
+// kernel). Escape moves focus back to the nav rail (per a11y plan).
+function initKernelsKeyboard() {
+  const listEl = document.getElementById('kernel-list-items');
+  if (!listEl) return;
+  listEl.addEventListener('keydown', (e) => {
+    const set = _kernelsState.set;
+    if (!set || !set.kernels) return;
+    const n = set.kernels.length;
+    const cur = _kernelsState.selectedIdx;
+    let next = cur;
+    switch (e.key) {
+      case 'ArrowDown': next = Math.min(n - 1, cur + 1); break;
+      case 'ArrowUp':   next = Math.max(0, cur - 1);     break;
+      case 'Home':      next = 0;                        break;
+      case 'End':       next = n - 1;                    break;
+      case 'Enter':
+      case ' ':
+        if (cur >= 0) {
+          e.preventDefault();
+          announce('kernel ' + set.kernels[cur].id);
+        }
+        return;
+      case 'Escape': {
+        e.preventDefault();
+        const navItem = document.querySelector('.nav-item[data-view="kernels"]');
+        if (navItem && typeof navItem.focus === 'function') navItem.focus();
+        return;
+      }
+      default: return;
+    }
+    if (next !== cur) {
+      e.preventDefault();
+      selectKernel(next, { fromKeyboard: true });
+    }
+  });
+}
+
+// initKernelsDiffToggle wires the stub "tuned vs default" button. The
+// backend lands in W6+ (POST /api/compile/tuned per spec §7); today the
+// button announces a pending message.
+function initKernelsDiffToggle() {
+  const btn = document.getElementById('diff-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const pressed = btn.getAttribute('aria-pressed') === 'true';
+    const next = !pressed;
+    btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    announce(next ? 'tuned compile pending — native backend not yet wired'
+                  : 'showing default WGSL');
+  });
+}
+
 // ── boot ──────────────────────────────────────────────────────────────────
 
 function boot() {
@@ -499,6 +986,8 @@ function boot() {
   initKeyboardHelp();
   initKeyboard();
   initIgnite();
+  initKernelsKeyboard();
+  initKernelsDiffToggle();
 }
 
 if (document.readyState === 'loading') {
@@ -508,4 +997,9 @@ if (document.readyState === 'loading') {
 }
 
 // Exported for tests / consoles. Not a public API; W1+ may rename.
-export const __studio = { navigate, applyTheme, cycleTheme, viewIdForPath, announce, helpOpen, helpClose };
+export const __studio = {
+  navigate, applyTheme, cycleTheme, viewIdForPath, announce,
+  helpOpen, helpClose,
+  // W2 hooks (kernels view) — exported so manual console tests can drive them.
+  tokenizeWGSL, renderKernelsView, selectKernel, modelFromPath,
+};

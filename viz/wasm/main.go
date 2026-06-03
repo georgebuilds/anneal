@@ -25,6 +25,10 @@ func main() {
 	js.Global().Set("annealGetGraph", js.FuncOf(getGraph))
 	// Expose annealGetTimeline(name string) string (JSON) — multi-stage scrub.
 	js.Global().Set("annealGetTimeline", js.FuncOf(getTimeline))
+	// W2: kernels view — annealGetKernels(name string) string (JSON).
+	// Returns kernel set: id, op_count, buffers_in/out, shape, wgsl, fusion_spans.
+	// Spec: notes/anneal_web_spec.md §4, §5.3.
+	js.Global().Set("annealGetKernels", js.FuncOf(getKernels))
 
 	// Block forever so the Go runtime stays alive while the page is open.
 	select {}
@@ -56,6 +60,24 @@ func getTimeline(_ js.Value, args []js.Value) any {
 		return js.ValueOf(`{"error":"` + err.Error() + `"}`)
 	}
 	b, err := t.ToJSON()
+	if err != nil {
+		return js.ValueOf(`{"error":"json marshal: ` + err.Error() + `"}`)
+	}
+	return js.ValueOf(string(b))
+}
+
+// getKernels is the JS-facing wrapper for viz.BuildKernels. Returns one JSON
+// document per model name; the studio's kernels-view renderer consumes it.
+func getKernels(_ js.Value, args []js.Value) any {
+	name := "mlp"
+	if len(args) > 0 && args[0].Type() == js.TypeString {
+		name = args[0].String()
+	}
+	k, err := viz.BuildKernels(name)
+	if err != nil {
+		return js.ValueOf(`{"error":"` + err.Error() + `"}`)
+	}
+	b, err := k.ToJSON()
 	if err != nil {
 		return js.ValueOf(`{"error":"json marshal: ` + err.Error() + `"}`)
 	}
