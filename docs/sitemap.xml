@@ -5,12 +5,28 @@
 
   <url>
     <loc>https://georgebuilds.github.io/anneal/</loc>
-    <lastmod>2026-05-31</lastmod>
+    <lastmod>2026-06-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
     <xhtml:link rel="alternate" hreflang="en"        href="https://georgebuilds.github.io/anneal/"/>
     <xhtml:link rel="alternate" hreflang="es"        href="https://georgebuilds.github.io/anneal/?lang=es"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://georgebuilds.github.io/anneal/"/>
+  </url>
+
+  <url>
+    <loc>https://georgebuilds.github.io/anneal/tutorial/</loc>
+    <lastmod>2026-06-03</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="en"        href="https://georgebuilds.github.io/anneal/tutorial/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://georgebuilds.github.io/anneal/tutorial/"/>
+  </url>
+
+  <url>
+    <loc>https://georgebuilds.github.io/anneal/visualizer-demo/</loc>
+    <lastmod>2026-06-03</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 
 </urlset>

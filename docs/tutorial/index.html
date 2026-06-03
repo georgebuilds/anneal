@@ -35,22 +35,153 @@
             })();
         </script>
 
-        <title>anneal: tutorial</title>
+        <!-- Primary SEO ------------------------------------------------ -->
+        <title>Tutorial · anneal: ML compiler in Go (WebGPU)</title>
         <meta
             name="description"
-            content="Pick a model (MLP, ConvNet, nanoGPT, ViT, GPT-2) and follow a tailored walkthrough: install anneal, run the chosen model on WebGPU, and tour the rewrite/scheduler that produced its kernels."
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
         />
-        <meta name="robots" content="index, follow" />
+        <meta
+            name="robots"
+            content="index, follow, max-image-preview:large, max-snippet:-1"
+        />
         <link
             rel="canonical"
             href="https://georgebuilds.github.io/anneal/tutorial/"
         />
 
+        <!-- Language alternates ---------------------------------------- -->
+        <link
+            rel="alternate"
+            hreflang="en"
+            href="https://georgebuilds.github.io/anneal/tutorial/"
+        />
+        <link
+            rel="alternate"
+            hreflang="x-default"
+            href="https://georgebuilds.github.io/anneal/tutorial/"
+        />
+
+        <!-- Open Graph ------------------------------------------------- -->
+        <meta property="og:type" content="article" />
+        <meta
+            property="og:url"
+            content="https://georgebuilds.github.io/anneal/tutorial/"
+        />
+        <meta property="og:site_name" content="anneal" />
+        <meta
+            property="og:title"
+            content="Tutorial · anneal: ML compiler in Go (WebGPU)"
+        />
+        <meta
+            property="og:description"
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
+        />
+        <meta
+            property="og:image"
+            content="https://georgebuilds.github.io/anneal/og-image.png"
+        />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta
+            property="og:image:alt"
+            content="anneal: a machine learning compiler in Go."
+        />
+        <meta property="og:locale" content="en_US" />
+        <meta property="og:author" content="@georgebuilds" />
+        <meta property="article:author" content="@georgebuilds" />
+        <meta property="article:section" content="Tutorial" />
+
+        <!-- Author ----------------------------------------------------- -->
+        <meta name="author" content="@georgebuilds" />
+
+        <!-- Twitter / X Card ------------------------------------------ -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+            name="twitter:title"
+            content="Tutorial · anneal: ML compiler in Go (WebGPU)"
+        />
+        <meta
+            name="twitter:description"
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
+        />
+        <meta
+            name="twitter:image"
+            content="https://georgebuilds.github.io/anneal/og-image.png"
+        />
+        <meta
+            name="twitter:image:alt"
+            content="anneal: a machine learning compiler in Go"
+        />
+
+        <!-- Theme / appearance ----------------------------------------- -->
         <meta name="theme-color" content="#14110F" media="(prefers-color-scheme: dark)" />
         <meta name="theme-color" content="#FBF8F3" media="(prefers-color-scheme: light)" />
         <meta name="color-scheme" content="light dark" />
 
+        <!-- Favicon ---------------------------------------------------- -->
         <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+
+        <!-- Structured data -------------------------------------------- -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "LearningResource",
+                "name": "anneal tutorial",
+                "headline": "Tutorial · anneal: ML compiler in Go (WebGPU)",
+                "description": "Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it.",
+                "url": "https://georgebuilds.github.io/anneal/tutorial/",
+                "inLanguage": "en",
+                "learningResourceType": "Tutorial",
+                "educationalLevel": "Intermediate",
+                "teaches": [
+                    "ML compilers",
+                    "WebGPU",
+                    "Automatic differentiation",
+                    "Graph rewrite",
+                    "Go programming"
+                ],
+                "license": "https://opensource.org/license/agpl-3-0",
+                "image": "https://georgebuilds.github.io/anneal/og-image.png",
+                "author": {
+                    "@type": "Organization",
+                    "name": "georgebuilds",
+                    "url": "https://georgebuilds.github.io/"
+                },
+                "provider": {
+                    "@type": "Organization",
+                    "name": "georgebuilds",
+                    "url": "https://georgebuilds.github.io/"
+                },
+                "isPartOf": {
+                    "@type": "SoftwareApplication",
+                    "name": "anneal",
+                    "url": "https://georgebuilds.github.io/anneal/",
+                    "applicationCategory": "DeveloperApplication",
+                    "operatingSystem": "Linux, macOS, Windows"
+                }
+            }
+        </script>
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "name": "anneal",
+                        "item": "https://georgebuilds.github.io/anneal/"
+                    },
+                    {
+                        "@type": "ListItem",
+                        "position": 2,
+                        "name": "Tutorial",
+                        "item": "https://georgebuilds.github.io/anneal/tutorial/"
+                    }
+                ]
+            }
+        </script>
 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -844,6 +975,16 @@
     </head>
     <body>
         <a href="#main-content" class="skip-link">skip to main content</a>
+        <h1
+            class="sr-only"
+            style="
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0 0 0 0);
+            "
+        >anneal tutorial</h1>
 
         <div class="progress-track" aria-hidden="true">
             <div class="progress-fill" id="js-progress"></div>
