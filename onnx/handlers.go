@@ -1,25 +1,62 @@
 package onnx
 
-// Handler registry. Stage-1 CNN and Stage-2 transformer handlers live here.
-// Phase 1.B will fill the body; Phase 1.A only needs the registry seam so
-// that Runner construction can call RegisterAll without dangling references.
+// Handler registry. Device-tier handlers populated for Phase 1.B (CNN core).
+// Host-tier handlers register from their own init blocks; this file only
+// wires the device dispatch.
 //
-// New handlers must:
-//   - Match the Handler signature (see runner.go).
-//   - Inspect ctx.Opset to branch on opset semantics where required (see
-//     plan §4 / §6 — Squeeze/Unsqueeze/Split/ReduceSum axes-as-input at
-//     opset 13, Softmax axis semantics at opset 13, Clip min/max at opset
-//     11, etc.).
-//   - Surface internal errors via the returned error rather than panicking.
-//   - Never silently produce wrong output: a corner case the handler
-//     doesn't yet support is a punt-loudly error, not a fallback.
+// Coverage: Stage-1 CNN core per plan §5: Conv, BatchNormalization, Relu,
+// Clip, Add, MaxPool, GlobalAveragePool, Gemm, Flatten, Reshape, Constant,
+// plus the classifier-tail glue (Shape, Gather, Concat, Unsqueeze) and the
+// Stage-2 down-payment (Sub/Mul/Div/Pow/Sqrt/Neg/Tanh/Sigmoid/Cast/Equal/
+// MatMul/Transpose/Squeeze/Slice/Expand/ReduceSum/Mean/Max).
 
-// RegisterAll installs every canonical handler on r. Empty in Phase 1.A;
-// each Phase 1.B / Phase 3 op pulls in one line here.
+// RegisterAll installs every canonical device-tier handler on r.
 func RegisterAll(r *Runner) {
-	// Phase 1.B handlers go here, e.g.:
-	//   r.RegisterHandler("Conv", handleConv)
-	//   r.RegisterHandler("Relu", handleRelu)
-	//   ...
-	_ = r
+	// const + identity
+	r.RegisterHandler("Constant", handleConstant)
+	r.RegisterHandler("Identity", handleIdentity)
+	r.RegisterHandler("ConstantOfShape", handleConstantOfShape)
+
+	// elementwise
+	r.RegisterHandler("Add", handleAdd)
+	r.RegisterHandler("Sub", handleSub)
+	r.RegisterHandler("Mul", handleMul)
+	r.RegisterHandler("Div", handleDiv)
+	r.RegisterHandler("Pow", handlePow)
+	r.RegisterHandler("Sqrt", handleSqrt)
+	r.RegisterHandler("Neg", handleNeg)
+	r.RegisterHandler("Tanh", handleTanh)
+	r.RegisterHandler("Sigmoid", handleSigmoid)
+	r.RegisterHandler("Relu", handleRelu)
+	r.RegisterHandler("Clip", handleClip)
+	r.RegisterHandler("Cast", handleCast)
+	r.RegisterHandler("Equal", handleEqual)
+
+	// reduction
+	r.RegisterHandler("ReduceSum", handleReduceSum)
+	r.RegisterHandler("ReduceMean", handleReduceMean)
+	r.RegisterHandler("ReduceMax", handleReduceMax)
+
+	// movement
+	r.RegisterHandler("Reshape", handleReshape)
+	r.RegisterHandler("Flatten", handleFlatten)
+	r.RegisterHandler("Squeeze", handleSqueeze)
+	r.RegisterHandler("Unsqueeze", handleUnsqueeze)
+	r.RegisterHandler("Transpose", handleTranspose)
+	r.RegisterHandler("Concat", handleConcat)
+	r.RegisterHandler("Gather", handleGather)
+	r.RegisterHandler("Slice", handleSlice)
+	r.RegisterHandler("Expand", handleExpand)
+
+	// conv / pool
+	r.RegisterHandler("Conv", handleConv)
+	r.RegisterHandler("MaxPool", handleMaxPool)
+	r.RegisterHandler("GlobalAveragePool", handleGlobalAveragePool)
+
+	// norm
+	r.RegisterHandler("BatchNormalization", handleBatchNormalization)
+
+	// linear
+	r.RegisterHandler("Gemm", handleGemm)
+	r.RegisterHandler("MatMul", handleMatMul)
 }

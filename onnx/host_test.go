@@ -69,7 +69,7 @@ func TestRegisterHostOp_ThenIsHostOp(t *testing.T) {
 	if IsHostOp(name) {
 		t.Fatalf("op %q registered before test", name)
 	}
-	RegisterHostOp(name, func(node *Node, st *HostState) (Value, error) {
+	RegisterHostOp(name, func(node *Node, inputs []Value, st *HostState) (Value, error) {
 		return HostInt64(7), nil
 	})
 	if !IsHostOp(name) {
@@ -85,7 +85,7 @@ func TestIsHostOp_Unregistered(t *testing.T) {
 
 func TestRegisterHostOp_DoubleRegisterPanics(t *testing.T) {
 	name := uniqueOpName(t)
-	RegisterHostOp(name, func(node *Node, st *HostState) (Value, error) {
+	RegisterHostOp(name, func(node *Node, inputs []Value, st *HostState) (Value, error) {
 		return HostInt64(1), nil
 	})
 	defer func() {
@@ -101,7 +101,7 @@ func TestRegisterHostOp_DoubleRegisterPanics(t *testing.T) {
 			t.Errorf("panic %q missing op name %q", msg, name)
 		}
 	}()
-	RegisterHostOp(name, func(node *Node, st *HostState) (Value, error) {
+	RegisterHostOp(name, func(node *Node, inputs []Value, st *HostState) (Value, error) {
 		return HostInt64(2), nil
 	})
 }
@@ -111,7 +111,7 @@ func TestRegisterHostOp_DoubleRegisterPanics(t *testing.T) {
 func TestEvalHost_Dispatches(t *testing.T) {
 	name := uniqueOpName(t)
 	called := false
-	RegisterHostOp(name, func(node *Node, st *HostState) (Value, error) {
+	RegisterHostOp(name, func(node *Node, inputs []Value, st *HostState) (Value, error) {
 		called = true
 		if node.OpType != name {
 			t.Errorf("handler saw OpType=%q, want %q", node.OpType, name)
@@ -123,7 +123,7 @@ func TestEvalHost_Dispatches(t *testing.T) {
 
 	st := NewHostState()
 	node := &Node{OpType: name}
-	got, err := evalHost(node, st)
+	got, err := evalHost(node, nil, st)
 	if err != nil {
 		t.Fatalf("evalHost err=%v", err)
 	}
@@ -146,7 +146,7 @@ func TestEvalHost_Dispatches(t *testing.T) {
 func TestEvalHost_Unregistered(t *testing.T) {
 	st := NewHostState()
 	node := &Node{OpType: "TotallyUnregisteredOp_abc"}
-	_, err := evalHost(node, st)
+	_, err := evalHost(node, nil, st)
 	if err == nil {
 		t.Fatalf("expected error on unregistered op, got nil")
 	}
@@ -160,12 +160,12 @@ func TestEvalHost_Unregistered(t *testing.T) {
 
 func TestEvalHost_HandlerError(t *testing.T) {
 	name := uniqueOpName(t)
-	RegisterHostOp(name, func(node *Node, st *HostState) (Value, error) {
+	RegisterHostOp(name, func(node *Node, inputs []Value, st *HostState) (Value, error) {
 		return Value{}, fmt.Errorf("nope")
 	})
 	st := NewHostState()
 	node := &Node{OpType: name}
-	_, err := evalHost(node, st)
+	_, err := evalHost(node, nil, st)
 	if err == nil {
 		t.Fatalf("expected handler error to propagate, got nil")
 	}

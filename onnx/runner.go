@@ -287,12 +287,10 @@ func (r *Runner) Run(named map[string]*tensor.Tensor) (map[string]*tensor.Tensor
 	for _, node := range r.nodes {
 		// Resolve inputs.
 		inputs := make([]Value, len(node.Inputs))
-		allHost := true
 		for i, name := range node.Inputs {
 			if name == "" {
 				// Optional absent input. Leave as zero Value; handlers
 				// must check IsUnset themselves.
-				allHost = false
 				continue
 			}
 			v, ok := state[name]
@@ -308,24 +306,24 @@ func (r *Runner) Run(named map[string]*tensor.Tensor) (map[string]*tensor.Tensor
 					node.Name, node.OpType, name)
 			}
 			inputs[i] = v
-			if !v.IsHost() {
-				allHost = false
-			}
 		}
 
 		// Host-tier dispatch.
-		if IsHostOp(node.OpType) && allHost {
-			out, err := evalHost(node, host)
-			if err != nil {
+		if IsHostOp(node.OpType) && hostInputsOK(node.OpType, inputs) {
+			out, err := evalHost(node, inputs, host)
+			if err == ErrFallThroughToDevice {
+				// Host handler asked for device dispatch; fall through.
+			} else if err != nil {
 				return nil, fmt.Errorf("onnx: host eval of %q (node %q): %w",
 					node.OpType, node.Name, err)
+			} else {
+				if len(node.Outputs) > 0 {
+					name := node.Outputs[0]
+					host.Set(name, out)
+					state[name] = out
+				}
+				continue
 			}
-			if len(node.Outputs) > 0 {
-				name := node.Outputs[0]
-				host.Set(name, out)
-				state[name] = out
-			}
-			continue
 		}
 
 		// Device-tier dispatch.
