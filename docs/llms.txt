@@ -36,8 +36,9 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## CLI
 
 - `anneal run mlp` — realize and execute a registered example graph
-- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt; use `--batch=N` with dynmlp for dynamic batch)
+- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, vit; use `--batch=N` with dynmlp for dynamic batch)
 - `anneal train nanogpt`: char-level transformer trained end to end on tinyshakespeare; first run fetches the corpus, prints a generated sample at the end
+- `anneal train vit`: Vision Transformer (ViT-tiny: 32x32 RGB, patch 4, 64-dim embed, 2 encoder blocks, 4 heads, mean-pool classification head) trained on a synthetic 10-class image dataset; no asset downloads
 - `anneal gpt2 sample <prompt>`: load HuggingFace GPT-2-small weights (~548 MB SHA-pinned safetensors fetched on first run), encode with pure-Go BPE, run forward through the same `nn.GPT` module, decode the sampled continuation
 - `anneal viz` — launch the graph visualizer (WASM)
 - `anneal graph mlp` — inspect the UOp DAG

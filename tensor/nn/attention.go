@@ -120,6 +120,53 @@ func NewCausalSelfAttention(a *uop.Arena, nEmbd, nHead, blockSize int) *CausalSe
 	return att
 }
 
+// NewSelfAttention constructs a non-causal multi-head self-attention module,
+// for encoder-style transformers (ViT, BERT). It shares the same struct,
+// forward path, and parameter layout as CausalSelfAttention; the only
+// difference is the precomputed mask: every position attends to every other
+// position (mask all ones), so the multiplicative softmax mask is a no-op.
+//
+// This is the additive-sibling design call (option (b) in the ViT design
+// brief): zero risk to the existing CausalSelfAttention contract, no rename,
+// no Block adaptation needed. Block, GPT, nanoGPT continue to use
+// NewCausalSelfAttention and remain byte-identical; ViT uses this constructor.
+//
+// nEmbd must be divisible by nHead. seqLen is the maximum sequence length the
+// mask covers (analogous to blockSize but with no causal semantic).
+func NewSelfAttention(a *uop.Arena, nEmbd, nHead, seqLen int) *CausalSelfAttention {
+	if nEmbd%nHead != 0 {
+		panic(fmt.Sprintf("nn: NewSelfAttention: nEmbd %d not divisible by nHead %d", nEmbd, nHead))
+	}
+	if seqLen <= 0 {
+		panic("nn: NewSelfAttention: seqLen must be positive")
+	}
+
+	dtype := uop.Dtypes.Float32
+	device := "webgpu"
+
+	att := &CausalSelfAttention{
+		QKV:       NewLinear(a, int64(nEmbd), int64(3*nEmbd), true, dtype, device),
+		Proj:      NewLinear(a, int64(nEmbd), int64(nEmbd), true, dtype, device),
+		NHead:     nHead,
+		NEmbd:     nEmbd,
+		BlockSize: seqLen,
+		dtype:     dtype,
+		device:    device,
+	}
+
+	// Non-causal mask: all ones. Multiplying exp(scores) by an all-ones mask
+	// before the softmax row-sum normalisation is the identity, so the
+	// existing CausalSelfAttention.Forward body computes standard
+	// non-masked softmax attention with this leaf in place.
+	att.maskData = make([]float32, seqLen*seqLen)
+	for i := range att.maskData {
+		att.maskData[i] = maskKeep
+	}
+	_ = a
+
+	return att
+}
+
 // Forward computes causal multi-head self-attention.
 //
 // Input  x: [B, T, nEmbd]    (T <= BlockSize)

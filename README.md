@@ -19,7 +19,7 @@
 
 ---
 
-anneal is a from-scratch Go port of [tinygrad](https://github.com/tinygrad/tinygrad)'s modern, *rangeify-era* core. It takes tensor programs, lowers them through a graph-rewrite compiler, and emits fused GPU kernels. It trains a small MLP, a small convolutional network, and a char-level nanoGPT end-to-end on real GPU hardware via WebGPU, and runs GPT-2-small forward with bit-identical output to HuggingFace's reference implementation.
+anneal is a from-scratch Go port of [tinygrad](https://github.com/tinygrad/tinygrad)'s modern, *rangeify-era* core. It takes tensor programs, lowers them through a graph-rewrite compiler, and emits fused GPU kernels. It trains a small MLP, a small convolutional network, a char-level nanoGPT, and a tiny Vision Transformer end-to-end on real GPU hardware via WebGPU, and runs GPT-2-small forward with bit-identical output to HuggingFace's reference implementation.
 
 It is a research project and a learning vehicle, built deliberately in phases. It is not (yet) a drop-in replacement for a production framework — see [Status](#status) for exactly what v1 does and doesn't do.
 
@@ -55,6 +55,7 @@ Then:
 anneal doctor               # check your environment can reach a WebGPU device
 anneal train mlp            # train the MLP with a live TUI dashboard (also: conv, dynmlp --batch=N)
 anneal train nanogpt        # char-level transformer trained end to end on Shakespeare
+anneal train vit            # vision transformer on a synthetic 32x32 RGB classification task
 anneal gpt2 sample "Hello"  # forward GPT-2-small from HuggingFace weights, sample text
 anneal graph                # dump the UOp graph for a program
 anneal kernels              # show the scheduled, fused kernels and their WGSL
@@ -87,7 +88,7 @@ x   := tensor.NewSymbolicShape(a, []shape.Sint{
 tensor.RealizeWithBinding(seq.Bind(64), y)
 ```
 
-For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
+For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), `vit.go` (vision transformer on a synthetic image-classification task), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
 
 ## Project layout
 
@@ -100,10 +101,11 @@ codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel 
 backend/     Renderer/Compiler/Allocator/Program/DeviceBuffer interfaces; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
   nn/        Linear, Conv2d, MaxPool2D, Embedding, LayerNorm, CausalSelfAttention,
-             MLP, Block, GPT, activations, SGD, Adam, Parameter
+             SelfAttention (non-causal), MLP, Block, GPT, PatchEmbed, ViTBlock, ViT,
+             activations, SGD, Adam, Parameter
 cmd/anneal/  the CLI
 viz/         the WASM visualizer
-examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, gpt2/
+examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, vit.go, gpt2/
 internal/
   assets/    SHA-pinned downloader for Shakespeare corpus and HF GPT-2 weights
 ```

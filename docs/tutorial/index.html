@@ -20,7 +20,7 @@
                         : "dark";
                 document.documentElement.setAttribute("data-theme", t);
 
-                var VALID = { mlp: 1, conv: 1, nanogpt: 1, gpt2: 1 };
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, vit: 1, gpt2: 1 };
                 var m = null;
                 // URL takes priority so deep links win on first paint.
                 var hash = (window.location.hash || "").replace(/^#/, "");
@@ -38,7 +38,7 @@
         <title>anneal: tutorial</title>
         <meta
             name="description"
-            content="Pick a model (MLP, ConvNet, nanoGPT, GPT-2) and follow a tailored walkthrough: install anneal, run the chosen model on WebGPU, and tour the rewrite/scheduler that produced its kernels."
+            content="Pick a model (MLP, ConvNet, nanoGPT, ViT, GPT-2) and follow a tailored walkthrough: install anneal, run the chosen model on WebGPU, and tour the rewrite/scheduler that produced its kernels."
         />
         <meta name="robots" content="index, follow" />
         <link
@@ -250,6 +250,7 @@
             html[data-model="mlp"] .variant[data-model="mlp"],
             html[data-model="conv"] .variant[data-model="conv"],
             html[data-model="nanogpt"] .variant[data-model="nanogpt"],
+            html[data-model="vit"] .variant[data-model="vit"],
             html[data-model="gpt2"] .variant[data-model="gpt2"] {
                 display: block;
             }
@@ -893,6 +894,16 @@
                     </button>
                     <button
                         role="tab"
+                        id="tab-vit"
+                        data-model="vit"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        vit <span class="tab-cost">(seconds)</span>
+                    </button>
+                    <button
+                        role="tab"
                         id="tab-gpt2"
                         data-model="gpt2"
                         aria-selected="false"
@@ -977,6 +988,13 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="vit">
+                        <h1 class="step-heading">Get anneal running and train a tiny Vision Transformer on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">ViT</span> path. It is a tiny Vision Transformer (32 by 32 RGB images, patch size 4, embedding 64, 2 encoder blocks, 4 heads, mean-pool classification head, 10 classes) trained on a synthetic class-conditional image dataset in a few seconds on any WebGPU device. Use it to see the same attention stack that trains nanoGPT applied to images: patch embedding lowers as movement ops plus a single Linear, and the classification head reads a mean-pooled summary token. No downloads; the dataset is generated in-process.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <h1 class="step-heading">Get anneal running and sample from GPT-2-small on your GPU.</h1>
                         <p class="intent">
@@ -1017,6 +1035,12 @@
                         <div class="compare">
                             <span class="tag">disk / network for nanoGPT</span>
                             About 1 MB for the Tiny Shakespeare corpus on first run, cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="vit">
+                        <div class="compare">
+                            <span class="tag">disk / network for ViT</span>
+                            None beyond the Go install. The Vision Transformer trains on a synthetic class-conditional 32 by 32 RGB dataset generated in-process; no downloads, no cache writes.
                         </div>
                     </div>
                     <div class="variant" data-model="gpt2">
@@ -1103,6 +1127,7 @@
                                 <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
                     </div>
@@ -1121,6 +1146,7 @@
                                 <span class="t-out">  <span class="t-fwd">conv</span>      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
                     </div>
@@ -1139,6 +1165,26 @@
                                 <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  <span class="t-fwd">nanogpt</span>   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="vit">
+                        <div class="terminal" role="region" aria-label="list models (vit highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  mlp       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  <span class="t-fwd">vit</span>       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
                     </div>
@@ -1189,6 +1235,11 @@
                     <div class="variant" data-model="nanogpt">
                         <p class="intent" style="margin-top: 0">
                             For nanoGPT, what you want is <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is small; the wall-time you see in step 04 is dominated by kernel compile and dispatch, not buffer pressure.
+                        </p>
+                    </div>
+                    <div class="variant" data-model="vit">
+                        <p class="intent" style="margin-top: 0">
+                            For ViT, the only line that matters is <code>status: ok</code>. Any backend (Metal, Vulkan, DX12) works; the model fits in any device's buffer limits (about 80K parameters total, dominated by the patch projection and two encoder blocks).
                         </p>
                     </div>
                     <div class="variant" data-model="gpt2">
@@ -1391,6 +1442,42 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="vit">
+                        <h2 class="step-heading">Train the Vision Transformer, live in your terminal.</h2>
+                        <p class="intent">
+                            <code>anneal train vit</code> opens a live TUI dashboard and trains a tiny ViT on a synthetic 32 by 32 RGB classification task: patch embedding (patch size 4, so 64 patch tokens per image), a learnable positional embedding, two pre-LN encoder blocks (non-causal attention, 4 heads, embedding 64, tanh-GELU MLP), a final LayerNorm, mean-pooling over the patch tokens, and a linear head over 10 classes. The training loop runs through the standard <code>tensor.Backward()</code> plus <code>tensor.Realize()</code> path, so the rangeify scheduler fuses forward and backward into the same WGSL kernels exactly as it does for nanoGPT. No downloads; the dataset is generated in-process.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="ViT training">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train vit --steps=200" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train vit --steps=200</span></div>
+                                <span class="t-out">training vit: vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                                <span class="t-out">device: metal (apple m3)</span>
+                                <span class="t-out">steps: 200 · lr: 3e-04 · batch: 8</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">2.2363</span></span>
+                                <span class="t-out">step <span class="t-dim">050</span> loss <span class="t-fwd">0.9874</span></span>
+                                <span class="t-out">step <span class="t-dim">100</span> loss <span class="t-fwd">0.5612</span></span>
+                                <span class="t-out">step <span class="t-dim">200</span> loss <span class="t-fwd">0.2104</span></span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">done, 200 steps</span>
+                            </div>
+                        </div>
+
+                        <div class="compare">
+                            <span class="tag">where the rangeify model bites (again)</span>
+                            The patch embedding looks like a Conv2d in the ViT paper. In anneal it lowers as a reshape, a permute, a second reshape, and one Linear: every step except the Linear is index arithmetic on the output range, so no patch-unfold buffer ever materializes. The same indexing model that makes shrink and flatten free for the conv net makes patch tokenization free for the transformer.
+                        </div>
+
+                        <p class="intent" style="margin-top: 1rem">
+                            Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through a forward / backward / fused-kernel pipeline like this one.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <h2 class="step-heading">Sample from GPT-2-small, end to end in Go.</h2>
                         <p class="intent">
@@ -1504,6 +1591,26 @@
                         </div>
                     </div>
 
+                    <div class="variant" data-model="vit">
+                        <div class="terminal" role="region" aria-label="compiler inspection for ViT">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain reshape" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain reshape</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: range rewrite; no data movement, no kernel.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: the inverse range rewrite, also free.</span>
+                                <span class="t-out">rules fired: reshape.fold-noop, reshape.lift-permute</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels vit</span></div>
+                                <span class="t-out">kernel 0/N patch.proj      <span class="t-dim">// fused: reshape+permute+reshape absorbed into linear</span></span>
+                                <span class="t-out">kernel 3/N attn.qkv+score  <span class="t-dim">// fused: qkv proj + scaled dot + softmax</span></span>
+                                <span class="t-out">kernel N-1 head.logits     <span class="t-dim">// fused: layernorm + mean-pool + final matmul</span></span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <div class="terminal" role="region" aria-label="compiler inspection for GPT-2">
                             <div class="term-bar" aria-hidden="true">
@@ -1604,6 +1711,26 @@
                         </div>
                         <div class="crossref">
                             <strong>Try the smallest demo.</strong> Switch the picker to <em>MLP</em> for the fastest end-to-end run in the project (a few seconds), useful for benchmarking compile and dispatch latency against the transformer.
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="vit">
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The transformer stack you just trained on images shares its attention, MLP, and LayerNorm modules with the real GPT-2-small checkpoint. Same compiler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.
+                        </div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Train a language transformer.</strong> Switch the picker to <em>nanoGPT</em> to see the same encoder stack (minus the patch unfold; plus a causal mask) generate Shakespeare-ish text end to end.
                         </div>
                     </div>
 
@@ -1863,11 +1990,12 @@
                         moves between models, and
                      4. announces the change to assistive tech.
                 */
-                var MODELS = ["mlp", "conv", "nanogpt", "gpt2"];
+                var MODELS = ["mlp", "conv", "nanogpt", "vit", "gpt2"];
                 var MODEL_LABEL = {
                     mlp: "MLP",
                     conv: "ConvNet",
                     nanogpt: "nanoGPT",
+                    vit: "ViT",
                     gpt2: "GPT-2-small"
                 };
                 var tabs = Array.prototype.slice.call(
