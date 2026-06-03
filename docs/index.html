@@ -371,7 +371,8 @@
                 height: 100%;
                 padding: 0 0.15rem;
             }
-            nav a:hover {
+            nav a:hover,
+            nav a:focus-visible {
                 color: var(--text);
             }
             nav a::before {
@@ -379,7 +380,8 @@
                 color: var(--faint);
                 transition: color 0.2s ease;
             }
-            nav a:hover::before {
+            nav a:hover::before,
+            nav a:focus-visible::before {
                 color: var(--teal);
             }
 
@@ -842,11 +844,23 @@
                 font-size: 0.84rem;
                 margin-bottom: 2rem;
             }
+            .cli-table thead tr {
+                border-bottom: 1px solid var(--faint);
+            }
             .cli-table tbody tr {
                 border-bottom: 1px solid var(--faint);
             }
             .cli-table tbody tr:last-child {
                 border-bottom: none;
+            }
+            .cli-table th {
+                padding: 0.5rem 0;
+                text-align: left;
+                font-weight: 500;
+                color: var(--muted);
+                font-size: 0.78rem;
+                text-transform: lowercase;
+                letter-spacing: 0.04em;
             }
             .cli-table td {
                 padding: 0.7rem 0;
@@ -1395,7 +1409,7 @@
                 </div>
 
                 <p class="arch-cta" data-i18n-html="arch.cta">
-                    Want to walk through this in practice? <a class="il" href="tutorial/">Install anneal and train nanoGPT on Shakespeare</a>.
+                    Want to walk through this in practice? <a class="il" href="tutorial/#model=nanogpt">Install anneal and train nanoGPT on Shakespeare</a>.
                 </p>
             </section>
 
@@ -1419,6 +1433,12 @@
 
                 <div class="table-scroll">
                     <table class="cli-table" aria-label="CLI commands">
+                        <thead>
+                            <tr>
+                                <th scope="col" data-i18n="cli.col.cmd">command</th>
+                                <th scope="col" data-i18n="cli.col.desc">description</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             <tr>
                                 <td class="cli-cmd">
@@ -1736,11 +1756,13 @@
                         "card.web.body":
                             "anneal web serves a single-binary studio with eight deep-linkable views: visualize, kernels, explain, train, generate, history, doctor, plus the home pane. Every view that compiles runs as WASM in a Web Worker; every view that executes streams over SSE from a native handler. Drop a .onnx file on the home page to inspect topology without ever sending bytes to the server. Zero telemetry, zero accounts. WCAG 2.x AA is a binding gate.",
                         "arch.cta":
-                            "Want to walk through this in practice? <a class=\"il\" href=\"tutorial/\">Install anneal and train nanoGPT on Shakespeare</a>.",
+                            "Want to walk through this in practice? <a class=\"il\" href=\"tutorial/#model=nanogpt\">Install anneal and train nanoGPT on Shakespeare</a>.",
                         "cli.label": "the cli",
                         "cli.heading": "Verbs that mirror the pipeline.",
                         "cli.body":
                             "A single static binary, verb-first. Each command exposes a layer of the compiler so the CLI doubles as a teaching surface.",
+                        "cli.col.cmd": "command",
+                        "cli.col.desc": "description",
                         "cli.run": "realize and execute a registered example graph",
                         "cli.train": "training loop with the live TUI (mlp / conv / dynmlp)",
                         "cli.viz":
@@ -1826,11 +1848,13 @@
                         "card.web.body":
                             "anneal web sirve un estudio de binario único con ocho vistas con enlace profundo: visualize, kernels, explain, train, generate, history, doctor, además del panel principal. Cada vista que compila se ejecuta como WASM en un Web Worker; cada vista que ejecuta transmite por SSE desde un manejador nativo. Suelta un archivo .onnx en la página principal para inspeccionar la topología sin enviar bytes al servidor. Sin telemetría, sin cuentas. WCAG 2.x AA es una puerta vinculante.",
                         "arch.cta":
-                            "¿Quieres recorrerlo en la práctica? <a class=\"il\" href=\"tutorial/\">Instala anneal y entrena nanoGPT con Shakespeare</a>.",
+                            "¿Quieres recorrerlo en la práctica? <a class=\"il\" href=\"tutorial/#model=nanogpt\">Instala anneal y entrena nanoGPT con Shakespeare</a>.",
                         "cli.label": "la cli",
                         "cli.heading": "Verbos que reflejan el pipeline.",
                         "cli.body":
                             "Un único binario estático, con verbos primero. Cada comando expone una capa del compilador, haciendo que la CLI sea una superficie de aprendizaje.",
+                        "cli.col.cmd": "comando",
+                        "cli.col.desc": "descripción",
                         "cli.run": "materializar y ejecutar un grafo de ejemplo registrado",
                         "cli.train":
                             "bucle de entrenamiento con la TUI en vivo (mlp / conv / dynmlp)",

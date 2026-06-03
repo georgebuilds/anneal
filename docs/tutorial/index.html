@@ -354,6 +354,26 @@
             .brand { display: inline-flex; align-items: center; font-size: 13px; letter-spacing: 0.01em; }
             .gb-link { color: var(--muted); text-decoration: none; transition: color 0.2s ease; }
             .gb-link:hover, .gb-link:focus-visible { color: var(--text); }
+            .gb-abbr,
+            .gb-full {
+                display: inline-block;
+                overflow: hidden;
+                white-space: nowrap;
+                max-width: 0;
+                opacity: 0;
+                transition:
+                    max-width 0.42s cubic-bezier(0.22, 0.9, 0.25, 1),
+                    opacity 0.25s ease;
+            }
+            .gb-abbr { max-width: 4ch; opacity: 1; }
+            .gb-link:hover .gb-abbr,
+            .gb-link:focus-visible .gb-abbr { max-width: 0; opacity: 0; }
+            .gb-link:hover .gb-full,
+            .gb-link:focus-visible .gb-full {
+                max-width: 14ch;
+                opacity: 1;
+                transition-delay: 0.04s;
+            }
             .brand-sep { color: var(--faint); margin: 0 0.35em; user-select: none; }
             .proj-name { color: var(--text); font-weight: 500; }
             .proj-name.linkish { text-decoration: none; color: var(--text); }
@@ -367,12 +387,14 @@
                 transition: color 0.2s ease; display: inline-flex; align-items: center;
                 height: 100%; padding: 0 0.15rem;
             }
-            header.site nav a:hover { color: var(--text); }
+            header.site nav a:hover,
+            header.site nav a:focus-visible { color: var(--text); }
             header.site nav a::before {
                 content: "> "; color: var(--faint); transition: color 0.2s ease;
                 margin-right: 0.2em;
             }
-            header.site nav a:hover::before { color: var(--teal); }
+            header.site nav a:hover::before,
+            header.site nav a:focus-visible::before { color: var(--teal); }
             header.site nav a[aria-current="page"] { color: var(--text); }
             header.site nav a[aria-current="page"]::before { color: var(--teal); }
             .icon-btn {
@@ -833,7 +855,8 @@
                     href="https://georgebuilds.github.io/"
                     aria-label="georgebuilds: home"
                 >
-                    georgebuilds
+                    <span class="gb-abbr">gb</span
+                    ><span class="gb-full">georgebuilds</span>
                 </a>
                 <span class="brand-sep" aria-hidden="true">/</span>
                 <a class="proj-name linkish" href="../">anneal</a>
@@ -1899,7 +1922,7 @@
 
         <footer class="site">
             <div class="brand">
-                <a class="gb-link" href="https://georgebuilds.github.io/" aria-label="georgebuilds: home">georgebuilds</a>
+                <a class="gb-link" href="https://georgebuilds.github.io/" aria-label="georgebuilds: home"><span class="gb-abbr">gb</span><span class="gb-full">georgebuilds</span></a>
                 <span class="brand-sep" aria-hidden="true">/</span>
                 <a class="proj-name linkish" href="../">anneal</a>
             </div>
