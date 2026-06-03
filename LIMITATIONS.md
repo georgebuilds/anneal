@@ -83,6 +83,45 @@ anneal's WASM build runs in any WebGPU-enabled browser. Two extra constraints ap
 - The browser owns adapter selection; anneal cannot pick a specific GPU.
 - Storage buffer limits in browser implementations can be lower than the WebGPU spec floor. GPT-2-small in particular touches a buffer size limit on some browsers; CI skips GPT-2 scale tests when the device's `maxStorageBufferBindingSize` is below the kernel's requirement.
 
+## ONNX importer (v1.1 punt list)
+
+The importer covers the Stage-1 CNN and Stage-2 transformer cores end-to-end (`onnx.Import(bytes, arena, device)`), with the Phase 4 conformance harness at 174/234 passing (0 failures, 60 documented skips, worst max-abs-diff 7.324e-04 against a 1e-3 tolerance). The skip list in `onnx/conformance_skip.go` is the documented exclusion contract; the entries below correspond to those reasons and are all targeted for v1.1.
+
+### Op surface deferrals
+
+- **Conv group>1.** Depthwise / grouped convolution is the MobileNetV2 v1.1 blocker. Adding it touches `tensor/nn.Conv2d`'s im2col layout. ResNet-9 and ResNet-50 bottleneck shapes work; MobileNetV2 rejects loudly.
+- **Conv 3-D pads (`pads` attr length 6) and `auto_pad`.** Both need a pad-axis rebroadcast in the handler. None of the v1 targets use them.
+- **Resize and Upsample.** Deferred to v1.1 as the nastiest common op; no v1 surface relies on them.
+- **NonZero, Unique.** Data-dependent shapes; deferred.
+- **Control flow (`If`, `Loop`, `Scan`).** All three deferred to v1.1.
+- **Scatter family (`Scatter`, `ScatterND`, `ScatterElements`) and `GatherElements`, `GatherND`.** Deferred to v1.1 (the `ScatterND` graph-explosion trap is documented in the plan).
+- **Quantization (`QLinearMatMul`, `QLinearConv`, `QuantizeLinear`, `DequantizeLinear`).** Out of v1 scope.
+- **`Sequence*`, `Map*`, `Optional*` containers.** Out of v1 scope.
+- **MaxPool variants.** `ceil_mode=1`, `dilations>1`, `auto_pad`, `storage_order`, 1-D, 3-D, uint8 inputs, explicit `pads` (anneal zero-pads then pools, ONNX pads with -inf semantically), and the 5x5/stride-3 output-trim path are all punted; the v1 surface is MaxPool2D with the canonical kernel/stride/padding configuration.
+- **Slice with `|step|>1`.** `step=-1` is supported (flips the axis and shrinks); larger absolute steps reject loudly.
+- **`Pow` with integer-typed bases or exponents.** Handler is f32-only.
+- **uint8 elementwise (`Add`, `Sub`, `Mul`, `Div`) and Clip int8.** Handlers are float-typed; integer overflow wrap is not modelled.
+- **Reduce empty-set semantics and `noop_with_empty_axes`.** Identity-element behaviour for empty reductions is not pinned for v1.
+- **`Shape`, `Size`, `Range` as graph outputs.** Host-tier int vectors cannot be returned as graph outputs in v1; real models use them as intermediate values feeding `Reshape` / `Slice`, not as terminal outputs. Lifting a host int vector to a device int32 tensor at materialise time is the v1.1 follow-up.
+- **`Shape` start/end attributes (opset 15+).** Handler returns the full shape; the start/end slice is a clean follow-up.
+
+### Dtype deferrals
+
+- **STRING, COMPLEX, FLOAT8 (`E4M3FN`/`E5M2`/`*FNUZ`), INT4, UINT4.** Out of v1 scope; no WGSL lowering exists.
+- **BFLOAT16 wire-encoded as UINT16.** ONNX 1.17 stores BFLOAT16 payloads under `TensorProto.data_type=UINT16` in the `.pb` fixtures while the model declares BFLOAT16. The pb decoder honours the on-disk dtype and reads them as uint16 integers (correct per protobuf, off vs. the model's bf16 semantic). Real anneal pipelines use `SetData([]float32)` directly, so this only affects the conformance corpus. Handler-level dtype coercion against the graph input declaration is v1.1.
+
+### Concat along a symbolic axis (Phase 3 carry)
+
+`tensor.Concat` composes `Pad` and `Add`. With a symbolic axis, the structural `Sint` canonicalisation under `tensor/movement.go::PadSints` doesn't fold cleanly. Neither GPT-2 nor BERT inference graphs hit this (they sum token + position embeddings elementwise rather than concatenating across the symbolic seq/batch dim), and no CNN path requires it either. Targeted for v1.1.
+
+## `anneal web` limitations
+
+- **Single-adapter native, same as the base.** The studio inherits the WebGPU single-adapter constraint; the doctor view surfaces the active adapter only.
+- **WebGPU required for `train` / `generate` / `doctor`.** The native SSE views need a working WebGPU adapter exactly the same way `anneal train` does. The browser-card half of the doctor view requires the browser to expose `navigator.gpu`, which not every modern browser does yet.
+- **WASM artifact size.** `web/anneal.wasm` is currently around 20 MB after W8 (the ONNX importer adds the protobuf bindings to the bridge). The studio loads it lazily off the main thread, but the first-paint cost on a slow connection is real. No tree-shaking pass yet.
+- **studio.js module split.** `web/studio.js` is around 100 KB. The current per-file budget (set at W6) is HTML 32 KB, CSS 48 KB, JS 70 KB, worker 8 KB; studio.js already exceeded the JS budget at W8 and is flagged for an ES-module split before the next major view lands.
+- **No telemetry, no auth, no hosted mode.** By design, not a limitation, but called out so it isn't misread as a missing feature.
+
 ## Determinism notes
 
 anneal aims for run-to-run bit identity. Two places this is not free:

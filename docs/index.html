@@ -135,7 +135,7 @@
                     "price": "0",
                     "priceCurrency": "USD"
                 },
-                "keywords": "machine learning compiler, ML compiler, autodiff, GPU, WebGPU, Go, machine learning, graph rewrite, WGSL"
+                "keywords": "machine learning compiler, ML compiler, autodiff, GPU, WebGPU, Go, machine learning, graph rewrite, WGSL, ONNX import, browser studio"
             }
         </script>
 
@@ -1350,6 +1350,48 @@
                             through WebGPU.
                         </p>
                     </div>
+                    <div class="arch-card">
+                        <div class="card-tag" data-i18n="card.onnx.tag">
+                            onnx import
+                        </div>
+                        <div class="card-title" data-i18n="card.onnx.title">
+                            ONNX in, UOps out
+                        </div>
+                        <p class="card-body" data-i18n="card.onnx.body">
+                            <code>onnx.Import(bytes, arena, device)</code>
+                            parses ONNX 1.17 models via pure-Go protobuf
+                            bindings and lowers about 100 op handlers onto the
+                            same UOp arena as the rest of the compiler.
+                            Symbolic <code>dim_param</code> axes ride through
+                            as anneal <code>Variable</code>s. The bit-exact
+                            gate builds each model twice on the same arena
+                            and asserts byte-equal float32 outputs; an
+                            onnxruntime ResNet-9 cross-check lands at
+                            8.2e-08. Phase 4 conformance: 174 of 234 ONNX
+                            1.17 node tests pass, 0 fail, 60 documented
+                            skips.
+                        </p>
+                    </div>
+                    <div class="arch-card">
+                        <div class="card-tag" data-i18n="card.web.tag">
+                            anneal web
+                        </div>
+                        <div class="card-title" data-i18n="card.web.title">
+                            A local browser studio
+                        </div>
+                        <p class="card-body" data-i18n="card.web.body">
+                            <code>anneal web</code> serves a single-binary
+                            studio with eight deep-linkable views: visualize,
+                            kernels, explain, train, generate, history,
+                            doctor, plus the home pane. Every view that
+                            compiles runs as WASM in a Web Worker; every view
+                            that executes streams over SSE from a native
+                            handler. Drop a <code>.onnx</code> file on the
+                            home page to inspect topology without ever
+                            sending bytes to the server. Zero telemetry,
+                            zero accounts. WCAG 2.x AA is a binding gate.
+                        </p>
+                    </div>
                 </div>
 
                 <p class="arch-cta" data-i18n-html="arch.cta">
@@ -1399,6 +1441,13 @@
                                 <td class="cli-desc" data-i18n="cli.viz">
                                     launch the graph visualizer in-browser
                                     (WASM)
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="cli-cmd"><code>anneal web</code></td>
+                                <td class="cli-desc" data-i18n="cli.web">
+                                    serve the local studio: eight
+                                    deep-linkable views, no telemetry
                                 </td>
                             </tr>
                             <tr>
@@ -1678,6 +1727,14 @@
                         "card.iop.title": "Bring your own weights",
                         "card.iop.body":
                             "Read and write safetensors and .npy/.npz bidirectionally, in pure Go. Load a checkpoint, train or run it, export it back. The whole stack is zero-CGO: no C toolchain in the build, and it runs on Metal today through WebGPU.",
+                        "card.onnx.tag": "onnx import",
+                        "card.onnx.title": "ONNX in, UOps out",
+                        "card.onnx.body":
+                            "onnx.Import(bytes, arena, device) parses ONNX 1.17 models via pure-Go protobuf bindings and lowers about 100 op handlers onto the same UOp arena as the rest of the compiler. Symbolic dim_param axes ride through as anneal Variables. The bit-exact gate builds each model twice on the same arena and asserts byte-equal float32 outputs; an onnxruntime ResNet-9 cross-check lands at 8.2e-08. Phase 4 conformance: 174 of 234 ONNX 1.17 node tests pass, 0 fail, 60 documented skips.",
+                        "card.web.tag": "anneal web",
+                        "card.web.title": "A local browser studio",
+                        "card.web.body":
+                            "anneal web serves a single-binary studio with eight deep-linkable views: visualize, kernels, explain, train, generate, history, doctor, plus the home pane. Every view that compiles runs as WASM in a Web Worker; every view that executes streams over SSE from a native handler. Drop a .onnx file on the home page to inspect topology without ever sending bytes to the server. Zero telemetry, zero accounts. WCAG 2.x AA is a binding gate.",
                         "arch.cta":
                             "Want to walk through this in practice? <a class=\"il\" href=\"tutorial/\">Install anneal and train nanoGPT on Shakespeare</a>.",
                         "cli.label": "the cli",
@@ -1688,6 +1745,8 @@
                         "cli.train": "training loop with the live TUI (mlp / conv / dynmlp)",
                         "cli.viz":
                             "launch the graph visualizer in-browser (WASM)",
+                        "cli.web":
+                            "serve the local studio: eight deep-linkable views, no telemetry",
                         "cli.graph": "dump and inspect the UOp DAG",
                         "cli.kernels":
                             "show generated WGSL with fusion boundaries annotated",
@@ -1758,6 +1817,14 @@
                             "Formas simbólicas, JIT, soporte f16/bf16",
                         "card.rt.body":
                             "Formas simbólicas: un kernel se compila una vez y se ejecuta con cualquier tamaño de batch, y la unión se extiende a dividir/fusionar un eje simbólico, cantidades de pad/shrink simbólicas, y dispatch simbólico multidimensional. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
+                        "card.onnx.tag": "importación onnx",
+                        "card.onnx.title": "ONNX entra, UOps salen",
+                        "card.onnx.body":
+                            "onnx.Import(bytes, arena, device) analiza modelos ONNX 1.17 mediante bindings de protobuf en Go puro y baja unos 100 handlers de operaciones a la misma arena UOp que el resto del compilador. Los ejes simbólicos dim_param viajan como Variables de anneal. La puerta bit-exacta construye cada modelo dos veces sobre la misma arena y comprueba salidas float32 byte a byte; un cruce con onnxruntime sobre ResNet-9 cae a 8.2e-08. Conformidad de la Fase 4: 174 de 234 pruebas de nodos ONNX 1.17 pasan, 0 fallan, 60 se omiten documentadamente.",
+                        "card.web.tag": "anneal web",
+                        "card.web.title": "Un estudio local en el navegador",
+                        "card.web.body":
+                            "anneal web sirve un estudio de binario único con ocho vistas con enlace profundo: visualize, kernels, explain, train, generate, history, doctor, además del panel principal. Cada vista que compila se ejecuta como WASM en un Web Worker; cada vista que ejecuta transmite por SSE desde un manejador nativo. Suelta un archivo .onnx en la página principal para inspeccionar la topología sin enviar bytes al servidor. Sin telemetría, sin cuentas. WCAG 2.x AA es una puerta vinculante.",
                         "arch.cta":
                             "¿Quieres recorrerlo en la práctica? <a class=\"il\" href=\"tutorial/\">Instala anneal y entrena nanoGPT con Shakespeare</a>.",
                         "cli.label": "la cli",
@@ -1769,6 +1836,8 @@
                             "bucle de entrenamiento con la TUI en vivo (mlp / conv / dynmlp)",
                         "cli.viz":
                             "lanzar el visualizador de grafos en el navegador (WASM)",
+                        "cli.web":
+                            "servir el estudio local: ocho vistas con enlace profundo, sin telemetría",
                         "cli.graph": "volcar e inspeccionar el DAG de UOps",
                         "cli.kernels":
                             "mostrar WGSL generado con límites de fusión anotados",
