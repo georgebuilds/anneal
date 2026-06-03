@@ -20,7 +20,7 @@
                         : "dark";
                 document.documentElement.setAttribute("data-theme", t);
 
-                var VALID = { mlp: 1, conv: 1, nanogpt: 1, vit: 1, gpt2: 1 };
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, vit: 1, resnet9: 1, gpt2: 1 };
                 var m = null;
                 // URL takes priority so deep links win on first paint.
                 var hash = (window.location.hash || "").replace(/^#/, "");
@@ -251,6 +251,7 @@
             html[data-model="conv"] .variant[data-model="conv"],
             html[data-model="nanogpt"] .variant[data-model="nanogpt"],
             html[data-model="vit"] .variant[data-model="vit"],
+            html[data-model="resnet9"] .variant[data-model="resnet9"],
             html[data-model="gpt2"] .variant[data-model="gpt2"] {
                 display: block;
             }
@@ -927,6 +928,16 @@
                     </button>
                     <button
                         role="tab"
+                        id="tab-resnet9"
+                        data-model="resnet9"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        resnet-9 <span class="tab-cost">(CIFAR-10, ~170 MB)</span>
+                    </button>
+                    <button
+                        role="tab"
                         id="tab-gpt2"
                         data-model="gpt2"
                         aria-selected="false"
@@ -1018,6 +1029,13 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="resnet9">
+                        <h1 class="step-heading">Get anneal running and explore ResNet-9 on CIFAR-10.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">ResNet-9</span> path. It is the David Page / fast.ai CIFAR-10 architecture (prep → layer1 + res1 → layer2 → layer3 + res3 → maxpool → linear) at the canonical 64/128/256/512 channel schedule, 6.57 M parameters. This is the conv compiler surface the transformer demos never touched: real 3x3 convolutions, residual additions, BatchNorm with stateful EMA running statistics, MaxPool2D. The example registers under <code>anneal run resnet9</code> and the forward + per-submodule FD-tested backward all work today; full-network training is currently gated on a WGSL codegen scaling issue tracked in the project notes. Loads the 170 MB CIFAR-10 binary distribution into the asset cache on first run.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <h1 class="step-heading">Get anneal running and sample from GPT-2-small on your GPU.</h1>
                         <p class="intent">
@@ -1064,6 +1082,12 @@
                         <div class="compare">
                             <span class="tag">disk / network for ViT</span>
                             None beyond the Go install. The Vision Transformer trains on a synthetic class-conditional 32 by 32 RGB dataset generated in-process; no downloads, no cache writes.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="resnet9">
+                        <div class="compare">
+                            <span class="tag">disk / network for ResNet-9</span>
+                            About 170 MB on first run: the official CIFAR-10 binary distribution (<code>cifar-10-binary.tar.gz</code>) is fetched into <code>$ANNEAL_CACHE_DIR</code>, SHA-pinned and atomically written. Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold. The tarball stays gzipped in cache and is streamed through <code>archive/tar</code> on every load (no extraction step).
                         </div>
                     </div>
                     <div class="variant" data-model="gpt2">
@@ -1211,6 +1235,26 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="resnet9">
+                        <div class="terminal" role="region" aria-label="list models (resnet9 highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  mlp       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                                <span class="t-out">  <span class="t-fwd">resnet9</span>   ResNet-9 on CIFAR-10 (David Page architecture, 6.57M params)</span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="variant" data-model="gpt2">
                         <div class="terminal" role="region" aria-label="verify gpt2 subcommand">
                             <div class="term-bar" aria-hidden="true">
@@ -1263,6 +1307,11 @@
                     <div class="variant" data-model="vit">
                         <p class="intent" style="margin-top: 0">
                             For ViT, the only line that matters is <code>status: ok</code>. Any backend (Metal, Vulkan, DX12) works; the model fits in any device's buffer limits (about 80K parameters total, dominated by the patch projection and two encoder blocks).
+                        </p>
+                    </div>
+                    <div class="variant" data-model="resnet9">
+                        <p class="intent" style="margin-top: 0">
+                            For ResNet-9, check that <code>max buffer size</code> comfortably exceeds the largest activation: at the canonical 64/128/256/512 channels, the layer3 stage produces a [B, 512, 4, 4] tensor (32 KB per sample, 1 MB at B=32). The whole model and its activations fit easily on any discrete GPU; the binding constraint at present is the WGSL codegen on very-deep backward graphs, not buffer pressure.
                         </p>
                     </div>
                     <div class="variant" data-model="gpt2">
@@ -1501,6 +1550,40 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="resnet9">
+                        <h2 class="step-heading">Explore ResNet-9 on CIFAR-10, end to end in Go.</h2>
+                        <p class="intent">
+                            <code>anneal run resnet9</code> builds the forward graph: prep Conv2d(3→64) + BN + ReLU, then layer1 (Conv→BN→ReLU→MaxPool) with a residual block on top, then layer2, then layer3 (Conv→BN→ReLU→MaxPool) again with a residual block, a final 4x4 MaxPool, and a Linear(512→10) head. The forward path realizes cleanly on any WebGPU device. <code>anneal train resnet9</code> wires Adam, fresh-arena-per-step training, BatchNorm PostStep, and the standard tensor.Backward / tensor.Realize loop; the first run downloads the official CIFAR-10 binary distribution into the asset cache.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="ResNet-9 status">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal run resnet9" aria-label="copy run command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal run resnet9</span></div>
+                                <span class="t-out">device: metal (apple m3)</span>
+                                <span class="t-out">network: David Page ResNet-9 (64/128/256/512), 6.57M params</span>
+                                <span class="t-out">input shape: [2, 3, 32, 32] → output [2, 10]</span>
+                                <span class="t-out"><span class="t-fwd">forward</span> realized; logits finite</span>
+                            </div>
+                        </div>
+
+                        <div class="compare">
+                            <span class="tag">conv compiler surface</span>
+                            ResNet-9 is the level-up from the transformer demos: GPT-2's Conv1D is a transposed Linear, not a real conv. ResNet-9 exercises actual 3x3 convolutions (im2col-as-single-matmul lowering, materialized as one buffer to stay within the 8-buffer cap), residual additions, and BatchNorm's stateful EMA running mean / running variance. Every sub-module is FD-checked against analytic gradients in the <code>tensor/nn</code> tests (Conv2d, BatchNorm2d, MaxPool2D, Linear).
+                        </div>
+                        <div class="compare">
+                            <span class="tag">training status</span>
+                            Full-network training is currently gated on a WGSL codegen scaling issue: under residual blocks plus BatchNorm plus eight conv stages, the scheduler fuses the backward into one enormous kernel that exceeds the WGSL renderer's happy path. Forward works end-to-end; the per-sub-module FD-tested backward also works. The architecture and CIFAR-10 host pipeline are in place; once the codegen issue resolves, <code>anneal train resnet9</code> trains to roughly 90% test accuracy following the same fresh-arena-per-step recipe the other demos use.
+                        </div>
+
+                        <p class="intent" style="margin-top: 1rem">
+                            Curious how the conv lowers? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to inspect how im2col, the matmul, and the residual Add fuse together.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <h2 class="step-heading">Sample from GPT-2-small, end to end in Go.</h2>
                         <p class="intent">
@@ -1634,6 +1717,26 @@
                         </div>
                     </div>
 
+                    <div class="variant" data-model="resnet9">
+                        <div class="terminal" role="region" aria-label="compiler inspection for ResNet-9">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain pad" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain pad</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: range-arithmetic shift; only the data plane gets read, surrounding zeros emit from the index predicate.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: pad.adjoint folds to a shrink — the col2im dual of im2col emerges automatically.</span>
+                                <span class="t-out">rules fired: pad.fold-noop, conv.im2col.coalesce</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels resnet9</span></div>
+                                <span class="t-out">kernel 0/N prep.conv      <span class="t-dim">// fused: im2col + matmul + BN affine + ReLU</span></span>
+                                <span class="t-out">kernel K/N res1.add       <span class="t-dim">// fused: skip-add + ReLU into a single epilogue</span></span>
+                                <span class="t-out">kernel N-1 head.linear    <span class="t-dim">// fused: maxpool 4x4 + flatten + final matmul</span></span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="variant" data-model="gpt2">
                         <div class="terminal" role="region" aria-label="compiler inspection for GPT-2">
                             <div class="term-bar" aria-hidden="true">
@@ -1754,6 +1857,26 @@
                         </div>
                         <div class="crossref">
                             <strong>Train a language transformer.</strong> Switch the picker to <em>nanoGPT</em> to see the same encoder stack (minus the patch unfold; plus a causal mask) generate Shakespeare-ish text end to end.
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="resnet9">
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The transformer the compiler can build end-to-end shares its forward / backward fusion machinery with the conv stack you just looked at. Same compiler, same scheduler, same renderer.
+                        </div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                        <div class="crossref">
+                            <strong>Train a language transformer.</strong> Switch the picker to <em>nanoGPT</em> to see the same compiler train a small encoder stack on Shakespeare. Forward and backward fuse into the same WGSL kernels exactly as the per-submodule FD checks here confirm for Conv2d + BN.
                         </div>
                     </div>
 
@@ -2013,12 +2136,13 @@
                         moves between models, and
                      4. announces the change to assistive tech.
                 */
-                var MODELS = ["mlp", "conv", "nanogpt", "vit", "gpt2"];
+                var MODELS = ["mlp", "conv", "nanogpt", "vit", "resnet9", "gpt2"];
                 var MODEL_LABEL = {
                     mlp: "MLP",
                     conv: "ConvNet",
                     nanogpt: "nanoGPT",
                     vit: "ViT",
+                    resnet9: "ResNet-9",
                     gpt2: "GPT-2-small"
                 };
                 var tabs = Array.prototype.slice.call(
