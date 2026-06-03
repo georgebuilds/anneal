@@ -104,6 +104,8 @@ func (s *cpuEvalState) evalNoCache(u uop.UOp, sh []shape.Sint) (cpuArr, error) {
 		return src, nil
 	case uop.OpContiguous:
 		return s.eval(u.Src(0), sh)
+	case uop.OpGather:
+		return s.evalGather(u)
 	}
 	// Unary ALU
 	if u.NSrc() == 1 {
@@ -620,6 +622,111 @@ func cpuReduceAxis(src cpuArr, u uop.UOp) (cpuArr, error) {
 			out[outK] *= v
 		}
 	}
+	outSh := make([]shape.Sint, len(outDims))
+	for i, d := range outDims {
+		outSh[i] = shape.Const(d)
+	}
+	return cpuArr{data: out, shape: outSh}, nil
+}
+
+// evalGather implements OpGather per tensor/gather.go semantics:
+//
+//	data.shape  = [d0, ..., d_{dim-1}, V, d_{dim+1}, ..., d_{R-1}]
+//	idx.shape   = idxShape
+//	out.shape   = [d0, ..., d_{dim-1}, idxShape..., d_{dim+1}, ..., d_{R-1}]
+//	out[a, j_idx, c] = data[a, idx[j_idx], c]
+//
+// Negative indices wrap modulo V (matches ONNX Gather semantics).
+func (s *cpuEvalState) evalGather(u uop.UOp) (cpuArr, error) {
+	dim, ok := u.Arg().(int64)
+	if !ok {
+		return cpuArr{}, fmt.Errorf("evalGather: arg not int64, got %T", u.Arg())
+	}
+	data, err := s.eval(u.Src(0), nil)
+	if err != nil {
+		return cpuArr{}, err
+	}
+	idx, err := s.eval(u.Src(1), nil)
+	if err != nil {
+		return cpuArr{}, err
+	}
+	dataDims, ok := shapeSintsAsInts(data.shape)
+	if !ok {
+		return cpuArr{}, fmt.Errorf("evalGather: symbolic data shape")
+	}
+	idxDims, ok := shapeSintsAsInts(idx.shape)
+	if !ok {
+		return cpuArr{}, fmt.Errorf("evalGather: symbolic index shape")
+	}
+	if int(dim) < 0 || int(dim) >= len(dataDims) {
+		return cpuArr{}, fmt.Errorf("evalGather: dim %d out of range %d", dim, len(dataDims))
+	}
+	V := dataDims[dim]
+
+	// Out shape: dataDims[:dim] ++ idxDims ++ dataDims[dim+1:]
+	outDims := make([]int64, 0, len(dataDims)-1+len(idxDims))
+	outDims = append(outDims, dataDims[:dim]...)
+	outDims = append(outDims, idxDims...)
+	outDims = append(outDims, dataDims[dim+1:]...)
+
+	// Compute strides for data.
+	dataRank := len(dataDims)
+	dataStrides := make([]int64, dataRank)
+	dataStrides[dataRank-1] = 1
+	for i := dataRank - 2; i >= 0; i-- {
+		dataStrides[i] = dataStrides[i+1] * dataDims[i+1]
+	}
+
+	// Iterate over output positions; for each, decode into (outerCoords,
+	// idxCoords, innerCoords), look up idx[idxCoords] to get V-coord,
+	// then read data[outerCoords, V-coord, innerCoords].
+	outerRank := int(dim)
+	innerRank := dataRank - int(dim) - 1
+	idxRank := len(idxDims)
+
+	outTotal := int64(1)
+	for _, d := range outDims {
+		outTotal *= d
+	}
+	out := make([]float32, outTotal)
+	outCoord := make([]int64, len(outDims))
+	for k := int64(0); k < outTotal; k++ {
+		t := k
+		for r := len(outDims) - 1; r >= 0; r-- {
+			outCoord[r] = t % outDims[r]
+			t /= outDims[r]
+		}
+		// Outer coords: outCoord[0..outerRank), inner: outCoord[outerRank+idxRank ..)
+		outer := outCoord[:outerRank]
+		idxCoords := outCoord[outerRank : outerRank+idxRank]
+		inner := outCoord[outerRank+idxRank:]
+
+		// Decode idxCoords into flat idx offset.
+		var idxOff int64
+		idxStride := int64(1)
+		for r := idxRank - 1; r >= 0; r-- {
+			idxOff += idxCoords[r] * idxStride
+			idxStride *= idxDims[r]
+		}
+		v := int64(idx.data[idxOff])
+		if v < 0 {
+			v += V
+		}
+		if v < 0 || v >= V {
+			return cpuArr{}, fmt.Errorf("evalGather: index %d out of range [0,%d)", v, V)
+		}
+		// Read data[outer..., v, inner...]
+		var dataOff int64
+		for r := 0; r < outerRank; r++ {
+			dataOff += outer[r] * dataStrides[r]
+		}
+		dataOff += v * dataStrides[outerRank]
+		for r := 0; r < innerRank; r++ {
+			dataOff += inner[r] * dataStrides[outerRank+1+r]
+		}
+		out[k] = data.data[dataOff]
+	}
+
 	outSh := make([]shape.Sint, len(outDims))
 	for i, d := range outDims {
 		outSh[i] = shape.Const(d)

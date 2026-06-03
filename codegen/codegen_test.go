@@ -163,6 +163,49 @@ func TestRender_MaxReduce(t *testing.T) {
 	assertContains(t, wgsl, "max(")
 }
 
+func TestRender_MinReduce(t *testing.T) {
+	a := newArena()
+	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
+	y := x.Min(nil, false)
+
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
+
+	verifyWGSLStructure(t, wgsl, item)
+
+	// Min identity for float32 should be +FLT_MAX (0x7f7fffff).
+	assertContains(t, wgsl, "bitcast<f32>(0x7f7fffffu)")
+	assertContains(t, wgsl, "min(")
+}
+
+func TestRender_MinimumElementwise(t *testing.T) {
+	a := newArena()
+	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
+	y := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
+	z := x.Minimum(y)
+
+	item := firstItem(t, makeSink(a, z))
+	wgsl := codegen.RenderWGSL(item).WGSL
+
+	verifyWGSLStructure(t, wgsl, item)
+	assertContains(t, wgsl, "min(")
+}
+
+func TestRender_Erf(t *testing.T) {
+	a := newArena()
+	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "webgpu")
+	y := x.Erf()
+
+	item := firstItem(t, makeSink(a, y))
+	wgsl := codegen.RenderWGSL(item).WGSL
+
+	verifyWGSLStructure(t, wgsl, item)
+	// The Erf lowering injects the erf_anneal helper at module scope and
+	// calls it from the kernel body.
+	assertContains(t, wgsl, "fn erf_anneal(")
+	assertContains(t, wgsl, "erf_anneal(")
+}
+
 // ── Test: indexing and layout ─────────────────────────────────────────────────
 
 func TestRender_ReshapeIndex(t *testing.T) {

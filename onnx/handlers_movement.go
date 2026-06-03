@@ -426,7 +426,58 @@ func handleExpand(ctx *HandlerCtx) ([]Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Expand: %w", err)
 	}
-	return []Value{Device(tensor.BroadcastToSints(x, target))}, nil
+	// ONNX Expand semantics: the output shape is the broadcast of
+	// input.shape and `target` (numpy-style: right-aligned, dim-1
+	// expands to the other side, missing leading dims are 1).
+	// BroadcastToSints alone would map x directly to target, which
+	// is wrong when a non-1 input dim has a 1 in target (test case:
+	// input=[3,1], target=[2,1,6], result=[2,3,6]).
+	xShape := x.ShapeSints()
+	out := broadcastTargetSints(xShape, target)
+	return []Value{Device(tensor.BroadcastToSints(x, out))}, nil
+}
+
+// broadcastTargetSints computes the numpy-broadcast of a and b. For each
+// (right-aligned) dim, the result dim is the non-1 side; if both are 1,
+// the result is 1; if both are the same const, it carries through; if
+// either is symbolic, the symbolic side wins (matches anneal's broadcast
+// rules in broadcastShapesSints inside tensor/tensor.go).
+func broadcastTargetSints(a, b []shape.Sint) []shape.Sint {
+	na, nb := len(a), len(b)
+	n := na
+	if nb > n {
+		n = nb
+	}
+	out := make([]shape.Sint, n)
+	for i := 0; i < n; i++ {
+		ai := i - (n - na)
+		bi := i - (n - nb)
+		if ai < 0 {
+			out[i] = b[bi]
+			continue
+		}
+		if bi < 0 {
+			out[i] = a[ai]
+			continue
+		}
+		// Both present. Concrete-1 yields the other side.
+		av, aok := a[ai].ConstValue()
+		bv, bok := b[bi].ConstValue()
+		switch {
+		case aok && av == 1:
+			out[i] = b[bi]
+		case bok && bv == 1:
+			out[i] = a[ai]
+		case aok && bok && av == bv:
+			out[i] = a[ai]
+		default:
+			// Fall back to b (target). Mismatches will surface as
+			// "cannot expand non-unit dim" downstream — which is the
+			// right loud failure.
+			out[i] = b[bi]
+		}
+	}
+	return out
 }
 
 // asHostIntVec coerces an integer Value into []int64. Accepts host-tier
