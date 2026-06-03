@@ -147,6 +147,8 @@ func canonicalOpName(q string) string {
 		"shrink":     "Shrink",
 		"flip":       "Flip",
 		"max":        "Max",
+		"min":        "Min",
+		"erf":        "Erf",
 	}
 	if n, ok := m[q]; ok {
 		return n
@@ -676,6 +678,31 @@ var allRules = []ruleEntry{
 		pattern:     "∂max(a,b)/∂b = adj where b==max AND not tied",
 		description: "max backward: src[1] gets gradient only when it's the unique argmax",
 		source:      "tensor/gradient.go",
+	},
+
+	// ── Min ──────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"min"},
+		kind:        "gradient",
+		pattern:     "∂min(a,b)/∂a = adj where a==min, ties split equally",
+		description: "min backward: src[0] gets gradient where it equals the min output",
+		source:      "tensor/gradient_ruleset.go",
+	},
+	{
+		ops:         []string{"min"},
+		kind:        "gradient",
+		pattern:     "∂min(a,b)/∂b = adj where b==min AND not tied",
+		description: "min backward: src[1] gets gradient only when it's the unique argmin",
+		source:      "tensor/gradient_ruleset.go",
+	},
+
+	// ── Erf ──────────────────────────────────────────────────────────────────
+	{
+		ops:         []string{"erf"},
+		kind:        "gradient",
+		pattern:     "∂erf(x)/∂x = (2/√π) · exp(-x²)",
+		description: "Gauss error function derivative (used by erf-based GELU)",
+		source:      "tensor/gradient_ruleset.go",
 	},
 }
 

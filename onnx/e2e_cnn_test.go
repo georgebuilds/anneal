@@ -528,7 +528,9 @@ func TestE2E_PuntList_LoudFailures(t *testing.T) {
 			wantSubs: []string{"ceil_mode", "not supported"},
 		},
 		{
-			name: "Slice_negstep_rejected",
+			// Phase 3 accepts step=-1 (Flip + positive-step Shrink) but still
+			// rejects |step| > 1. Test step=-2 to lock the punt boundary.
+			name: "Slice_step_neg2_rejected",
 			build: func(t *testing.T) *onnxpb.ModelProto {
 				b := &singleNodeBuilder{
 					opType: "Slice",
@@ -545,12 +547,12 @@ func TestE2E_PuntList_LoudFailures(t *testing.T) {
 						makeIntInitializer("starts", []int64{1}, []int64{6}),
 						makeIntInitializer("ends", []int64{1}, []int64{0}),
 						makeIntInitializer("axes", []int64{1}, []int64{0}),
-						makeIntInitializer("steps", []int64{1}, []int64{-1}),
+						makeIntInitializer("steps", []int64{1}, []int64{-2}),
 					},
 				}
 				return b.build(t)
 			},
-			wantSubs: []string{"negative step", "not supported"},
+			wantSubs: []string{"not supported"},
 		},
 		{
 			name: "BatchNorm_trainingmode_rejected",

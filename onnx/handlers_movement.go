@@ -257,7 +257,18 @@ func handleGather(ctx *HandlerCtx) ([]Value, error) {
 }
 
 // handleSlice supports opset-10+ where starts/ends/axes/steps are inputs.
-// Negative step is rejected (deferred per plan §6).
+//
+// Step semantics:
+//   - step =  1: direct ShrinkSints with positive-index clamping.
+//   - step = -1: emit Flip(axis) followed by a positive-step Shrink. The
+//     reversed-coord arithmetic mirrors ONNX's negative-step rule
+//     (start..ends exclusive, walking down by 1).
+//   - other steps (|step| > 1): rejected as out-of-scope for v1.
+//
+// Multiple axes are handled in input order. When an axis appears with step=-1
+// we set a flip flag, compute the equivalent positive-step lo/hi on the
+// post-flip tensor, then apply Flip + Shrink in a single batch at the end so
+// the result of one axis doesn't interfere with later axes' index math.
 func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 3 {
 		return nil, fmt.Errorf("Slice: expected ≥ 3 inputs (data, starts, ends), got %d", len(ctx.Inputs))
@@ -303,6 +314,7 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 	for i := 0; i < rank; i++ {
 		loHi[i] = [2]int64{0, sh[i]}
 	}
+	flipAxes := make([]bool, rank)
 	for i, s := range starts {
 		ax := int(axes[i])
 		if ax < 0 {
@@ -311,44 +323,95 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 		if ax < 0 || ax >= rank {
 			return nil, fmt.Errorf("Slice: axis %d out of range for rank %d", axes[i], rank)
 		}
+		dim := sh[ax]
 		e := ends[i]
 		st := int64(1)
 		if i < len(steps) {
 			st = steps[i]
 		}
-		if st < 0 {
-			return nil, fmt.Errorf("Slice: negative step not supported in v1 (axis=%d step=%d)", ax, st)
+		switch st {
+		case 1:
+			// Positive-step clamp (existing behaviour).
+			lo := s
+			hi := e
+			if lo < 0 {
+				lo += dim
+			}
+			if hi < 0 {
+				hi += dim
+			}
+			if lo < 0 {
+				lo = 0
+			}
+			if lo > dim {
+				lo = dim
+			}
+			if hi < 0 {
+				hi = 0
+			}
+			if hi > dim {
+				hi = dim
+			}
+			if hi < lo {
+				hi = lo
+			}
+			loHi[ax] = [2]int64{lo, hi}
+		case -1:
+			// ONNX negative-step rule: per spec, clamp starts to [-dim-1, dim-1]
+			// and ends to [-dim-1, dim-1] (the extra -dim-1 slot represents
+			// "one before the first element"). Then normalise:
+			//   if v < -dim: v = -1 (i.e. "before begin")
+			//   else if v < 0: v += dim
+			//   else if v >= dim: v = dim - 1
+			// Forward range in the ORIGINAL tensor is [ends+1, starts+1).
+			// In the FLIPPED tensor (reversed along ax), the equivalent
+			// positive-step window is [dim - (starts+1), dim - (ends+1)).
+			normNeg := func(v int64) int64 {
+				if v < -dim {
+					return -1
+				}
+				if v < 0 {
+					return v + dim
+				}
+				if v >= dim {
+					return dim - 1
+				}
+				return v
+			}
+			ns := normNeg(s)
+			ne := normNeg(e)
+			origLo := ne + 1
+			origHi := ns + 1
+			if origLo < 0 {
+				origLo = 0
+			}
+			if origHi > dim {
+				origHi = dim
+			}
+			if origHi < origLo {
+				origHi = origLo
+			}
+			// In flipped space:
+			newLo := dim - origHi
+			newHi := dim - origLo
+			loHi[ax] = [2]int64{newLo, newHi}
+			flipAxes[ax] = true
+		default:
+			return nil, fmt.Errorf("Slice: step %d not supported in v1 (only step=1 and step=-1; axis=%d)", st, ax)
 		}
-		if st != 1 {
-			return nil, fmt.Errorf("Slice: step != 1 not supported in v1 (axis=%d step=%d)", ax, st)
-		}
-		// Clamp.
-		lo := s
-		hi := e
-		if lo < 0 {
-			lo += sh[ax]
-		}
-		if hi < 0 {
-			hi += sh[ax]
-		}
-		if lo < 0 {
-			lo = 0
-		}
-		if lo > sh[ax] {
-			lo = sh[ax]
-		}
-		if hi < 0 {
-			hi = 0
-		}
-		if hi > sh[ax] {
-			hi = sh[ax]
-		}
-		if hi < lo {
-			hi = lo
-		}
-		loHi[ax] = [2]int64{lo, hi}
 	}
-	return []Value{Device(x.Shrink(loHi))}, nil
+	out := x
+	anyFlip := false
+	for _, f := range flipAxes {
+		if f {
+			anyFlip = true
+			break
+		}
+	}
+	if anyFlip {
+		out = out.Flip(flipAxes)
+	}
+	return []Value{Device(out.Shrink(loHi))}, nil
 }
 
 func handleExpand(ctx *HandlerCtx) ([]Value, error) {

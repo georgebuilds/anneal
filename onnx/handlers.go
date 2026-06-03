@@ -36,6 +36,16 @@ func RegisterAll(r *Runner) {
 	r.RegisterHandler("ReduceSum", handleReduceSum)
 	r.RegisterHandler("ReduceMean", handleReduceMean)
 	r.RegisterHandler("ReduceMax", handleReduceMax)
+	r.RegisterHandler("ReduceMin", handleReduceMin)
+
+	// transformer / stage-2 elementwise
+	r.RegisterHandler("Erf", handleErf)
+	r.RegisterHandler("Where", handleWhere)
+	r.RegisterHandler("Softmax", handleSoftmax)
+	r.RegisterHandler("Less", handleLess)
+	r.RegisterHandler("LessOrEqual", handleLessOrEqual)
+	r.RegisterHandler("Greater", handleGreater)
+	r.RegisterHandler("GreaterOrEqual", handleGreaterOrEqual)
 
 	// movement
 	r.RegisterHandler("Reshape", handleReshape)

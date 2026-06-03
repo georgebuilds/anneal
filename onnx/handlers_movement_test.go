@@ -320,7 +320,10 @@ func TestHandleSlice_PositiveStep(t *testing.T) {
 	assertShape(t, outs["y"], []int64{3})
 }
 
-func TestHandleSlice_NegativeStepRejected(t *testing.T) {
+// TestHandleSlice_NegativeStepOne verifies the Phase 3 negative-step path.
+// step=-1 with starts=5, ends=1 produces reversed indices 5,4,3,2 on [6] —
+// shape [4]. step != ±1 stays rejected (covered by punt-list tests).
+func TestHandleSlice_NegativeStepOne(t *testing.T) {
 	b := &singleNodeBuilder{
 		opType: "Slice",
 		inputs: []nameInfo{
@@ -330,7 +333,7 @@ func TestHandleSlice_NegativeStepRejected(t *testing.T) {
 			{Name: "axes", DType: onnxpb.TensorProto_INT64, Dims: []int64{1}},
 			{Name: "steps", DType: onnxpb.TensorProto_INT64, Dims: []int64{1}},
 		},
-		outputs: []nameInfo{{Name: "y", DType: onnxpb.TensorProto_FLOAT, Dims: []int64{3}}},
+		outputs: []nameInfo{{Name: "y", DType: onnxpb.TensorProto_FLOAT, Dims: []int64{4}}},
 		initializers: []*onnxpb.TensorProto{
 			makeFloatInitializerForTests("x", []int64{6}, []float32{1, 2, 3, 4, 5, 6}),
 			makeIntInitializer("starts", []int64{1}, []int64{5}),
@@ -339,7 +342,8 @@ func TestHandleSlice_NegativeStepRejected(t *testing.T) {
 			makeIntInitializer("steps", []int64{1}, []int64{-1}),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "negative step")
+	_, outs := runSingleNode(t, b.build(t), nil)
+	assertShape(t, outs["y"], []int64{4})
 }
 
 // ── Value-oracle tests ────────────────────────────────────────────────────────

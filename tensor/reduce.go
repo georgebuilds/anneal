@@ -66,6 +66,15 @@ func (t *Tensor) Max(axes []int, keepdim bool) *Tensor {
 	return t.reduce(uop.OpMax, axes, keepdim)
 }
 
+// Min reduces by taking the minimum along axes. Symmetric to Max; reduces via
+// OpMin (WGSL `min` accumulator).
+func (t *Tensor) Min(axes []int, keepdim bool) *Tensor {
+	if len(axes) == 0 {
+		axes = allAxes(t.Rank())
+	}
+	return t.reduce(uop.OpMin, axes, keepdim)
+}
+
 // Mean computes sum / count along axes. The divisor is injected as a graph
 // constant so the scheduler sees a pure divide op (not a Python-side scalar).
 func (t *Tensor) Mean(axes []int, keepdim bool) *Tensor {

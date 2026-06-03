@@ -77,6 +77,7 @@ const (
 	OpReciprocal
 	OpNeg
 	OpTrunc
+	OpErf
 
 	// Binary ALU
 	OpAdd
@@ -85,6 +86,7 @@ const (
 	OpShr
 	OpIDiv
 	OpMax
+	OpMin
 	OpMod
 	OpCmpLt
 	OpCmpNe
@@ -208,12 +210,14 @@ var opNames = [opCount]string{
 	OpReciprocal:         "Reciprocal",
 	OpNeg:                "Neg",
 	OpTrunc:              "Trunc",
+	OpErf:                "Erf",
 	OpAdd:                "Add",
 	OpMul:                "Mul",
 	OpShl:                "Shl",
 	OpShr:                "Shr",
 	OpIDiv:               "IDiv",
 	OpMax:                "Max",
+	OpMin:                "Min",
 	OpMod:                "Mod",
 	OpCmpLt:              "CmpLt",
 	OpCmpNe:              "CmpNe",
@@ -344,10 +348,10 @@ func unionOpSets(sets ...OpSet) OpSet {
 // them to enforce fusion boundaries and identify movement ops.
 var (
 	GroupUnary = newOpSet(
-		OpExp2, OpLog2, OpSin, OpSqrt, OpReciprocal, OpNeg, OpTrunc,
+		OpExp2, OpLog2, OpSin, OpSqrt, OpReciprocal, OpNeg, OpTrunc, OpErf,
 	)
 	GroupBinary = newOpSet(
-		OpAdd, OpMul, OpShl, OpShr, OpIDiv, OpMax, OpMod,
+		OpAdd, OpMul, OpShl, OpShr, OpIDiv, OpMax, OpMin, OpMod,
 		OpCmpLt, OpCmpNe, OpCmpEq,
 		OpXor, OpOr, OpAnd, OpThreeFry, OpSub, OpFDiv, OpPow,
 	)
@@ -361,9 +365,9 @@ var (
 	GroupBuffer      = newOpSet(OpLoad, OpStore, OpConst, OpDefineVar)
 
 	// Algebraic properties used by symbolic simplification rules.
-	GroupCommutative = newOpSet(OpAdd, OpMul, OpMax, OpCmpNe, OpCmpEq, OpXor, OpAnd, OpOr)
-	GroupAssociative = newOpSet(OpAdd, OpMul, OpAnd, OpOr, OpMax)
-	GroupIdempotent  = newOpSet(OpOr, OpAnd, OpMax)
+	GroupCommutative = newOpSet(OpAdd, OpMul, OpMax, OpMin, OpCmpNe, OpCmpEq, OpXor, OpAnd, OpOr)
+	GroupAssociative = newOpSet(OpAdd, OpMul, OpAnd, OpOr, OpMax, OpMin)
+	GroupIdempotent  = newOpSet(OpOr, OpAnd, OpMax, OpMin)
 	GroupComparison  = newOpSet(OpCmpLt, OpCmpNe, OpCmpEq)
 
 	// Ops where f(0) ≠ 0; padding with zero is unsafe across these.

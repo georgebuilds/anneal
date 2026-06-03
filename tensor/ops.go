@@ -44,6 +44,12 @@ func (t *Tensor) Recip() *Tensor { return t.unary(uop.OpReciprocal) }
 // Trunc returns the truncated value (primitive).
 func (t *Tensor) Trunc() *Tensor { return t.unary(uop.OpTrunc) }
 
+// Erf returns the Gauss error function of t, elementwise (primitive). This is
+// the true erf (not the tanh-approximation used by some GELU implementations);
+// WGSL lowers it via the Abramowitz-Stegun 7.1.26 polynomial helper, max abs
+// error ~1.5e-7 (within float32 precision of math.Erf).
+func (t *Tensor) Erf() *Tensor { return t.unary(uop.OpErf) }
+
 // Contiguous forces materialization of t into its own kernel buffer.
 // Semantically an identity op; used to break long adjoint chains that would
 // otherwise inline too many leaf buffers into a single kernel, exceeding the
@@ -99,6 +105,10 @@ func (t *Tensor) Div(other *Tensor) *Tensor {
 
 // Maximum returns element-wise max(t, other).
 func (t *Tensor) Maximum(other *Tensor) *Tensor { return t.binaryOp(uop.OpMax, other) }
+
+// Minimum returns element-wise min(t, other). Symmetric to Maximum; lowers to
+// OpMin (WGSL `min(a, b)`).
+func (t *Tensor) Minimum(other *Tensor) *Tensor { return t.binaryOp(uop.OpMin, other) }
 
 // CmpLt returns t < other as a bool tensor.
 func (t *Tensor) CmpLt(other *Tensor) *Tensor {

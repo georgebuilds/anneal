@@ -141,6 +141,10 @@ func (s *cpuEvalState) evalNoCache(u uop.UOp, sh []shape.Sint) (cpuArr, error) {
 			for i, v := range src.data {
 				out[i] = float32(math.Trunc(float64(v)))
 			}
+		case uop.OpErf:
+			for i, v := range src.data {
+				out[i] = float32(math.Erf(float64(v)))
+			}
 		case uop.OpReshape:
 			// shape stored in arg.
 			return cpuArr{data: src.data, shape: argShape(u, src.data)}, nil
@@ -195,6 +199,14 @@ func (s *cpuEvalState) evalNoCache(u uop.UOp, sh []shape.Sint) (cpuArr, error) {
 		case uop.OpMax:
 			for i := range out {
 				if a.data[i] > b.data[i] {
+					out[i] = a.data[i]
+				} else {
+					out[i] = b.data[i]
+				}
+			}
+		case uop.OpMin:
+			for i := range out {
+				if a.data[i] < b.data[i] {
 					out[i] = a.data[i]
 				} else {
 					out[i] = b.data[i]
@@ -552,6 +564,8 @@ func cpuReduceAxis(src cpuArr, u uop.UOp) (cpuArr, error) {
 		init = 0
 	case uop.OpMax:
 		init = float32(math.Inf(-1))
+	case uop.OpMin:
+		init = float32(math.Inf(1))
 	case uop.OpMul:
 		init = 1
 	default:
@@ -596,6 +610,10 @@ func cpuReduceAxis(src cpuArr, u uop.UOp) (cpuArr, error) {
 			out[outK] += v
 		case uop.OpMax:
 			if v > out[outK] {
+				out[outK] = v
+			}
+		case uop.OpMin:
+			if v < out[outK] {
 				out[outK] = v
 			}
 		case uop.OpMul:

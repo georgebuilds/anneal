@@ -204,6 +204,8 @@ func execALUFloat(op uop.Op, vals []any) (any, bool) {
 		return math.Sin(x), true
 	case uop.OpTrunc:
 		return math.Trunc(get(0)), true
+	case uop.OpErf:
+		return math.Erf(get(0)), true
 
 	// Binary float
 	case uop.OpAdd:
@@ -216,6 +218,8 @@ func execALUFloat(op uop.Op, vals []any) (any, bool) {
 		return get(0) / get(1), true
 	case uop.OpMax:
 		return math.Max(get(0), get(1)), true
+	case uop.OpMin:
+		return math.Min(get(0), get(1)), true
 	case uop.OpCmpLt:
 		return get(0) < get(1), true
 	case uop.OpCmpNe:
@@ -269,6 +273,12 @@ func execALUInt(op uop.Op, vals []any) (any, bool) {
 	case uop.OpMax:
 		a, b := get(0), get(1)
 		if a > b {
+			return a, true
+		}
+		return b, true
+	case uop.OpMin:
+		a, b := get(0), get(1)
+		if a < b {
 			return a, true
 		}
 		return b, true

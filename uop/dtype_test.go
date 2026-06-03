@@ -396,9 +396,9 @@ func TestStructuralKeysGolden(t *testing.T) {
 
 	// NOTE: golden depends on uint64(node.op); regenerate when new Op
 	// constants are inserted into the iota sequence above the position of
-	// OpConst. Updated 2026-06-01 when OpGatherIdx, OpGather, OpScatterAdd
-	// were added (Slice B of the Gather op build-out).
-	const golden uint64 = 0xa9cfff5d55cbe8aa
+	// OpConst. Updated 2026-06-02 when OpErf (unary) and OpMin (binary)
+	// were added (ONNX Phase 3 Stage-2 transformer core).
+	const golden uint64 = 0x0a1054b7f008a60c
 	got := keys[c.Index()]
 	t.Logf("const(1.0 f32) structural key: 0x%016x (golden: 0x%016x)", got, golden)
 	if got != golden {

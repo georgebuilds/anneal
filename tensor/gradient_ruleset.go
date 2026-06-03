@@ -109,6 +109,15 @@ func buildGradient() GradRuleset {
 		return nil
 	}
 
+	// d/dx erf(x) = (2/sqrt(pi)) * exp(-x^2)
+	m[uop.OpErf] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
+		src, k, _ := gradHelpers(u, adj, shapeCache, device)
+		x := src(0)
+		// 2/sqrt(pi) ≈ 1.1283791670955126
+		const twoOverSqrtPi = 1.1283791670955126
+		return []*Tensor{adj.Mul(k(twoOverSqrtPi)).Mul(x.Mul(x).Neg().Exp())}
+	}
+
 	// ── Cast ──────────────────────────────────────────────────────────────────
 
 	castRule := GradRule(func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
@@ -151,6 +160,17 @@ func buildGradient() GradRuleset {
 
 	// max(a,b): at ties, src[0] wins
 	m[uop.OpMax] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
+		src, _, zeros := gradHelpers(u, adj, shapeCache, device)
+		z := zeros()
+		s0, s1 := src(0), src(1)
+		g0 := Where(s0.CmpEq(nodeT), adj, z)
+		notTied := Where(s0.CmpEq(nodeT), z, adj)
+		g1 := Where(s1.CmpEq(nodeT), notTied, z)
+		return []*Tensor{g0, g1}
+	}
+
+	// min(a,b): at ties, src[0] wins (symmetric to Max).
+	m[uop.OpMin] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
 		src, _, zeros := gradHelpers(u, adj, shapeCache, device)
 		z := zeros()
 		s0, s1 := src(0), src(1)
@@ -333,11 +353,10 @@ func buildGradient() GradRuleset {
 		case uop.OpAdd:
 			// Sum backward: broadcast adjoint back to src shape
 			return []*Tensor{adj.ReshapeSints(keepSints).ExpandSints(srcSints)}
-		case uop.OpMax:
-			// Max backward: route adjoint to argmax positions; split ties equally.
-			// Materialize adj before use so that deep adjoint chains (e.g. the FC
-			// backward in a convnet) do not inline their leaf buffers into the
-			// pool-backward kernel body, which would exceed WebGPU's 8-buffer limit.
+		case uop.OpMax, uop.OpMin:
+			// Max/Min backward: route adjoint to arg{max,min} positions; split
+			// ties equally. Identical structure for both since the routing is
+			// "where the reduced value equals the source, send adj".
 			adjMat := adj.Contiguous()
 			nodeExp := nodeT.ReshapeSints(keepSints).ExpandSints(srcSints)
 			adjExp := adjMat.ReshapeSints(keepSints).ExpandSints(srcSints)

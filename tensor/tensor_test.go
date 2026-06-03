@@ -121,6 +121,7 @@ func TestUnaryOps(t *testing.T) {
 		{"Sqrt", (*tensor.Tensor).Sqrt, uop.OpSqrt},
 		{"Recip", (*tensor.Tensor).Recip, uop.OpReciprocal},
 		{"Trunc", (*tensor.Tensor).Trunc, uop.OpTrunc},
+		{"Erf", (*tensor.Tensor).Erf, uop.OpErf},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -161,6 +162,7 @@ func TestBinaryOps(t *testing.T) {
 		{"Sub", (*tensor.Tensor).Sub, uop.OpSub},
 		{"Mul", (*tensor.Tensor).Mul, uop.OpMul},
 		{"Maximum", (*tensor.Tensor).Maximum, uop.OpMax},
+		{"Minimum", (*tensor.Tensor).Minimum, uop.OpMin},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -357,6 +359,14 @@ func TestMaxReduce(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{2, 3}, uop.Dtypes.Float32, "cpu")
 	m := x.Max([]int{0}, false)
+	assertOp(t, m, uop.OpReduceAxis)
+	shapeEq(t, m.Shape(), []int64{3})
+}
+
+func TestMinReduce(t *testing.T) {
+	a := newArena()
+	x := tensor.NewLeaf(a, []int64{2, 3}, uop.Dtypes.Float32, "cpu")
+	m := x.Min([]int{0}, false)
 	assertOp(t, m, uop.OpReduceAxis)
 	shapeEq(t, m.Shape(), []int64{3})
 }

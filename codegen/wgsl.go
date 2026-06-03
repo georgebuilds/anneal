@@ -51,6 +51,31 @@ const bf16RTNEPrelude = `fn _bf16_rtne_bits(x: f32) -> u32 {
 }
 `
 
+// erfPrelude is the WGSL helper implementing the Gauss error function via the
+// Abramowitz-Stegun 7.1.26 polynomial approximation. Max abs error 1.5e-7;
+// matches Python math.erf within float32 precision over the empirical range
+// |x| <= 4 (beyond that magnitude erf(x) saturates to ±1 within float32 ulps).
+// WGSL has no stdlib erf, so we inject this helper as a module-scope function;
+// aluExpr lowers OpErf to `erf_anneal(<arg>)`.
+const erfPrelude = `fn erf_anneal(x: f32) -> f32 {
+  let t = 1.0 / (1.0 + 0.3275911 * abs(x));
+  let y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+  return select(-y, y, x >= 0.0);
+}
+`
+
+// kernelUsesErf reports whether any InstrLet expression in instrs references
+// the erf_anneal helper. Gates the erf prelude emission so kernels that don't
+// call Erf stay slim.
+func kernelUsesErf(instrs []Instr) bool {
+	for _, ins := range instrs {
+		if strings.Contains(ins.Expr, "erf_anneal(") {
+			return true
+		}
+	}
+	return false
+}
+
 // CompileWGSL converts a kernel's SINK AST to WGSL.
 func CompileWGSL(item schedule.ExecItem) (schedule.RenderResult, error) {
 	instrs, ws, wc, sd := Lower(item)
@@ -127,6 +152,9 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 	// the annotation lands on fn main rather than the helper.
 	if kernelStoresBF16(item) {
 		b.WriteString(bf16RTNEPrelude)
+	}
+	if kernelUsesErf(instrs) {
+		b.WriteString(erfPrelude)
 	}
 
 	// Global flat index for symbolic/large grids.
@@ -328,6 +356,8 @@ func accUpdateExpr(op uop.Op, accName, elemExpr string) string {
 		return fmt.Sprintf("%s * %s", accName, elemExpr)
 	case uop.OpMax:
 		return fmt.Sprintf("max(%s, %s)", accName, elemExpr)
+	case uop.OpMin:
+		return fmt.Sprintf("min(%s, %s)", accName, elemExpr)
 	default:
 		return fmt.Sprintf("%s + %s", accName, elemExpr)
 	}
@@ -349,6 +379,8 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 		return fmt.Sprintf("(-%s)", srcs[0])
 	case uop.OpTrunc:
 		return fmt.Sprintf("trunc(%s)", srcs[0])
+	case uop.OpErf:
+		return fmt.Sprintf("erf_anneal(%s)", srcs[0])
 	case uop.OpAdd:
 		return fmt.Sprintf("(%s + %s)", srcs[0], srcs[1])
 	case uop.OpSub:
@@ -363,6 +395,8 @@ func aluExpr(op uop.Op, srcs []string, dtype *uop.DType) string {
 		return fmt.Sprintf("(%s %% %s)", srcs[0], srcs[1])
 	case uop.OpMax:
 		return fmt.Sprintf("max(%s, %s)", srcs[0], srcs[1])
+	case uop.OpMin:
+		return fmt.Sprintf("min(%s, %s)", srcs[0], srcs[1])
 	case uop.OpShl:
 		return fmt.Sprintf("(%s << u32(%s))", srcs[0], srcs[1])
 	case uop.OpShr:
@@ -467,6 +501,17 @@ func reduceIdentity(op uop.Op, dtype *uop.DType) string {
 			return "0u"
 		}
 		return "-2147483648"
+	case uop.OpMin:
+		if dtype.IsFloat() {
+			if isF16 {
+				return "bitcast<f16>(0x7BFFu)"
+			}
+			return "bitcast<f32>(0x7f7fffffu)"
+		}
+		if dtype.IsUnsigned() {
+			return "4294967295u"
+		}
+		return "2147483647"
 	default:
 		if dtype.IsFloat() {
 			if isF16 {
