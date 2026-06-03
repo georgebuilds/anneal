@@ -1,0 +1,25 @@
+# `explain` is a CPU-only command; every form must succeed and dump rule info.
+
+anneal explain add
+stdout 'op: Add'
+stdout 'x \+ 0'
+stdout '∂\(a\+b\)'
+! stderr .
+
+anneal explain matmul.backward
+stdout 'matmul'
+stdout 'ReduceAxis'
+stdout 'decompos'
+! stderr .
+
+anneal explain symbolic
+stdout 'symbolic simplification rules'
+stdout '12 rule groups'
+stdout 'constant folding'
+stdout 'arithmetic identities'
+! stderr .
+
+# Unknown op exits non-zero with a hint listing known ops.
+! anneal explain fakeopxyz
+stdout 'fakeopxyz'
+stdout 'known ops'

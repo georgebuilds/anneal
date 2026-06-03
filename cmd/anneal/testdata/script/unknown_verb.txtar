@@ -1,0 +1,6 @@
+# Unknown verbs exit non-zero with a friendly error pointing at `anneal help`.
+
+! anneal frobnicate
+stderr 'unknown command'
+stderr 'frobnicate'
+stderr 'anneal help'

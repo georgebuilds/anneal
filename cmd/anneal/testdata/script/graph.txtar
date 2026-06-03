@@ -1,0 +1,18 @@
+# `graph` dumps the UOp DAG without touching the GPU.
+
+anneal graph mlp
+stdout 'graph: mlp'
+stdout 'device: webgpu'
+stdout 'UOp nodes:'
+stdout 'Buffer'
+stdout 'ReduceAxis'
+! stderr .
+# Sentence-case discipline.
+! stdout 'Graph:'
+! stdout 'Device:'
+! stdout 'Nodes:'
+
+# Missing model name lists the available models and exits non-zero.
+! anneal graph
+stdout 'usage: anneal graph'
+stdout 'available models:'

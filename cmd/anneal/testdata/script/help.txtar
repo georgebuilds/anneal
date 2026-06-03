@@ -1,0 +1,73 @@
+# Top-level usage and help variants must all print the same sentence-case
+# usage text and exit 0.
+
+# No args.
+anneal
+stdout 'anneal . a tensor compiler\. Gradients are just rewrites\.'
+stdout 'commands:'
+stdout 'flags \(global\):'
+! stderr .
+# Sentence-case discipline: no ALL CAPS / Title Case section headers.
+! stdout 'COMMANDS'
+! stdout 'FLAGS'
+! stdout 'USAGE'
+! stdout 'Commands:'
+! stdout 'Flags:'
+
+anneal help
+stdout 'commands:'
+stdout 'flags \(global\):'
+! stderr .
+
+anneal --help
+stdout 'commands:'
+! stderr .
+
+anneal -h
+stdout 'commands:'
+! stderr .
+
+# Per-verb help: each verb must print a sentence-case usage block.
+anneal help run
+stdout 'usage: anneal run'
+! stderr .
+
+anneal help train
+stdout 'usage: anneal train'
+stdout 'training'
+! stderr .
+
+anneal help gpt2
+stdout 'usage: anneal gpt2'
+stdout 'sample'
+! stderr .
+
+anneal help graph
+stdout 'usage: anneal graph'
+stdout 'UOp DAG'
+! stderr .
+
+anneal help kernels
+stdout 'usage: anneal kernels'
+stdout 'WGSL'
+! stderr .
+
+anneal help explain
+stdout 'usage: anneal explain'
+stdout 'rewrite rules'
+! stderr .
+
+anneal help doctor
+stdout 'usage: anneal doctor'
+stdout 'WebGPU'
+! stderr .
+
+anneal help web
+stdout 'usage: anneal web'
+stdout 'studio'
+! stderr .
+
+anneal help viz
+stdout 'usage: anneal viz'
+stdout 'visualizer'
+! stderr .

@@ -1,0 +1,14 @@
+# NO_COLOR=1 strips ANSI escape sequences from output.
+
+env NO_COLOR=1
+anneal help
+! stdout '\x1b\['
+! stderr .
+
+# A command that uses bold() in its output (graph header uses it indirectly
+# via various sub-paths; help is the simplest no-color smoke test). For good
+# measure, run explain — its output is the largest CPU surface.
+env NO_COLOR=1
+anneal explain add
+! stdout '\x1b\['
+! stderr .

@@ -1,0 +1,12 @@
+# `doctor` probes the WebGPU adapter — gate on [gpu] so CI without a GPU
+# still passes. The body checks the success-path output.
+
+[!gpu] skip 'no WebGPU adapter — doctor needs hardware'
+
+anneal doctor
+stdout '^device: '
+stdout '^backend: '
+stdout '^shader-f16: '
+stdout 'status: '
+stdout 'ready'
+! stderr .
