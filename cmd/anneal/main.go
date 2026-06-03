@@ -118,7 +118,12 @@ flags:
   --steps=<n>       number of training steps (default: 100)
   --lr=<f>          learning rate (default: 0.050)
   --log-every=<n>   log loss every N steps (default: 10)
+  --batch=<n>       batch size for dynamic-batch models (default: 16)
   --plain           plain text output; disables the TUI
+  --bundle          write a run bundle under ~/.cache/anneal/runs/ (or
+                    $ANNEAL_RUN_DIR); default OFF. also: ANNEAL_BUNDLE=1.
+                    Captures manifest.json, config.json, loss.csv for the
+                    studio's history view.
   --debug=<n>       debug verbosity level
 
 `)

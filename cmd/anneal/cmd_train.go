@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples"
+	"github.com/georgebuilds/anneal/internal/bundle"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/tui"
 )
@@ -35,6 +37,12 @@ func trainCmdW(args []string, w io.Writer) int {
 	logEvery := fs.Int("log-every", 10, "log loss every N steps")
 	plain := fs.Bool("plain", false, "plain text output (disables the TUI)")
 	batch := fs.Int64("batch", 16, "batch size for dynamic-batch models; static models ignore this")
+	// --bundle is opt-in (default OFF) per spec §6: CLI runs do not write
+	// to ~/.cache/anneal/runs/ unless explicitly asked. ANNEAL_BUNDLE=1
+	// is the env equivalent. anneal web wires this sink unconditionally
+	// (see notes/web_progress.md decision 4).
+	enableBundle := fs.Bool("bundle", false, "write a run bundle to "+bundle.EnvVar+
+		" (or default cache); default OFF; also: ANNEAL_BUNDLE=1")
 
 	// Extract the model name from anywhere in args so callers can write either
 	// "anneal train --steps=N nanogpt" or the more natural
@@ -60,6 +68,11 @@ func trainCmdW(args []string, w io.Writer) int {
 	if !explicitlySet["viz"] {
 		if v := os.Getenv("VIZ"); v == "1" {
 			*viz = true
+		}
+	}
+	if !explicitlySet["bundle"] {
+		if v := os.Getenv("ANNEAL_BUNDLE"); v == "1" {
+			*enableBundle = true
 		}
 	}
 	if !explicitlySet["debug"] {
@@ -121,36 +134,103 @@ func trainCmdW(args []string, w io.Writer) int {
 	// wired below in trainWithTUI.
 	cfg.LogText = func(s string) { fmt.Fprint(w, s) }
 
+	// Optional bundle sink (W1). Writer is nil unless --bundle / env so
+	// a default CLI run produces no disk side effects.
+	bw := maybeOpenBundle(w, *enableBundle, ex.Name, adapterName, backend, *device, cfg)
+	defer func() {
+		if bw != nil {
+			_ = bw.Close()
+		}
+	}()
+
 	// Activate the TUI when writing to an interactive TTY, NO_COLOR is not set,
 	// and --plain was not requested. The plain path is the CI/pipe/test path.
 	if !*plain && !noColor() && isTerminalWriter(w) {
-		return trainWithTUI(ex, cfg, adapterName, backend, *device)
+		return trainWithTUI(ex, cfg, adapterName, backend, *device, bw)
 	}
 
 	// Plain output path: used for --plain, NO_COLOR, non-TTY output, and tests.
 	fmt.Fprintf(w, "training %s — %s\n", ex.Name, ex.Summary)
 	fmt.Fprintf(w, "device: %s (%s)\n", backend, adapterName)
 	fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: %d\n", cfg.Steps, cfg.LR, cfg.Batch)
+	if bw != nil {
+		fmt.Fprintf(w, "bundle: %s\n", bw.Path())
+	}
 	fmt.Fprintln(w)
 
+	startWall := time.Now()
 	logFn := func(step int, loss float32) {
 		fmt.Fprintf(w, "step %d: loss=%.6f\n", step, loss)
+		if bw != nil {
+			_ = bw.AppendLoss(bundle.LossRow{
+				Step:   step,
+				Loss:   loss,
+				WallMs: time.Since(startWall).Milliseconds(),
+			})
+		}
 	}
 	if err := ex.Train(*device, cfg, logFn); err != nil {
 		fmt.Fprintf(w, "train error: %v\n", err)
+		if bw != nil {
+			_ = bw.Finalize(time.Since(startWall).Milliseconds())
+		}
 		return 1
 	}
 	fmt.Fprintf(w, "\ndone — %d steps\n", cfg.Steps)
+	if bw != nil {
+		_ = bw.Finalize(time.Since(startWall).Milliseconds())
+	}
 	return 0
+}
+
+// maybeOpenBundle opens a bundle.Writer when enable is true (per --bundle
+// or ANNEAL_BUNDLE=1), or returns nil. A failure to open is logged but
+// does not block training — the bundle is a sink, not a precondition.
+func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, device string, cfg examples.TrainConfig) *bundle.Writer {
+	if !enable {
+		return nil
+	}
+	root, err := bundle.EnvOrDefault()
+	if err != nil {
+		fmt.Fprintf(w, "bundle: skip (cannot resolve root): %v\n", err)
+		return nil
+	}
+	bw, err := bundle.NewWriter(root, model, bundle.KindTrain)
+	if err != nil {
+		fmt.Fprintf(w, "bundle: skip (cannot create writer): %v\n", err)
+		return nil
+	}
+	// Provenance: version + adapter + backend. WGSL hash and git rev are
+	// left empty here — the trainer-side stats hook will fill them in a
+	// future W step once the headless snapshot channel exists.
+	if err := bw.SetProvenance(version, "", adapter, backendName, "", nil); err != nil {
+		fmt.Fprintf(w, "bundle: warn (set provenance): %v\n", err)
+	}
+	if err := bw.WriteConfig(bundle.Config{
+		Model:  model,
+		Device: device,
+		Hyperparams: map[string]any{
+			"steps":     cfg.Steps,
+			"lr":        cfg.LR,
+			"log_every": cfg.LogEvery,
+			"batch":     cfg.Batch,
+		},
+	}); err != nil {
+		fmt.Fprintf(w, "bundle: warn (write config): %v\n", err)
+	}
+	return bw
 }
 
 // trainWithTUI runs the training loop with the bubbletea dashboard.
 // This goroutine is OS-locked for Metal and runs training directly; the TUI
 // runs in a separate goroutine receiving updates via tea.Program.Send.
+//
+// bw, when non-nil, captures loss rows into the optional run bundle (W1).
 func trainWithTUI(
 	ex *examples.Example,
 	cfg examples.TrainConfig,
 	adapterName, backend, device string,
+	bw *bundle.Writer,
 ) int {
 	m := tui.New(tui.Config{
 		Device:     adapterName,
@@ -182,9 +262,18 @@ func trainWithTUI(
 	// TUI exits.
 	cfg.LogText = func(s string) { fmt.Fprint(os.Stderr, s) }
 
-	// Loss callback: sent every LogEvery steps.
+	// Loss callback: sent every LogEvery steps. Also tee'd to the bundle
+	// writer when --bundle is set.
+	startWall := time.Now()
 	logFn := func(step int, loss float32) {
 		p.Send(tui.LossMsg{Step: step, Loss: loss})
+		if bw != nil {
+			_ = bw.AppendLoss(bundle.LossRow{
+				Step:   step,
+				Loss:   loss,
+				WallMs: time.Since(startWall).Milliseconds(),
+			})
+		}
 	}
 
 	var trainErr error
@@ -193,6 +282,10 @@ func trainWithTUI(
 		trainErr = err
 	} else {
 		p.Send(tui.DoneMsg{})
+	}
+
+	if bw != nil {
+		_ = bw.Finalize(time.Since(startWall).Milliseconds())
 	}
 
 	// Wait for user to press q (or TUI to exit for any reason).

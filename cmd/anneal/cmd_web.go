@@ -18,8 +18,10 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 
+	"github.com/georgebuilds/anneal/internal/bundle"
 	"github.com/georgebuilds/anneal/web"
 )
 
@@ -73,12 +75,150 @@ func serveMux() *http.ServeMux {
 	mux.Handle("/static/", http.StripPrefix("/static/", staticFileServer(staticFS)))
 
 	mux.HandleFunc("/api/device",         stubJSON("device probe not yet implemented"))
-	mux.HandleFunc("/api/runs",           stubJSON("run cache reader not yet implemented"))
+	mux.HandleFunc("/api/runs",           runsHandler())
+	mux.HandleFunc("/api/runs/",          runsHandler())
 	mux.HandleFunc("/api/compile/tuned",  stubJSON("native BEAM compile not yet implemented"))
 	mux.HandleFunc("/sse/train",          stubJSON("train SSE not yet implemented"))
 	mux.HandleFunc("/sse/generate",       stubJSON("generate SSE not yet implemented"))
 
 	return mux
+}
+
+// runsHandler dispatches the /api/runs[/...] family (W1). The split is:
+//   - GET  /api/runs              -> list bundles
+//   - POST /api/runs              -> 501 (save current run lands in W6+)
+//   - GET  /api/runs/{id}         -> manifest JSON
+//   - GET  /api/runs/{id}/graph.json
+//   - GET  /api/runs/{id}/schedule.json
+//   - GET  /api/runs/{id}/loss.csv
+//   - GET  /api/runs/{id}/generation.ndjson
+//   - GET  /api/runs/{id}/kernels/{name}
+//
+// All paths emit the {"error","detail"} JSON shape on failure. The bundle
+// reader does its own path-containment check; the handler also Cleans the
+// sub-path so escape attempts return 404 not panic.
+func runsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Strip the /api/runs prefix; what remains is "" (list) or
+		// "<id>" or "<id>/<file>" or "<id>/kernels/<name>".
+		rest := strings.TrimPrefix(r.URL.Path, "/api/runs")
+		rest = strings.TrimPrefix(rest, "/")
+
+		// POST /api/runs — reserved for "save current run" in W6+.
+		if rest == "" && r.Method == http.MethodPost {
+			writeJSONError(w, http.StatusNotImplemented, "phase ID pending",
+				"save current run is not yet wired (lands in W6+)")
+			return
+		}
+
+		root, err := bundle.EnvOrDefault()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "run cache error", err.Error())
+			return
+		}
+
+		// GET /api/runs — list all bundles.
+		if rest == "" {
+			summaries, err := bundle.ListBundles(root)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "list bundles failed", err.Error())
+				return
+			}
+			if summaries == nil {
+				summaries = []bundle.BundleSummary{}
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_ = json.NewEncoder(w).Encode(summaries)
+			return
+		}
+
+		// Split id from sub-path.
+		id, sub, _ := strings.Cut(rest, "/")
+		// Clean the sub-path so attempts like "graph.json/../../etc" can
+		// not reach the reader with a malformed name.
+		sub = path.Clean("/" + sub)
+		sub = strings.TrimPrefix(sub, "/")
+
+		rdr, err := bundle.OpenBundleIn(root, id)
+		if err != nil {
+			writeJSONError(w, http.StatusNotFound, "bundle not found",
+				fmt.Sprintf("id=%q: %v", id, err))
+			return
+		}
+
+		switch {
+		case sub == "":
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_ = json.NewEncoder(w).Encode(rdr.Manifest())
+
+		case sub == "graph.json":
+			b, err := rdr.Graph()
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "graph not in bundle", err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = w.Write(b)
+
+		case sub == "schedule.json":
+			b, err := rdr.Schedule()
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "schedule not in bundle", err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			_, _ = w.Write(b)
+
+		case sub == "loss.csv":
+			rows, err := rdr.Loss()
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "loss.csv not readable", err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			_, _ = fmt.Fprintln(w, bundle.LossCSVHeader)
+			for _, row := range rows {
+				_, _ = fmt.Fprintln(w, row.CSVRow())
+			}
+
+		case sub == "generation.ndjson":
+			rows, err := rdr.Generation()
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "generation.ndjson not readable", err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+			enc := json.NewEncoder(w)
+			for _, row := range rows {
+				_ = enc.Encode(row)
+			}
+
+		case strings.HasPrefix(sub, "kernels/"):
+			name := strings.TrimPrefix(sub, "kernels/")
+			wgsl, err := rdr.Kernel(name)
+			if err != nil {
+				writeJSONError(w, http.StatusNotFound, "kernel not found", err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte(wgsl))
+
+		default:
+			writeJSONError(w, http.StatusNotFound, "unknown bundle file", sub)
+		}
+	}
+}
+
+// writeJSONError emits a consistent JSON error body shape:
+//
+//	{"error":"...","detail":"..."}
+func writeJSONError(w http.ResponseWriter, status int, errMsg, detail string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":  errMsg,
+		"detail": detail,
+	})
 }
 
 // serveStudioHTML writes studio.html with an explicit Content-Type. Using the
