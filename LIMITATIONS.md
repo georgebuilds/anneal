@@ -56,10 +56,6 @@ Two future levers (typed `array<vec4<f32>>` buffer bindings; WGSL subgroup-matri
 
 These are tracked as deferred in [README's Status table](README.md#status); they are listed here with the specific shape of the gap so you can tell whether your workload hits them.
 
-### Dynamic seq-length tensor API
-
-Symbolic shapes are fully shipped (Option A dynamic batch, Option B general axis movement including split or merge across a symbolic axis, symbolic pad and shrink amounts, multi-dim symbolic dispatch with the symbolic axis in any position, cross-arena structural-key portability). What is not yet shipped is the general-purpose tensor-surface constructor that admits a non-outermost symbolic axis as an input shape. The current `NewSymbolicBatchInput` constructor places the symbolic axis at position 0. The internal machinery can express the more general case; the input ergonomics catch up next.
-
 ### Multi-device
 
 Deferred regardless of backend. Even when CUDA lands, the v1 cut is copy-op-only first, then data parallelism; tensor parallelism is further deferred.

@@ -1253,6 +1253,8 @@
 
                         <div class="crossref">
                             <strong>Variant:</strong> <code>anneal train dynmlp --batch=64</code> trains the same task with a symbolic batch dim. The compile happens once; every Realize binds a different concrete batch size at run time. It is the smallest demo of anneal's symbolic-shapes path. See the <a class="inline" href="https://github.com/georgebuilds/anneal/blob/main/examples/dynmlp.go">examples/dynmlp.go</a> source.
+                            <br><br>
+                            <strong>General API:</strong> for shapes with a symbolic axis in any position, or with more than one symbolic dim, use <code>tensor.NewVariable(arena, "name", min, max)</code> per axis and feed the <code>.Sint()</code> values into <code>tensor.NewSymbolicShape(arena, []shape.Sint{...}, dtype, device)</code>. Realize with <code>tensor.RealizeWithBinding(v.Bind(value), out)</code> or, for multiple variables, <code>tensor.MergeBindings(B.Bind(32), T.Bind(128))</code>.
                         </div>
                     </div>
 

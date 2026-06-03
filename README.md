@@ -76,6 +76,17 @@ loss.Backward()   // injects gradient UOps into the same graph (teal → ember)
 loss.Realize()    // schedule, fuse across the seam (gold), compile to WGSL, run
 ```
 
+For symbolic / dynamic-shape inputs, compose `Variable` values into the shape list and bind concrete values at realize time. The same compiled kernel runs at any bound value in `[min, max]`:
+
+```go
+seq := tensor.NewVariable(a, "seq_len", 1, 1024)
+x   := tensor.NewSymbolicShape(a, []shape.Sint{
+        shape.Const(batch), seq.Sint(), shape.Const(dim),
+}, uop.Dtypes.Float32, "webgpu")
+// ... build forward pass producing y ...
+tensor.RealizeWithBinding(seq.Bind(64), y)
+```
+
 For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
 
 ## Project layout
@@ -110,7 +121,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Shapes — static | ✅ |
 | Shapes — dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
 | Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch | ✅ Shipped |
-| Dynamic seq-length tensor API | ⛔ Deferred (the capability is in; the seq-length input constructor is the open work) |
+| Dynamic seq-length tensor API | ✅ `tensor.NewVariable` + `tensor.NewSymbolicShape` (non-outermost sym, multiple Variables per shape) |
 | JIT | ✅ Capture/replay (`tensor.JIT`) |
 | Schedule cache | ✅ Memoized on structural key |
 | Devices | Single device |
