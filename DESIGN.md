@@ -370,7 +370,81 @@ product. These match `notes/anneal_web_spec.md §5.9`:
 
 ---
 
-## §11. Carried debt
+## §11. Accessibility (binding)
+
+The studio (and every subsequent web view) targets WCAG 2.2 Level AA across
+the board, with AAA where it is cheap. The operational checklist lives in
+`web/A11Y.md`; the invariants below are the load-bearing list.
+
+George's gate: "the web stuff should be as accessible as possible." This
+section is the binding interpretation.
+
+1. **Color contrast.** Every text-on-background pair meets WCAG AA (4.5:1
+   for normal text; 3:1 for large text and UI components). The brand-token
+   ratios are tabulated in `web/A11Y.md §3` and pinned by
+   `cmd/anneal/cmd_web_test.go::TestWebA11Y_BrandTokenContrast`. `--faint`
+   (dividers, hint chips) is explicitly UI-only; it does not carry text.
+2. **Skip link.** The first focusable element on the page jumps to
+   `#main`. Works without JavaScript.
+3. **Semantic landmarks.** `<header role="banner">`,
+   `<nav role="navigation" aria-label="primary navigation">`,
+   `<main role="main" id="main">`, `<footer role="contentinfo">`. The
+   breadcrumbs are a second `<nav aria-label="breadcrumb">` inside the
+   topbar.
+4. **Heading hierarchy.** Each `.view` section carries exactly one `<h1>`.
+   Since only one view is `display:block` at a time, only one `<h1>` is in
+   the rendered accessibility tree. The studio (home) view uses a
+   visually-hidden `<h1>` because the wordmark already names the surface
+   visually; the other seven views show their `<h1>` above the lede.
+5. **Focus always visible.** `:focus-visible` is the global rule.
+   `outline: none` does not appear anywhere without a replacement.
+6. **Keyboard reachable.** Every interactive control is operable by
+   keyboard. The chord layer (`g d / g v / g k / g x / g t / g g / g h /
+   g r`) is discoverable via the `?` modal.
+7. **Keyboard-help modal.** Press `?` (or shift+/) anywhere to open. Tab
+   cycles inside (focus trap). Escape closes and returns focus to the
+   trigger. Markup lives in `studio.html`; behavior in `studio.js`.
+8. **`aria-current="page"` on the active nav button.** Visual class
+   plus ARIA.
+9. **Polite live region.** `<div id="live-region" aria-live="polite"
+   aria-atomic="false">` is in every page. SPA route changes write
+   "navigated to {view}" through `announce()`. W5 (train) and W6
+   (generate) SSE views use the same channel for event announcements.
+10. **Document title updates on route change.** Format `anneal · {view}`.
+11. **Theme toggle aria-label tracks state.** The label is not the static
+    "cycle colour theme"; it is updated on every cycle to say "current
+    theme: dark. press to switch to light." (etc.).
+12. **Search input semantic.** `<label for="search" class="visually-
+    hidden">` plus a descriptive aria-label that names what the search
+    covers (post-W0: models, ops, runs).
+13. **Touch target 44x44** (WCAG 2.5.5 AAA). The nav rail, theme toggle,
+    help toggle, and the keyboard-help close button are all 44px high
+    minimum.
+14. **`prefers-reduced-motion: reduce` honoured.** Global rule plus
+    per-animation rules in `studio.css`. The ignite-once wordmark JS also
+    short-circuits when reduced motion is requested (belt-and-braces).
+15. **`prefers-contrast: more`** provides a higher-contrast variant:
+    borders sharpen, transparency drops, the gold focus ring thickens.
+16. **`forced-colors: active`** maps brand tokens to system color
+    keywords (`CanvasText`, `Canvas`, `Highlight`, `LinkText`,
+    `ButtonText`). Tested in Windows High Contrast mode.
+17. **Text resize.** Type sizes are `rem`, not `px`. The shell collapses
+    to a single-column layout under 720px so the 200% zoom case does not
+    horizontally scroll.
+18. **No color-only meaning (DD1, reaffirmed).** Every coloured element
+    carries a second channel (shape, label, weight, position).
+19. **No icon-only buttons.** Every `<button>` has either visible text or
+    a non-empty `aria-label`. Decorative SVGs carry
+    `aria-hidden="true" focusable="false"`.
+20. **`lang="en"` on `<html>`.** Pinned by source inspection.
+
+These are gates, not guidelines. The matching test names live in
+`cmd/anneal/cmd_web_test.go` under `TestWebA11Y_*`. Adding a new web view
+without updating those tests is a merge blocker.
+
+---
+
+## §12. Carried debt
 
 Tracked so the next pass catches it.
 
@@ -387,6 +461,11 @@ Tracked so the next pass catches it.
 - **Spec §11.1.** This file is the closing of that item. The studio spec
   (`notes/anneal_web_spec.md`) names DESIGN.md as the canonical home for visual
   invariants; this file is now that.
+- **Light-theme ember on light surface is 4.31:1.** Just under the 4.5:1
+  AA floor for body text. Currently used as a chip border only (UI 3:1
+  zone); if a future view places ember body text on `--surface` in light
+  theme, darken the token to about `#A3400F` (would push the ratio over
+  5:1) rather than re-tinting the surface. Tracked in `web/A11Y.md §3`.
 
 ---
 

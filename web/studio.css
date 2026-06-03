@@ -1,6 +1,7 @@
 /* anneal studio — brand tokens copied verbatim from viz/static/style.css.
  * Canonical source for these hexes: DESIGN.md §1.1 (dark) and §1.2 (light).
  * Layout rules: DESIGN.md §3.2. Motion budget: DESIGN.md §3.4.
+ * Accessibility invariants: DESIGN.md §11; per-view checklist: web/A11Y.md.
  *
  * The studio is a sibling surface to viz, not a replacement. The hexes are
  * duplicated here on purpose; the test in tui/dashboard_test.go is the cross-
@@ -17,20 +18,27 @@
   --faint:     #5C544D;
   --hair:      #2D2723;
 
-  /* forward = teal (#00ADD8) — DD1 forward-pass semantic */
+  /* forward = teal (#00ADD8) — DD1 forward-pass semantic. Verified
+     contrast on dark bg: 7.14:1 (AA + AAA). */
   --teal:      #00ADD8;
   --teal-dim:  #003847;
 
-  /* backward = ember (#FF7A45) — gradient pass */
+  /* backward = ember (#FF7A45) — gradient pass. Dark bg: 7.27:1 (AA + AAA). */
   --ember:     #FF7A45;
   --ember-dim: #3D1200;
 
-  /* fused / kernel boundary = gold (#F2C57C) */
+  /* fused / kernel boundary = gold (#F2C57C). Dark bg: 11.69:1 (AAA). */
   --gold:      #F2C57C;
   --gold-dim:  #3D2A00;
 
   --leaf-fill:   #005566;
   --leaf-stroke: #00ADD8;
+
+  /* Focus ring: high-contrast against both bg and surface in the dark theme.
+     Gold reads as the focus colour because gold is "where the action lives"
+     in the brand metaphor (fused kernel boundary, see DESIGN.md §1). */
+  --focus-ring:    #F2C57C;
+  --focus-ring-2:  #14110F; /* inner halo */
 }
 
 /* ── light theme (DESIGN.md §1.2) ────────────────────────────────────────── */
@@ -44,15 +52,18 @@
   --faint:     #8A817A;
   --hair:      #D9D2C7;
 
-  --teal:      #006F9E;
+  --teal:      #006F9E;  /* 5.26:1 on light bg (AA) */
   --teal-dim:  #D5EFF6;
-  --ember:     #B84A16;
+  --ember:     #B84A16;  /* 4.92:1 on light bg (AA) */
   --ember-dim: #FFE5D9;
-  --gold:      #7A5800;
+  --gold:      #7A5800;  /* 6.15:1 on light bg (AA) */
   --gold-dim:  #FFF0CE;
 
   --leaf-fill:   #B3DFF0;
   --leaf-stroke: #006F9E;
+
+  --focus-ring:    #7A5800;
+  --focus-ring-2:  #FBF8F3;
 }
 
 /* ── system default: honour prefers-color-scheme (DESIGN.md §5) ──────────── */
@@ -77,23 +88,94 @@
 
     --leaf-fill:   #B3DFF0;
     --leaf-stroke: #006F9E;
+
+    --focus-ring:    #7A5800;
+    --focus-ring-2:  #FBF8F3;
   }
 }
 
 /* ── reset + base ────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+html { font-size: 100%; } /* honour user font-size; rem-based sizing below */
 body {
   background: var(--bg);
   color: var(--text);
   font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 13px;
+  /* 0.8125rem ≈ 13px at default 16px root; resizes with the user setting. */
+  font-size: 0.8125rem;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-a { color: var(--teal); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--teal); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
 button { font-family: inherit; font-size: inherit; }
+
+/* ── a11y utilities ──────────────────────────────────────────────────────── */
+
+/* Visually-hidden but exposed to screen readers. Standard clip-path recipe;
+   NOT display:none (which removes from the a11y tree). */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Skip link: visually hidden until focused; when focused it appears in the
+   top-left with high contrast. Works without JavaScript. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(-150%);
+  z-index: 1000;
+  background: var(--gold);
+  color: var(--bg);
+  padding: 0.5rem 0.875rem;
+  border: 2px solid var(--bg);
+  border-radius: 0 0 4px 0;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 120ms ease;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Global focus-visible ring. Every interactive element gets a high-contrast,
+   theme-aware outline. The double-ring pattern (outline + offset) keeps it
+   readable on both bg and surface colours and survives forced-colors mode. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+/* Where the element already has a tight border (search input, theme toggle)
+   the offset would clip on the surface; the rule above still applies. */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* main is programmatically focused after a skip-link click; suppress the
+   focus ring there (the user explicitly skipped to it, not Tab'd into it). */
+main:focus { outline: none; }
+main:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
 /* ── shell layout (DESIGN.md §3.2) ──────────────────────────────────────── */
 .shell {
@@ -105,6 +187,25 @@ button { font-family: inherit; font-size: inherit; }
     "nav   main"
     "nav   status";
   height: 100vh;
+  min-height: 100vh;
+}
+
+/* Reflow safeguard for 200% zoom / narrow viewports: collapse the rail.
+   Spec calls this out implicitly via "text resize"; per A11Y.md. */
+@media (max-width: 720px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 44px auto auto 1fr 28px;
+    grid-template-areas:
+      "brand"
+      "topbar"
+      "nav"
+      "main"
+      "status";
+    height: auto;
+    min-height: 100vh;
+  }
+  nav.rail { border-right: 0; border-bottom: 1px solid var(--hair); }
 }
 
 .brand {
@@ -112,13 +213,13 @@ button { font-family: inherit; font-size: inherit; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 16px;
+  padding: 0 1rem;
   border-bottom: 1px solid var(--hair);
   border-right: 1px solid var(--hair);
   background: var(--surface);
 }
 .brand-mark { width: 22px; height: 22px; }
-.brand-name { font-weight: 600; letter-spacing: -0.02em; font-size: 14px; }
+.brand-name { font-weight: 600; letter-spacing: -0.02em; font-size: 0.875rem; }
 .brand-name .sub { color: var(--muted); font-weight: 400; }
 
 /* The thesis statement lives directly under the wordmark on the home view; */
@@ -130,15 +231,15 @@ button { font-family: inherit; font-size: inherit; }
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 16px;
+  padding: 0 1rem;
   border-bottom: 1px solid var(--hair);
   background: var(--surface);
 }
-.crumbs { color: var(--muted); font-size: 12px; }
+.crumbs { color: var(--muted); font-size: 0.75rem; }
 .crumbs .here { color: var(--text); }
 .topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
 .device-pill {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
   border: 1px solid var(--hair);
   border-radius: 3px;
@@ -151,17 +252,28 @@ button { font-family: inherit; font-size: inherit; }
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--teal); box-shadow: 0 0 6px var(--teal);
 }
-.theme-toggle {
+
+/* Touch-target floor: 44x44 (WCAG 2.5.5 AAA). Topbar chrome buttons. */
+.theme-toggle,
+.help-toggle {
   background: none;
   border: 1px solid var(--hair);
   color: var(--muted);
+  /* The minimum hit area is 44x44; the visual padding looks smaller because
+     the button content is centred and the box is square. */
+  min-width: 44px;
+  min-height: 44px;
   padding: 2px 8px;
   border-radius: 3px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.theme-toggle:hover { color: var(--text); border-color: var(--muted); }
+.theme-toggle:hover,
+.help-toggle:hover { color: var(--text); border-color: var(--muted); }
 
 /* ── nav ─────────────────────────────────────────────────────────────────── */
 nav.rail {
@@ -174,16 +286,18 @@ nav.rail {
 }
 .nav-section {
   padding: 6px 16px 4px;
-  font-size: 10px;
+  font-size: 0.625rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--faint);
+  color: var(--muted); /* upgraded from --faint for AA on surface */
 }
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 16px;
+  /* Touch target 44px tall (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+  padding: 8px 16px;
   color: var(--muted);
   cursor: pointer;
   border-left: 2px solid transparent;
@@ -197,15 +311,22 @@ nav.rail {
   text-align: left;
 }
 .nav-item:hover { color: var(--text); background: var(--surface-2); }
-.nav-item.active {
+.nav-item.active,
+.nav-item[aria-current="page"] {
   color: var(--text);
   border-left-color: var(--gold);
   background: linear-gradient(to right, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%);
 }
+/* DD1: pair the colour of the active state with a second channel (a left
+   border bar and a non-colour weight bump). Already done above via border. */
+.nav-item.active,
+.nav-item[aria-current="page"] {
+  font-weight: 600;
+}
 .nav-item .key {
   margin-left: auto;
-  font-size: 10px;
-  color: var(--faint);
+  font-size: 0.625rem;
+  color: var(--muted);
   border: 1px solid var(--hair);
   padding: 0 4px;
   border-radius: 2px;
@@ -214,11 +335,12 @@ nav.rail {
 .nav-spacer { flex: 1; }
 .nav-foot {
   padding: 10px 16px;
-  font-size: 10px;
-  color: var(--faint);
+  font-size: 0.6875rem;
+  color: var(--muted);
   border-top: 1px solid var(--hair);
   line-height: 1.6;
 }
+.nav-foot-path { color: var(--muted); }
 
 /* ── main ────────────────────────────────────────────────────────────────── */
 main {
@@ -230,12 +352,12 @@ main {
 .view.active { display: block; }
 .view h1 {
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
   margin: 0 0 4px;
   letter-spacing: -0.01em;
 }
-.view .lede { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+.view .lede { color: var(--muted); font-size: 0.75rem; margin-bottom: 20px; }
 
 /* status bar */
 .statusbar {
@@ -246,15 +368,17 @@ main {
   align-items: center;
   gap: 16px;
   padding: 0 16px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--muted);
 }
+.status-spacer { flex: 1; }
 .statusbar .seg { display: flex; gap: 6px; align-items: center; }
 .statusbar .seg .v { color: var(--text); }
 
 /* ── studio hero ──────────────────────────────────────────────────────────── */
 .hero {
   display: flex;
+  flex-wrap: wrap;
   gap: 28px;
   align-items: flex-end;
   padding: 22px 0 30px;
@@ -263,7 +387,7 @@ main {
 }
 .hero-quote {
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 22px;
+  font-size: 1.375rem;
   font-weight: 500;
   letter-spacing: -0.015em;
   line-height: 1.25;
@@ -272,7 +396,7 @@ main {
 .hero-quote .accent-fwd { color: var(--teal); }
 .hero-quote .accent-bwd { color: var(--ember); }
 .hero-quote .accent-fused { color: var(--gold); }
-.hero-sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.hero-sub { color: var(--muted); font-size: 0.75rem; margin-top: 6px; }
 .hero-mark { margin-left: auto; opacity: 0.85; }
 
 /* ── ignite-once wordmark animation (DESIGN.md §3.4 item 1) ──────────────── */
@@ -309,18 +433,92 @@ main {
 }
 .rule-just-fired { animation: rule-just-fired 700ms ease-in-out 1; }
 
-/* ── prefers-reduced-motion (DESIGN.md §3.4) ─────────────────────────────── */
+/* ── prefers-reduced-motion (DESIGN.md §3.4, WCAG 2.3.3) ─────────────────── */
+/* Disables every animation site listed in §3.4, the skip-link transform, and
+   any other CSS transition. The selector list is intentionally broad. */
 @media (prefers-reduced-motion: reduce) {
-  .ignite .arc-fwd, .ignite .arc-bwd, .ignite .node-dot,
-  .dispatch-pulse, .rule-just-fired {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
+  .ignite .arc-fwd,
+  .ignite .arc-bwd,
+  .ignite .node-dot,
+  .dispatch-pulse,
+  .rule-just-fired {
+    animation: none !important;
+    transition: none !important;
+  }
+  .skip-link { transition: none !important; }
+}
+
+/* ── prefers-contrast: more (WCAG 1.4.6 AAA-adjacent) ────────────────────── */
+/* Sharpen borders, drop transparency, reinforce the gold focus ring. */
+@media (prefers-contrast: more) {
+  :root {
+    --hair: var(--text);
+    --muted: var(--text);
+  }
+  .nav-item.active,
+  .nav-item[aria-current="page"] {
+    background: var(--gold-dim);
+    outline: 2px solid var(--gold);
+  }
+  :focus-visible {
+    outline-width: 3px;
+  }
+  .device-pill,
+  .theme-toggle,
+  .help-toggle,
+  .search-stub {
+    border-width: 2px;
+  }
+}
+
+/* ── forced-colors mode (Windows High Contrast, WCAG 1.4.1 / 1.4.11) ─────── */
+/* In forced-colors mode the user-agent overrides our colours with system
+   keywords (CanvasText, Canvas, ButtonText, Highlight). Brand colours
+   disappear; we map our structural roles to the system keywords so the
+   layout still reads. */
+@media (forced-colors: active) {
+  :root, [data-theme="light"], :root[data-theme="system"] {
+    --bg:        Canvas;
+    --surface:   Canvas;
+    --surface-2: Canvas;
+    --text:      CanvasText;
+    --muted:     CanvasText;
+    --faint:     GrayText;
+    --hair:      CanvasText;
+    --teal:      LinkText;
+    --ember:     LinkText;
+    --gold:      Highlight;
+    --focus-ring: Highlight;
+  }
+  .skip-link { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .nav-item.active,
+  .nav-item[aria-current="page"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    border-left-color: HighlightText;
+  }
+  .dot {
+    forced-color-adjust: none;
+    background: LinkText;
+    box-shadow: none;
+    border: 1px solid CanvasText;
+  }
+  :focus-visible { outline-color: Highlight; }
 }
 
 /* ── stub copy area (foundation only; views are filled by W1+) ───────────── */
 .stub {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 16px 0;
 }
 .stub code {
@@ -336,10 +534,110 @@ main {
   background: var(--bg);
   border: 1px solid var(--hair);
   color: var(--text);
-  padding: 4px 8px;
+  padding: 6px 8px;
   border-radius: 3px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 0.75rem;
   width: 220px;
+  min-height: 32px;
 }
-.search-stub:focus { outline: none; border-color: var(--teal); }
+/* Focused border doubles up with the global :focus-visible outline; gives
+   the search input a stronger affordance without removing the global ring. */
+.search-stub:focus { border-color: var(--teal); }
+.search-stub:focus-visible {
+  border-color: var(--teal);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── keyboard-help modal ─────────────────────────────────────────────────── */
+.kbd-help[hidden] { display: none; }
+.kbd-help {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.kbd-help-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+.kbd-help-panel {
+  position: relative;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+}
+.kbd-help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.kbd-help-head h2 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.kbd-help-close {
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.125rem;
+  font-family: inherit;
+}
+.kbd-help-close:hover { background: var(--surface-2); }
+.kbd-help-desc {
+  color: var(--muted);
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+}
+.kbd-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+.kbd-list dt {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+.kbd-list dd { margin: 0; color: var(--muted); }
+.kbd-list kbd {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  font-family: inherit;
+  font-size: 0.75rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+/* Forced-colors override for the modal: keep the panel readable. */
+@media (forced-colors: active) {
+  .kbd-help-panel { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .kbd-help-backdrop { background: Canvas; opacity: 0.85; }
+  .kbd-list kbd { background: ButtonFace; color: ButtonText; border-color: CanvasText; }
+}

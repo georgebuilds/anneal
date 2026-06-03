@@ -18,14 +18,20 @@
   <link rel="stylesheet" href="/static/studio.css">
 </head>
 <body>
+
+<!-- ── skip link (WCAG 2.4.1; A11Y.md) ────────────────────────────────────────
+     First focusable element. Works WITHOUT JavaScript (anchor jump) and also
+     gets a small JS enhancement to force focus into <main> when activated. -->
+<a href="#main" class="skip-link">skip to main content</a>
+
 <div class="shell">
 
   <!-- ── brand cell ─────────────────────────────────────────────────────── -->
-  <header class="brand">
+  <header class="brand" role="banner">
     <!-- The mark: two arcs converging into a gold node (DESIGN.md §3.1).
          The `ignite` class is applied by studio.js on first load only;
          subsequent loads in the same browser session do not re-ignite. -->
-    <svg id="brand-mark" class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+    <svg id="brand-mark" class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
       <path class="arc-fwd" d="M4 22 Q 16 4, 28 22"
             stroke="#00ADD8" stroke-width="2.4" fill="none" stroke-linecap="round"/>
       <path class="arc-bwd" d="M4 22 Q 16 30, 28 22"
@@ -38,50 +44,70 @@
 
   <!-- ── topbar ─────────────────────────────────────────────────────────── -->
   <div class="topbar">
-    <div class="crumbs">
+    <nav class="crumbs" role="navigation" aria-label="breadcrumb">
       <span id="crumb-section">studio</span>
       <span class="here" id="crumb-current"></span>
-    </div>
+    </nav>
     <div class="topbar-right">
       <!-- `/` keybinding focuses this input (DESIGN.md §7 / spec §10).
            Search is a stub in W0; behaviour is wired in subsequent W steps. -->
+      <label for="search" class="visually-hidden">search models, ops, and runs</label>
       <input id="search" class="search-stub" type="search"
-             placeholder="search · / to focus" aria-label="search">
-      <span class="device-pill"><span class="dot"></span>local</span>
+             placeholder="search · / to focus"
+             aria-label="search models, ops, and runs (slash key focuses)">
+      <span class="device-pill" aria-label="device: local">
+        <span class="dot" aria-hidden="true"></span>local
+      </span>
       <button class="theme-toggle" id="themeToggle"
+              type="button"
               title="cycle theme (system / dark / light)"
-              aria-label="cycle colour theme">◑</button>
+              aria-label="current theme: system. press to switch to dark.">
+        <span aria-hidden="true">◑</span>
+      </button>
+      <button class="help-toggle" id="helpToggle"
+              type="button"
+              title="keyboard shortcuts (?)"
+              aria-label="show keyboard shortcuts"
+              aria-haspopup="dialog"
+              aria-controls="keyboard-help">
+        <span aria-hidden="true">?</span>
+      </button>
     </div>
   </div>
 
   <!-- ── left nav (DESIGN.md §3.3, §8) ──────────────────────────────────── -->
-  <nav class="rail" aria-label="primary navigation">
-    <div class="nav-section">surfaces</div>
-    <button class="nav-item" data-view="studio">studio    <span class="key">g d</span></button>
-    <button class="nav-item" data-view="visualize">visualize <span class="key">g v</span></button>
-    <button class="nav-item" data-view="kernels">kernels   <span class="key">g k</span></button>
-    <button class="nav-item" data-view="explain">explain   <span class="key">g x</span></button>
-    <button class="nav-item" data-view="train">train     <span class="key">g t</span></button>
-    <button class="nav-item" data-view="generate">generate  <span class="key">g g</span></button>
-    <div class="nav-section" style="margin-top: 10px;">persistence</div>
-    <button class="nav-item" data-view="history">history   <span class="key">g h</span></button>
-    <div class="nav-section" style="margin-top: 10px;">diagnostics</div>
-    <button class="nav-item" data-view="doctor">doctor    <span class="key">g r</span></button>
+  <nav class="rail" role="navigation" aria-label="primary navigation">
+    <div class="nav-section" id="nav-section-surfaces">surfaces</div>
+    <button class="nav-item" type="button" data-view="studio"    aria-describedby="nav-section-surfaces">studio    <span class="key" aria-label="shortcut: g then d">g d</span></button>
+    <button class="nav-item" type="button" data-view="visualize" aria-describedby="nav-section-surfaces">visualize <span class="key" aria-label="shortcut: g then v">g v</span></button>
+    <button class="nav-item" type="button" data-view="kernels"   aria-describedby="nav-section-surfaces">kernels   <span class="key" aria-label="shortcut: g then k">g k</span></button>
+    <button class="nav-item" type="button" data-view="explain"   aria-describedby="nav-section-surfaces">explain   <span class="key" aria-label="shortcut: g then x">g x</span></button>
+    <button class="nav-item" type="button" data-view="train"     aria-describedby="nav-section-surfaces">train     <span class="key" aria-label="shortcut: g then t">g t</span></button>
+    <button class="nav-item" type="button" data-view="generate"  aria-describedby="nav-section-surfaces">generate  <span class="key" aria-label="shortcut: g then g">g g</span></button>
+    <div class="nav-section" id="nav-section-persistence" style="margin-top: 10px;">persistence</div>
+    <button class="nav-item" type="button" data-view="history"   aria-describedby="nav-section-persistence">history   <span class="key" aria-label="shortcut: g then h">g h</span></button>
+    <div class="nav-section" id="nav-section-diagnostics" style="margin-top: 10px;">diagnostics</div>
+    <button class="nav-item" type="button" data-view="doctor"    aria-describedby="nav-section-diagnostics">doctor    <span class="key" aria-label="shortcut: g then r">g r</span></button>
     <div class="nav-spacer"></div>
     <div class="nav-foot">
       runs live in<br>
-      <span style="color: var(--muted);">~/.cache/anneal/runs/</span><br><br>
+      <span class="nav-foot-path">~/.cache/anneal/runs/</span><br><br>
       anneal does not phone home.
     </div>
   </nav>
 
-  <!-- ── main area: one mount point per view ────────────────────────────── -->
-  <main>
+  <!-- ── main area: one mount point per view ─────────────────────────────────
+       Heading hierarchy: each section uses <h1> because only one .view is
+       visible at a time (the inactive views are display:none, which is also
+       hidden from the accessibility tree). A11Y.md documents this pattern.
+       The active <h1> stays the single h1 in the rendered a11y tree. -->
+  <main role="main" id="main" tabindex="-1">
 
     <!-- studio (home). Restrained thesis statement under the wordmark per
          spec §5.1. Live content (device card, model cards, recent runs)
          is filled by subsequent W steps. -->
-    <section class="view active" id="view-studio">
+    <section class="view active" id="view-studio" aria-labelledby="view-studio-heading">
+      <h1 id="view-studio-heading" class="visually-hidden">studio</h1>
       <div class="hero">
         <div>
           <div class="hero-quote">
@@ -93,7 +119,7 @@
             a tensor compiler in go. forward, backward, and fused kernels share one immutable IR.
           </div>
         </div>
-        <svg class="hero-mark" width="96" height="72" viewBox="0 0 96 72" aria-hidden="true">
+        <svg class="hero-mark" width="96" height="72" viewBox="0 0 96 72" aria-hidden="true" focusable="false">
           <path d="M6 60 Q 48 0, 90 60" stroke="#00ADD8" stroke-width="3" fill="none" stroke-linecap="round"/>
           <path d="M6 60 Q 48 84, 90 60" stroke="#FF7A45" stroke-width="3" fill="none" stroke-linecap="round" stroke-dasharray="4 3"/>
           <circle cx="48" cy="60" r="7" fill="#F2C57C"/>
@@ -105,44 +131,44 @@
       </div>
     </section>
 
-    <section class="view" id="view-visualize">
-      <h1>visualize</h1>
+    <section class="view" id="view-visualize" aria-labelledby="view-visualize-heading">
+      <h1 id="view-visualize-heading">visualize</h1>
       <div class="lede">the wasm-compiled compiler with a node inspector and deep-linkable state.</div>
       <div class="stub">view: visualize coming soon.</div>
     </section>
 
-    <section class="view" id="view-kernels">
-      <h1>kernels</h1>
+    <section class="view" id="view-kernels" aria-labelledby="view-kernels-heading">
+      <h1 id="view-kernels-heading">kernels</h1>
       <div class="lede">scheduled, fused, lowered. tuned vs default WGSL diff inline.</div>
       <div class="stub">view: kernels coming soon.</div>
     </section>
 
-    <section class="view" id="view-explain">
-      <h1>explain</h1>
+    <section class="view" id="view-explain" aria-labelledby="view-explain-heading">
+      <h1 id="view-explain-heading">explain</h1>
       <div class="lede">pick an op, see the rewrite and gradient rules that fire.</div>
       <div class="stub">view: explain coming soon.</div>
     </section>
 
-    <section class="view" id="view-train">
-      <h1>train</h1>
+    <section class="view" id="view-train" aria-labelledby="view-train-heading">
+      <h1 id="view-train-heading">train</h1>
       <div class="lede">the tui dashboard, in the browser. loss, compiler stats, live fused-kernel pulses.</div>
       <div class="stub">view: train coming soon.</div>
     </section>
 
-    <section class="view" id="view-generate">
-      <h1>generate</h1>
+    <section class="view" id="view-generate" aria-labelledby="view-generate-heading">
+      <h1 id="view-generate-heading">generate</h1>
       <div class="lede">forward-pass inference, token by token. every token clicks through to the producing kernel.</div>
       <div class="stub">view: generate coming soon.</div>
     </section>
 
-    <section class="view" id="view-history">
-      <h1>history</h1>
+    <section class="view" id="view-history" aria-labelledby="view-history-heading">
+      <h1 id="view-history-heading">history</h1>
       <div class="lede">every train and saved viz tee'd to <code>~/.cache/anneal/runs/</code>.</div>
       <div class="stub">view: history coming soon.</div>
     </section>
 
-    <section class="view" id="view-doctor">
-      <h1>doctor</h1>
+    <section class="view" id="view-doctor" aria-labelledby="view-doctor-heading">
+      <h1 id="view-doctor-heading">doctor</h1>
       <div class="lede">what the binary sees · what your browser sees. side by side, same machine.</div>
       <div class="stub">view: doctor coming soon.</div>
     </section>
@@ -150,13 +176,61 @@
   </main>
 
   <!-- ── status bar ─────────────────────────────────────────────────────── -->
-  <div class="statusbar">
+  <footer class="statusbar" role="contentinfo">
     <span class="seg">build: <span class="v" id="status-build">v0.0.0-dev</span></span>
     <span class="seg">surface: <span class="v">studio</span></span>
-    <span style="flex: 1;"></span>
+    <span class="status-spacer"></span>
     <span class="seg" id="status-worker">worker: <span class="v">not loaded</span></span>
-  </div>
+  </footer>
 
+</div>
+
+<!-- ── visually-hidden polite live region ──────────────────────────────────
+     SPA route changes and (later) SSE-driven content write here so screen
+     readers announce the change without stealing focus. aria-atomic="false"
+     means only added text is read, not the whole region. See A11Y.md. -->
+<div id="live-region" class="visually-hidden" aria-live="polite" aria-atomic="false"></div>
+
+<!-- ── keyboard-help modal ─────────────────────────────────────────────────
+     Closed by default. Opens on `?` keypress or via the help button. The
+     focus trap and Escape-to-close behaviour live in studio.js. Markup is
+     present even without JS so a no-JS user can still read the chord table
+     via the page source if they need it. -->
+<div id="keyboard-help"
+     class="kbd-help"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="kbd-help-heading"
+     aria-describedby="kbd-help-desc"
+     hidden>
+  <div class="kbd-help-backdrop" data-kbd-close></div>
+  <div class="kbd-help-panel" role="document">
+    <header class="kbd-help-head">
+      <h2 id="kbd-help-heading">keyboard shortcuts</h2>
+      <button type="button" class="kbd-help-close" data-kbd-close
+              aria-label="close keyboard shortcuts">
+        <span aria-hidden="true">×</span>
+      </button>
+    </header>
+    <p id="kbd-help-desc" class="kbd-help-desc">
+      anneal is keyboard-first. press <kbd>?</kbd> any time to reopen this list.
+    </p>
+    <dl class="kbd-list">
+      <dt><kbd>/</kbd></dt>                  <dd>focus search</dd>
+      <dt><kbd>?</kbd></dt>                  <dd>show this help</dd>
+      <dt><kbd>Esc</kbd></dt>                <dd>close help / blur search</dd>
+      <dt><kbd>g</kbd> <kbd>d</kbd></dt>     <dd>go to studio (home)</dd>
+      <dt><kbd>g</kbd> <kbd>v</kbd></dt>     <dd>go to visualize</dd>
+      <dt><kbd>g</kbd> <kbd>k</kbd></dt>     <dd>go to kernels</dd>
+      <dt><kbd>g</kbd> <kbd>x</kbd></dt>     <dd>go to explain</dd>
+      <dt><kbd>g</kbd> <kbd>t</kbd></dt>     <dd>go to train</dd>
+      <dt><kbd>g</kbd> <kbd>g</kbd></dt>     <dd>go to generate</dd>
+      <dt><kbd>g</kbd> <kbd>h</kbd></dt>     <dd>go to history</dd>
+      <dt><kbd>g</kbd> <kbd>r</kbd></dt>     <dd>go to doctor</dd>
+      <dt><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></dt>
+                                             <dd>cycle focus</dd>
+    </dl>
+  </div>
 </div>
 
 <script src="/static/studio.js" type="module"></script>
