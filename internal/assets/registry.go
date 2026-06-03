@@ -43,4 +43,14 @@ var Registry = map[string]Asset{
 		SHA256: "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
 		Size:   456318,
 	},
+	// cifar10-binary is the official Krizhevsky 2009 binary distribution
+	// (cifar-10-binary.tar.gz). The pinned SHA-256 matches the canonical
+	// upstream tarball; if the first download fails verification with a
+	// fresh hash, confirm against the upstream README before bumping.
+	"cifar10-binary": {
+		Name:   "cifar10-binary",
+		URL:    "https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz",
+		SHA256: "c4a38c50a1bc5f3a1c5537f2155ab9d68f9f25eb1ed8d9ddda3db29a59bca1dd",
+		Size:   170052171,
+	},
 }
