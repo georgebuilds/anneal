@@ -1,0 +1,11 @@
+  anneal train  ·  Apple M3 Pro  ·  mlp  ·  Metal                               
+
+  step 0/100  [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  0%
+
+  loss  —
+
+  legend:  — forward   ╌ backward   ▪ fused
+
+  compiler  waiting for first step…
+
+  q → quit   v → viz (phase 11)

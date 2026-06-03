@@ -158,17 +158,35 @@ func trainCmdW(args []string, w io.Writer) int {
 	}
 	fmt.Fprintln(w)
 
+	// W5 plain path: the trainer pushes one Snapshot per logged step into
+	// cfg.SnapshotFn; the plain renderer reads from it. The bundle sink
+	// reads the same Snapshot. This is the same single-source design the
+	// TUI path uses, just rendered as one line per step instead of into a
+	// bubbletea Model.
 	startWall := time.Now()
-	logFn := func(step int, loss float32) {
-		fmt.Fprintf(w, "step %d: loss=%.6f\n", step, loss)
+	baseSnap := tui.Snapshot{
+		MaxSteps:     cfg.Steps,
+		AdapterName:  adapterName,
+		BackendName:  backend,
+		DeviceTag:    *device,
+		LearningRate: float32(*lr),
+		BatchSize:    *batch,
+	}
+	cfg.SnapshotFn = func(snap tui.Snapshot) {
+		// Byte-identical to the pre-W5 logFn line: "step %d: loss=%.6f\n".
+		// Anything else the Snapshot carries (compiler stats, sample text)
+		// is invisible on the plain path by design — the CLI line format
+		// is pinned by spec §11.5.
+		fmt.Fprintf(w, "step %d: loss=%.6f\n", snap.Step, snap.Loss)
 		if bw != nil {
 			_ = bw.AppendLoss(bundle.LossRow{
-				Step:   step,
-				Loss:   loss,
-				WallMs: time.Since(startWall).Milliseconds(),
+				Step:   snap.Step,
+				Loss:   snap.Loss,
+				WallMs: snap.WallMs,
 			})
 		}
 	}
+	logFn := snapshotShimLogFn(&baseSnap, startWall, cfg.SnapshotFn)
 	if err := ex.Train(*device, cfg, logFn); err != nil {
 		fmt.Fprintf(w, "train error: %v\n", err)
 		if bw != nil {
@@ -181,6 +199,33 @@ func trainCmdW(args []string, w io.Writer) int {
 		_ = bw.Finalize(time.Since(startWall).Milliseconds())
 	}
 	return 0
+}
+
+// snapshotShimLogFn is the W5 back-compat shim that lets older callers
+// (and existing Example.Train methods) keep their `(step int, loss float32)`
+// interface while emitting Snapshots through the new channel.
+//
+// The shim copies `base` (the static run-level fields filled at startup),
+// patches Step/Loss/HasLoss/WallMs from the per-step pair, and hands the
+// resulting Snapshot to sink. When sink is nil the shim is a no-op so a
+// caller wiring only the legacy contract still trains successfully.
+func snapshotShimLogFn(base *tui.Snapshot, startWall time.Time, sink func(tui.Snapshot)) func(int, float32) {
+	return func(step int, loss float32) {
+		if sink == nil {
+			return
+		}
+		snap := *base
+		snap.Step = step
+		snap.Loss = loss
+		snap.HasLoss = true
+		snap.WallMs = time.Since(startWall).Milliseconds()
+		// The shim only knows "a step was logged" — it does not know that
+		// training has completed. PhaseDone is set by the orchestrator
+		// after Example.Train returns; here we always emit PhaseTraining
+		// so the "done" status only flips once on the explicit DoneMsg.
+		snap.Phase = tui.PhaseTraining
+		sink(snap)
+	}
 }
 
 // maybeOpenBundle opens a bundle.Writer when enable is true (per --bundle
@@ -262,19 +307,31 @@ func trainWithTUI(
 	// TUI exits.
 	cfg.LogText = func(s string) { fmt.Fprint(os.Stderr, s) }
 
-	// Loss callback: sent every LogEvery steps. Also tee'd to the bundle
-	// writer when --bundle is set.
+	// W5 TUI path: the trainer's per-step Snapshot flows into the TUI as a
+	// SnapshotMsg and into the bundle writer via the same SnapshotFn. The
+	// byte-identical render guarantee comes from Model.Update mapping
+	// SnapshotMsg fields onto the same internal state the legacy LossMsg
+	// path would have produced.
 	startWall := time.Now()
-	logFn := func(step int, loss float32) {
-		p.Send(tui.LossMsg{Step: step, Loss: loss})
+	baseSnap := tui.Snapshot{
+		MaxSteps:     cfg.Steps,
+		AdapterName:  adapterName,
+		BackendName:  backend,
+		DeviceTag:    device,
+		LearningRate: cfg.LR,
+		BatchSize:    cfg.Batch,
+	}
+	cfg.SnapshotFn = func(snap tui.Snapshot) {
+		p.Send(tui.SnapshotMsg{Snapshot: snap})
 		if bw != nil {
 			_ = bw.AppendLoss(bundle.LossRow{
-				Step:   step,
-				Loss:   loss,
-				WallMs: time.Since(startWall).Milliseconds(),
+				Step:   snap.Step,
+				Loss:   snap.Loss,
+				WallMs: snap.WallMs,
 			})
 		}
 	}
+	logFn := snapshotShimLogFn(&baseSnap, startWall, cfg.SnapshotFn)
 
 	var trainErr error
 	if err := ex.Train(device, cfg, logFn); err != nil {

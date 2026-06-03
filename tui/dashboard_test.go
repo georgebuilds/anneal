@@ -1,3 +1,5 @@
+//go:build !js
+
 package tui_test
 
 import (

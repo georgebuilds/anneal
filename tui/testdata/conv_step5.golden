@@ -1,0 +1,11 @@
+  anneal train  ·  Apple M3 Pro  ·  mlp  ·  Metal                               
+
+  step 5/100  [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  5%  done
+
+  loss  0.450000                 █▅▃▂▁
+
+  legend:  — forward   ╌ backward   ▪ fused
+
+  compiler:  uops 312 · kernels 8 · fused 0 · pass: memory plan
+
+  q → quit   v → viz (phase 11)

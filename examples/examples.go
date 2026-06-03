@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/georgebuilds/anneal/tensor"
+	"github.com/georgebuilds/anneal/tui"
 	"github.com/georgebuilds/anneal/uop"
 )
 
@@ -31,6 +32,17 @@ type TrainConfig struct {
 	// example falls back to os.Stdout. cmd_train.go wires this to its plain
 	// output writer so the CLI / TUI / tests share one sink.
 	LogText func(string)
+	// SnapshotFn is the W5 unified channel: a function the trainer's
+	// orchestrator (cmd_train.go, the future SSE handler) wires to receive
+	// one Snapshot per logged step. When nil, the per-step logFn argument
+	// passed to Example.Train is the only sink (the legacy contract).
+	//
+	// Examples don't normally call SnapshotFn directly; the orchestrator
+	// synthesizes Snapshots from the (step, loss) pairs the trainer emits
+	// through logFn. Examples that want to attach richer fields (sample
+	// text, tokens) may set SampleText on a Snapshot they push directly,
+	// but for v1 the legacy logFn shim covers all registered models.
+	SnapshotFn func(tui.Snapshot)
 }
 
 // Example is a named, runnable model example.
