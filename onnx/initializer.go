@@ -67,6 +67,10 @@ func onnxDType(dt int32) (annealDT *uop.DType, srcWidth int, downcast bool, ok b
 		return uop.Dtypes.UInt16, 2, false, true
 	case onnxpb.TensorProto_UINT32:
 		return uop.Dtypes.UInt32, 4, false, true
+	case onnxpb.TensorProto_UINT64:
+		// WGSL has no u64. Mirror INT64: downcast to UInt32 with an overflow
+		// trap in decodeRawData (any value > MaxUInt32 errors).
+		return uop.Dtypes.UInt32, 8, true, true
 	case onnxpb.TensorProto_BOOL:
 		return uop.Dtypes.Bool, 1, false, true
 	}
@@ -214,9 +218,16 @@ func decodeTensorData(tp *onnxpb.TensorProto, elems, srcWidth int) ([]float32, e
 		}
 		return decodeRawIntWidth(tp.GetRawData(), elems, srcWidth, isSignedDType(dt))
 	case onnxpb.TensorProto_UINT64:
+		// Plan §3 int64 policy applied to uint64: downcast to uint32 at decode
+		// time with an explicit overflow trap. Anything > MaxUint32 errors
+		// rather than silently losing precision through the float32 host
+		// representation.
 		if len(tp.GetUint64Data()) > 0 {
 			out := make([]float32, len(tp.GetUint64Data()))
 			for i, v := range tp.GetUint64Data() {
+				if v > math.MaxUint32 {
+					return nil, fmt.Errorf("uint64 value %d at index %d overflows uint32 (v1 has no device uint64)", v, i)
+				}
 				out[i] = float32(v)
 			}
 			if elems > 0 && len(out) != elems {
@@ -224,15 +235,17 @@ func decodeTensorData(tp *onnxpb.TensorProto, elems, srcWidth int) ([]float32, e
 			}
 			return out, nil
 		}
-		// raw_data: 8 bytes per element, but we materialise as float32
-		// host. No int64 representation downstream.
 		raw := tp.GetRawData()
 		if elems > 0 && len(raw) != elems*8 {
 			return nil, fmt.Errorf("uint64 raw_data length %d != %d", len(raw), elems*8)
 		}
 		out := make([]float32, len(raw)/8)
 		for i := range out {
-			out[i] = float32(binary.LittleEndian.Uint64(raw[i*8:]))
+			v := binary.LittleEndian.Uint64(raw[i*8:])
+			if v > math.MaxUint32 {
+				return nil, fmt.Errorf("uint64 value %d at index %d overflows uint32 (v1 has no device uint64)", v, i)
+			}
+			out[i] = float32(v)
 		}
 		return out, nil
 	case onnxpb.TensorProto_INT64:

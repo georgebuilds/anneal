@@ -531,28 +531,53 @@ func TestTensorFromProto_INT64_Int64Data_RoundTrip(t *testing.T) {
 	sliceApproxEq32(t, tt.Data(), []float32{-7, 0, 7}, 0)
 }
 
-// ── UINT64: documented production discrepancy ─────────────────────────────────
+// ── UINT64 round-trip + overflow trap ─────────────────────────────────────────
 
-// TestTensorFromProto_UINT64_IsRejectedAtDtypeGate pins the observed behavior:
-// initializer.go's onnxDType() table omits UINT64, so tensorFromProto rejects
-// any UINT64 TensorProto with "unsupported dtype 13" — even though
-// decodeTensorData has a complete UINT64 branch (raw_data + uint64_data) that
-// is therefore dead code. This test exists so the inconsistency is loudly
-// visible; do NOT change the assertion without fixing the dtype gate.
-func TestTensorFromProto_UINT64_IsRejectedAtDtypeGate(t *testing.T) {
+func TestTensorFromProto_UINT64_Uint64Data(t *testing.T) {
 	tp := &onnxpb.TensorProto{
 		Name:       "u64",
-		Dims:       []int64{2},
+		Dims:       []int64{3},
 		DataType:   int32(onnxpb.TensorProto_UINT64),
-		Uint64Data: []uint64{42, 99},
+		Uint64Data: []uint64{0, 42, math.MaxUint32},
+	}
+	arena := uop.NewArena(4)
+	tt, err := tensorFromProto(arena, tp, "test")
+	if err != nil {
+		t.Fatalf("tensorFromProto: %v", err)
+	}
+	sliceApproxEq32(t, tt.Data(), []float32{0, 42, float32(math.MaxUint32)}, 0)
+}
+
+func TestTensorFromProto_UINT64_OverflowsUint32_Errors(t *testing.T) {
+	tp := &onnxpb.TensorProto{
+		Name:       "u64big",
+		Dims:       []int64{1},
+		DataType:   int32(onnxpb.TensorProto_UINT64),
+		Uint64Data: []uint64{uint64(math.MaxUint32) + 1},
 	}
 	arena := uop.NewArena(4)
 	_, err := tensorFromProto(arena, tp, "test")
 	if err == nil {
-		t.Fatalf("UINT64 unexpectedly accepted; if you added it to onnxDType, update this test")
+		t.Fatalf("expected overflow error, got nil")
 	}
-	if !strings.Contains(err.Error(), "unsupported dtype") {
-		t.Errorf("error %q missing 'unsupported dtype'", err.Error())
+	if !strings.Contains(err.Error(), "overflow") {
+		t.Errorf("error %q missing 'overflow'", err.Error())
+	}
+}
+
+func TestTensorFromProto_UINT64_RawData_OverflowTrap(t *testing.T) {
+	raw := make([]byte, 8)
+	binary.LittleEndian.PutUint64(raw, uint64(math.MaxUint32)+1)
+	tp := &onnxpb.TensorProto{
+		Name:     "u64raw",
+		Dims:     []int64{1},
+		DataType: int32(onnxpb.TensorProto_UINT64),
+		RawData:  raw,
+	}
+	arena := uop.NewArena(4)
+	_, err := tensorFromProto(arena, tp, "test")
+	if err == nil || !strings.Contains(err.Error(), "overflow") {
+		t.Fatalf("expected overflow error, got %v", err)
 	}
 }
 
@@ -907,19 +932,9 @@ func TestOnnxDType_Unsupported(t *testing.T) {
 		onnxpb.TensorProto_FLOAT8E5M2FNUZ,
 		onnxpb.TensorProto_UINT4,
 		onnxpb.TensorProto_INT4,
-		onnxpb.TensorProto_UINT64, // covered by raw decode but onnxDType maps it? — see test below
 	} {
 		t.Run(dt.String(), func(t *testing.T) {
-			_, _, _, ok := onnxDType(int32(dt))
-			// UINT64 is not in the onnxDType table; the raw decode path
-			// handles it via decodeTensorData. Document & assert.
-			if dt == onnxpb.TensorProto_UINT64 {
-				if ok {
-					t.Errorf("onnxDType reports UINT64 supported, but the table omits it (decode handles it directly)")
-				}
-				return
-			}
-			if ok {
+			if _, _, _, ok := onnxDType(int32(dt)); ok {
 				t.Errorf("onnxDType reports %s as supported", dt)
 			}
 		})

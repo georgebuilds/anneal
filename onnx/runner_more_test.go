@@ -365,12 +365,11 @@ func TestImport_DimParamUnification(t *testing.T) {
 //
 // Implemented in runner_sym_helper_test.go.
 
-func TestImport_DimEmptyBecomesAnonymousSym(t *testing.T) {
-	// Empty dim (no DimValue, no DimParam) currently produces a fresh
-	// anonymous symbolic Variable per axis with synthetic name
-	// "<input>_dim<i>". This is the *observed* behaviour; task contract
-	// flagged that fail-closed would be safer. Pin the current behavior
-	// here so any future change is detected.
+func TestImport_DimEmpty_FailsClosed(t *testing.T) {
+	// Rank-only dims (neither DimValue nor DimParam) must fail closed per
+	// plan §1: an anonymous Variable per axis would silently disconnect
+	// axes the model author meant to relate. Caller must name the axis
+	// or set a concrete dim.
 	model := &onnxpb.ModelProto{
 		IrVersion: 8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
@@ -385,17 +384,14 @@ func TestImport_DimEmptyBecomesAnonymousSym(t *testing.T) {
 		},
 	}
 	arena := uop.NewArena(8)
-	r, err := Import(mustMarshal(t, model), arena, "test")
-	if err != nil {
-		t.Fatalf("Import: %v", err)
+	_, err := Import(mustMarshal(t, model), arena, "test")
+	if err == nil {
+		t.Fatalf("expected fail-closed on rank-only dim, got nil")
 	}
-	x := r.Inputs()[0]
-	if _, concrete := x.Shape[0].ConstValue(); concrete {
-		t.Errorf("empty dim materialized as concrete; want symbolic anonymous var")
-	}
-	// The synthetic var is named "x_dim0" — find it on the arena.
-	if _, ok := arena.FindDefineVar("x_dim0"); !ok {
-		t.Errorf("expected anonymous DefineVar 'x_dim0' on the arena")
+	for _, want := range []string{"x", "rank-only"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
 	}
 }
 

@@ -243,11 +243,12 @@ func lowerValueInfos(arena *uop.Arena, vis []*onnxpb.ValueInfoProto) ([]ValueInf
 						}
 						sh = append(sh, shape.SymInt{Node: v})
 					default:
-						// Rank-only dim with no value or param: treat as
-						// a fresh symbolic dim with a synthetic name.
-						name := fmt.Sprintf("%s_dim%d", vi.GetName(), len(sh))
-						v := arena.DefineVar(name, symMin, symMax)
-						sh = append(sh, shape.SymInt{Node: v})
+						// Rank-only dim with neither dim_value nor dim_param:
+						// fail closed (per plan §1). An anonymous Variable
+						// would silently disconnect dims that the model author
+						// meant to relate, and there is no way to recover
+						// intent from the wire format.
+						return nil, fmt.Errorf("onnx: input/output %q dim %d has neither dim_value nor dim_param (rank-only dims are not supported in v1; name the axis or set a concrete dim)", vi.GetName(), len(sh))
 					}
 				}
 			}
