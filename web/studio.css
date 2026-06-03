@@ -1,0 +1,345 @@
+/* anneal studio — brand tokens copied verbatim from viz/static/style.css.
+ * Canonical source for these hexes: DESIGN.md §1.1 (dark) and §1.2 (light).
+ * Layout rules: DESIGN.md §3.2. Motion budget: DESIGN.md §3.4.
+ *
+ * The studio is a sibling surface to viz, not a replacement. The hexes are
+ * duplicated here on purpose; the test in tui/dashboard_test.go is the cross-
+ * surface pin that keeps the three values from drifting (DESIGN.md §1.3).
+ */
+
+/* ── dark theme (default, terminal-native brand colours; DESIGN.md §1.1) ─── */
+:root {
+  --bg:        #14110F;
+  --surface:   #1F1A17;
+  --surface-2: #2A2320;
+  --text:      #E8E2DA;
+  --muted:     #8A817A;
+  --faint:     #5C544D;
+  --hair:      #2D2723;
+
+  /* forward = teal (#00ADD8) — DD1 forward-pass semantic */
+  --teal:      #00ADD8;
+  --teal-dim:  #003847;
+
+  /* backward = ember (#FF7A45) — gradient pass */
+  --ember:     #FF7A45;
+  --ember-dim: #3D1200;
+
+  /* fused / kernel boundary = gold (#F2C57C) */
+  --gold:      #F2C57C;
+  --gold-dim:  #3D2A00;
+
+  --leaf-fill:   #005566;
+  --leaf-stroke: #00ADD8;
+}
+
+/* ── light theme (DESIGN.md §1.2) ────────────────────────────────────────── */
+/* Hex values are darkened for WCAG AA contrast on the paper background.       */
+[data-theme="light"] {
+  --bg:        #FBF8F3;
+  --surface:   #EDE9E3;
+  --surface-2: #E3DED6;
+  --text:      #14110F;
+  --muted:     #5C544D;
+  --faint:     #8A817A;
+  --hair:      #D9D2C7;
+
+  --teal:      #006F9E;
+  --teal-dim:  #D5EFF6;
+  --ember:     #B84A16;
+  --ember-dim: #FFE5D9;
+  --gold:      #7A5800;
+  --gold-dim:  #FFF0CE;
+
+  --leaf-fill:   #B3DFF0;
+  --leaf-stroke: #006F9E;
+}
+
+/* ── system default: honour prefers-color-scheme (DESIGN.md §5) ──────────── */
+/* The matching matchMedia listener lives in studio.js so that an OS theme    */
+/* change re-renders without a page reload.                                   */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg:        #FBF8F3;
+    --surface:   #EDE9E3;
+    --surface-2: #E3DED6;
+    --text:      #14110F;
+    --muted:     #5C544D;
+    --faint:     #8A817A;
+    --hair:      #D9D2C7;
+
+    --teal:      #006F9E;
+    --teal-dim:  #D5EFF6;
+    --ember:     #B84A16;
+    --ember-dim: #FFE5D9;
+    --gold:      #7A5800;
+    --gold-dim:  #FFF0CE;
+
+    --leaf-fill:   #B3DFF0;
+    --leaf-stroke: #006F9E;
+  }
+}
+
+/* ── reset + base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--teal); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font-family: inherit; font-size: inherit; }
+
+/* ── shell layout (DESIGN.md §3.2) ──────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 44px 1fr 28px;
+  grid-template-areas:
+    "brand topbar"
+    "nav   main"
+    "nav   status";
+  height: 100vh;
+}
+
+.brand {
+  grid-area: brand;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hair);
+  border-right: 1px solid var(--hair);
+  background: var(--surface);
+}
+.brand-mark { width: 22px; height: 22px; }
+.brand-name { font-weight: 600; letter-spacing: -0.02em; font-size: 14px; }
+.brand-name .sub { color: var(--muted); font-weight: 400; }
+
+/* The thesis statement lives directly under the wordmark on the home view; */
+/* the brand cell itself stays terse. See DESIGN.md §3.1.                   */
+
+/* ── topbar ──────────────────────────────────────────────────────────────── */
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--surface);
+}
+.crumbs { color: var(--muted); font-size: 12px; }
+.crumbs .here { color: var(--text); }
+.topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.device-pill {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 2px 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--teal); box-shadow: 0 0 6px var(--teal);
+}
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--muted); }
+
+/* ── nav ─────────────────────────────────────────────────────────────────── */
+nav.rail {
+  grid-area: nav;
+  background: var(--surface);
+  border-right: 1px solid var(--hair);
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+}
+.nav-section {
+  padding: 6px 16px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  color: var(--muted);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  user-select: none;
+  background: none;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+}
+.nav-item:hover { color: var(--text); background: var(--surface-2); }
+.nav-item.active {
+  color: var(--text);
+  border-left-color: var(--gold);
+  background: linear-gradient(to right, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%);
+}
+.nav-item .key {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--faint);
+  border: 1px solid var(--hair);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-family: inherit;
+}
+.nav-spacer { flex: 1; }
+.nav-foot {
+  padding: 10px 16px;
+  font-size: 10px;
+  color: var(--faint);
+  border-top: 1px solid var(--hair);
+  line-height: 1.6;
+}
+
+/* ── main ────────────────────────────────────────────────────────────────── */
+main {
+  grid-area: main;
+  overflow: auto;
+  background: var(--bg);
+}
+.view { display: none; padding: 20px 28px 32px; }
+.view.active { display: block; }
+.view h1 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+.view .lede { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+
+/* status bar */
+.statusbar {
+  grid-area: status;
+  background: var(--surface);
+  border-top: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.statusbar .seg { display: flex; gap: 6px; align-items: center; }
+.statusbar .seg .v { color: var(--text); }
+
+/* ── studio hero ──────────────────────────────────────────────────────────── */
+.hero {
+  display: flex;
+  gap: 28px;
+  align-items: flex-end;
+  padding: 22px 0 30px;
+  border-bottom: 1px solid var(--hair);
+  margin-bottom: 22px;
+}
+.hero-quote {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  max-width: 540px;
+}
+.hero-quote .accent-fwd { color: var(--teal); }
+.hero-quote .accent-bwd { color: var(--ember); }
+.hero-quote .accent-fused { color: var(--gold); }
+.hero-sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.hero-mark { margin-left: auto; opacity: 0.85; }
+
+/* ── ignite-once wordmark animation (DESIGN.md §3.4 item 1) ──────────────── */
+@keyframes ignite-arc {
+  from { stroke-dashoffset: 120; opacity: 0; }
+  to   { stroke-dashoffset: 0;   opacity: 1; }
+}
+@keyframes ignite-dot {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.ignite .arc-fwd, .ignite .arc-bwd {
+  stroke-dasharray: 120;
+  animation: ignite-arc 600ms ease-out forwards;
+}
+.ignite .arc-bwd { animation-delay: 120ms; }
+.ignite .node-dot {
+  transform-origin: center;
+  animation: ignite-dot 300ms ease-out 480ms forwards;
+}
+
+/* ── gold-pulse on dispatch (DESIGN.md §3.4 item 2) ──────────────────────── */
+@keyframes dispatch-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 28%, transparent); }
+}
+.dispatch-pulse { animation: dispatch-pulse 1.8s ease-in-out infinite; }
+
+/* ── rule-fired pulse (DESIGN.md §3.4 item 3) ────────────────────────────── */
+@keyframes rule-just-fired {
+  0%   { stroke-width: 1.6; }
+  50%  { stroke-width: 3.4; }
+  100% { stroke-width: 1.6; }
+}
+.rule-just-fired { animation: rule-just-fired 700ms ease-in-out 1; }
+
+/* ── prefers-reduced-motion (DESIGN.md §3.4) ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ignite .arc-fwd, .ignite .arc-bwd, .ignite .node-dot,
+  .dispatch-pulse, .rule-just-fired {
+    animation: none;
+  }
+}
+
+/* ── stub copy area (foundation only; views are filled by W1+) ───────────── */
+.stub {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 16px 0;
+}
+.stub code {
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--hair);
+  color: var(--text);
+}
+
+/* ── search input stub (the `/` keybinding lands here) ───────────────────── */
+.search-stub {
+  background: var(--bg);
+  border: 1px solid var(--hair);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  width: 220px;
+}
+.search-stub:focus { outline: none; border-color: var(--teal); }

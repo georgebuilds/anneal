@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>anneal studio</title>
+  <meta name="description" content="anneal studio — a local browser surface for the anneal tensor compiler. forward, backward, and fused kernels share one immutable IR.">
+
+  <!-- Worker / WASM gating: studio.js only instantiates web/worker.js when this
+       meta is present. W0 ships without anneal.wasm, so this stays absent until
+       the WASM build lands (avoids 404 noise during foundation testing). -->
+  <!-- <meta name="anneal-worker" content="/static/worker.js"> -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/static/studio.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── brand cell ─────────────────────────────────────────────────────── -->
+  <header class="brand">
+    <!-- The mark: two arcs converging into a gold node (DESIGN.md §3.1).
+         The `ignite` class is applied by studio.js on first load only;
+         subsequent loads in the same browser session do not re-ignite. -->
+    <svg id="brand-mark" class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path class="arc-fwd" d="M4 22 Q 16 4, 28 22"
+            stroke="#00ADD8" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+      <path class="arc-bwd" d="M4 22 Q 16 30, 28 22"
+            stroke="#FF7A45" stroke-width="2.4" fill="none" stroke-linecap="round"
+            stroke-dasharray="3 2.4"/>
+      <circle class="node-dot" cx="16" cy="22" r="4" fill="#F2C57C"/>
+    </svg>
+    <div class="brand-name">anneal <span class="sub">studio</span></div>
+  </header>
+
+  <!-- ── topbar ─────────────────────────────────────────────────────────── -->
+  <div class="topbar">
+    <div class="crumbs">
+      <span id="crumb-section">studio</span>
+      <span class="here" id="crumb-current"></span>
+    </div>
+    <div class="topbar-right">
+      <!-- `/` keybinding focuses this input (DESIGN.md §7 / spec §10).
+           Search is a stub in W0; behaviour is wired in subsequent W steps. -->
+      <input id="search" class="search-stub" type="search"
+             placeholder="search · / to focus" aria-label="search">
+      <span class="device-pill"><span class="dot"></span>local</span>
+      <button class="theme-toggle" id="themeToggle"
+              title="cycle theme (system / dark / light)"
+              aria-label="cycle colour theme">◑</button>
+    </div>
+  </div>
+
+  <!-- ── left nav (DESIGN.md §3.3, §8) ──────────────────────────────────── -->
+  <nav class="rail" aria-label="primary navigation">
+    <div class="nav-section">surfaces</div>
+    <button class="nav-item" data-view="studio">studio    <span class="key">g d</span></button>
+    <button class="nav-item" data-view="visualize">visualize <span class="key">g v</span></button>
+    <button class="nav-item" data-view="kernels">kernels   <span class="key">g k</span></button>
+    <button class="nav-item" data-view="explain">explain   <span class="key">g x</span></button>
+    <button class="nav-item" data-view="train">train     <span class="key">g t</span></button>
+    <button class="nav-item" data-view="generate">generate  <span class="key">g g</span></button>
+    <div class="nav-section" style="margin-top: 10px;">persistence</div>
+    <button class="nav-item" data-view="history">history   <span class="key">g h</span></button>
+    <div class="nav-section" style="margin-top: 10px;">diagnostics</div>
+    <button class="nav-item" data-view="doctor">doctor    <span class="key">g r</span></button>
+    <div class="nav-spacer"></div>
+    <div class="nav-foot">
+      runs live in<br>
+      <span style="color: var(--muted);">~/.cache/anneal/runs/</span><br><br>
+      anneal does not phone home.
+    </div>
+  </nav>
+
+  <!-- ── main area: one mount point per view ────────────────────────────── -->
+  <main>
+
+    <!-- studio (home). Restrained thesis statement under the wordmark per
+         spec §5.1. Live content (device card, model cards, recent runs)
+         is filled by subsequent W steps. -->
+    <section class="view active" id="view-studio">
+      <div class="hero">
+        <div>
+          <div class="hero-quote">
+            <span class="accent-fwd">gradients</span>
+            are just
+            <span class="accent-fused">rewrites</span>.
+          </div>
+          <div class="hero-sub">
+            a tensor compiler in go. forward, backward, and fused kernels share one immutable IR.
+          </div>
+        </div>
+        <svg class="hero-mark" width="96" height="72" viewBox="0 0 96 72" aria-hidden="true">
+          <path d="M6 60 Q 48 0, 90 60" stroke="#00ADD8" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <path d="M6 60 Q 48 84, 90 60" stroke="#FF7A45" stroke-width="3" fill="none" stroke-linecap="round" stroke-dasharray="4 3"/>
+          <circle cx="48" cy="60" r="7" fill="#F2C57C"/>
+        </svg>
+      </div>
+      <div class="stub" id="studio-mount">
+        view: studio. device card, model cards, and recent runs land here in W1+.
+        the routing, theme, keyboard, and worker scaffolding underneath are live.
+      </div>
+    </section>
+
+    <section class="view" id="view-visualize">
+      <h1>visualize</h1>
+      <div class="lede">the wasm-compiled compiler with a node inspector and deep-linkable state.</div>
+      <div class="stub">view: visualize coming soon.</div>
+    </section>
+
+    <section class="view" id="view-kernels">
+      <h1>kernels</h1>
+      <div class="lede">scheduled, fused, lowered. tuned vs default WGSL diff inline.</div>
+      <div class="stub">view: kernels coming soon.</div>
+    </section>
+
+    <section class="view" id="view-explain">
+      <h1>explain</h1>
+      <div class="lede">pick an op, see the rewrite and gradient rules that fire.</div>
+      <div class="stub">view: explain coming soon.</div>
+    </section>
+
+    <section class="view" id="view-train">
+      <h1>train</h1>
+      <div class="lede">the tui dashboard, in the browser. loss, compiler stats, live fused-kernel pulses.</div>
+      <div class="stub">view: train coming soon.</div>
+    </section>
+
+    <section class="view" id="view-generate">
+      <h1>generate</h1>
+      <div class="lede">forward-pass inference, token by token. every token clicks through to the producing kernel.</div>
+      <div class="stub">view: generate coming soon.</div>
+    </section>
+
+    <section class="view" id="view-history">
+      <h1>history</h1>
+      <div class="lede">every train and saved viz tee'd to <code>~/.cache/anneal/runs/</code>.</div>
+      <div class="stub">view: history coming soon.</div>
+    </section>
+
+    <section class="view" id="view-doctor">
+      <h1>doctor</h1>
+      <div class="lede">what the binary sees · what your browser sees. side by side, same machine.</div>
+      <div class="stub">view: doctor coming soon.</div>
+    </section>
+
+  </main>
+
+  <!-- ── status bar ─────────────────────────────────────────────────────── -->
+  <div class="statusbar">
+    <span class="seg">build: <span class="v" id="status-build">v0.0.0-dev</span></span>
+    <span class="seg">surface: <span class="v">studio</span></span>
+    <span style="flex: 1;"></span>
+    <span class="seg" id="status-worker">worker: <span class="v">not loaded</span></span>
+  </div>
+
+</div>
+
+<script src="/static/studio.js" type="module"></script>
+</body>
+</html>

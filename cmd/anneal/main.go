@@ -20,6 +20,7 @@ commands:
   train     training loop with live TUI dashboard (--plain for text output)
   gpt2      load GPT-2-small weights and sample text from a prompt
   viz       open the UOp graph visualizer in a browser
+  web       serve the local studio (browser surface for the compiler)
   graph     dump the UOp DAG in textual form
   kernels   show generated WGSL with fusion boundaries annotated
   explain   show the rewrite rules that fire for one op
@@ -81,6 +82,9 @@ func run(args []string) int {
 
 	case "viz":
 		return vizCmd(rest)
+
+	case "web":
+		return webCmd(rest)
 
 	default:
 		fmt.Fprintf(os.Stderr, "anneal: unknown command %q\n", verb)
@@ -170,6 +174,17 @@ examples:
   anneal explain symbolic
 
 `)
+	case "web":
+		fmt.Print(`usage: anneal web [addr]
+
+serve the local anneal studio in a browser. defaults to :3001 if no addr is
+passed; use :0 to auto-allocate a port (the chosen port is printed at startup).
+the studio is a single-binary static surface: routing, theme, keyboard, and the
+worker scaffolding land in this foundation step. live views land in subsequent
+W steps.
+
+`)
+
 	case "viz":
 		fmt.Print(`usage: anneal viz
 
