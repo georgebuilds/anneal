@@ -148,6 +148,43 @@ func tensorFromProto(arena *uop.Arena, tp *onnxpb.TensorProto, device string) (*
 	return leaf, nil
 }
 
+// structureOnlyLeafFromProto decodes the (dtype, dims) header of a TensorProto
+// and returns a leaf tensor with the correct shape + dtype but no host-side
+// payload. SetData is NOT called, so Data() returns nil and the arena leaf
+// slot stays unset. This is the WithStructureOnly fast path: we still need
+// the shape inference and graph topology to be correct, but we never look at
+// the values. Subsequent Run() will fail loudly because payloads aren't
+// there; the contract is documented at WithStructureOnly().
+//
+// Decoding cost: just the header (a handful of int64s + a small dtype switch).
+// The raw_data bytes never get scanned, decoded, or copied. On models like
+// ResNet-9 (~482 KB total) this is a small win; on multi-megabyte transformer
+// weights the savings are the whole point.
+func structureOnlyLeafFromProto(arena *uop.Arena, tp *onnxpb.TensorProto, device string) (*tensor.Tensor, error) {
+	if tp == nil {
+		return nil, fmt.Errorf("onnx: nil TensorProto")
+	}
+	if tp.GetDataLocation() == onnxpb.TensorProto_EXTERNAL {
+		return nil, fmt.Errorf("onnx: external-data initializer %q not supported in v1", tp.GetName())
+	}
+	annealDT, _, _, ok := onnxDType(tp.GetDataType())
+	if !ok {
+		return nil, fmt.Errorf("onnx: unsupported dtype %d for initializer %q",
+			tp.GetDataType(), tp.GetName())
+	}
+	dims := tp.GetDims()
+	for _, d := range dims {
+		if d < 0 {
+			return nil, fmt.Errorf("onnx: initializer %q has negative dim %d", tp.GetName(), d)
+		}
+	}
+	sh := make([]int64, len(dims))
+	copy(sh, dims)
+	// NewLeaf reserves an arena slot but does NOT set host data; Data() will
+	// return nil. We deliberately skip SetData here.
+	return tensor.NewLeaf(arena, sh, annealDT, device), nil
+}
+
 // decodeTensorData materialises the TensorProto payload as a []float32 that
 // matches anneal's host representation (SetData accepts []float32 regardless
 // of dtype). It dispatches on the source dtype and prefers the typed field

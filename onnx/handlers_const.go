@@ -37,10 +37,21 @@ func resolveShapeInput(v Value) ([]shape.Sint, error) {
 // handleConstant emits a device-tier leaf tensor from the Constant's `value`
 // attribute (a TensorProto). The host-tier Constant handler intercepts integer
 // dtypes; floats fall through to here.
+//
+// In structure-only mode we return a leaf with the correct shape + dtype but
+// no payload bytes, matching the WithStructureOnly() contract: topology yes,
+// values no.
 func handleConstant(ctx *HandlerCtx) ([]Value, error) {
 	tp := ctx.Node.Attrs["value"].Tensor()
 	if tp == nil {
 		return nil, fmt.Errorf("Constant: missing `value` attribute")
+	}
+	if ctx.StructureOnly {
+		leaf, err := structureOnlyLeafFromProto(ctx.Arena, tp, ctx.Device)
+		if err != nil {
+			return nil, err
+		}
+		return []Value{Device(leaf)}, nil
 	}
 	leaf, err := tensorFromProto(ctx.Arena, tp, ctx.Device)
 	if err != nil {
@@ -62,6 +73,11 @@ func handleIdentity(ctx *HandlerCtx) ([]Value, error) {
 
 // handleConstantOfShape builds a device tensor of shape input[0] filled with
 // the scalar from the `value` attribute (default 0.0 f32).
+//
+// In structure-only mode we skip the payload-reading scalar decode and emit
+// a zero-filled FullSints of the correct dtype. The graph topology is
+// preserved; the runtime value is meaningless because the surrounding
+// Runner won't be Run().
 func handleConstantOfShape(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 1 {
 		return nil, fmt.Errorf("ConstantOfShape: expected 1 input")
@@ -74,22 +90,24 @@ func handleConstantOfShape(ctx *HandlerCtx) ([]Value, error) {
 	dt := onnxpb.TensorProto_FLOAT
 	if tp := ctx.Node.Attrs["value"].Tensor(); tp != nil {
 		dt = onnxpb.TensorProto_DataType(tp.GetDataType())
-		switch dt {
-		case onnxpb.TensorProto_FLOAT:
-			fd := tp.GetFloatData()
-			if len(fd) > 0 {
-				val = float64(fd[0])
+		if !ctx.StructureOnly {
+			switch dt {
+			case onnxpb.TensorProto_FLOAT:
+				fd := tp.GetFloatData()
+				if len(fd) > 0 {
+					val = float64(fd[0])
+				}
+			case onnxpb.TensorProto_INT32, onnxpb.TensorProto_INT64:
+				vals, err := decodeIntTensor(tp)
+				if err != nil {
+					return nil, err
+				}
+				if len(vals) > 0 {
+					val = float64(vals[0])
+				}
+			default:
+				return nil, fmt.Errorf("ConstantOfShape: dtype %v not supported", dt)
 			}
-		case onnxpb.TensorProto_INT32, onnxpb.TensorProto_INT64:
-			vals, err := decodeIntTensor(tp)
-			if err != nil {
-				return nil, err
-			}
-			if len(vals) > 0 {
-				val = float64(vals[0])
-			}
-		default:
-			return nil, fmt.Errorf("ConstantOfShape: dtype %v not supported", dt)
 		}
 	}
 	annealDT, _, _, ok := onnxDType(int32(dt))

@@ -246,14 +246,14 @@ function initSkipLink() {
 // drop in by assignment.
 
 const RENDERERS = {
-  studio:    function renderStudio()    { /* W1+ */ },
+  studio:    function renderStudio()    { renderStudioView(); },
   visualize: function renderVisualize() { renderVisualizeView(); },
   kernels:   function renderKernels()   { renderKernelsView(); },
   explain:   function renderExplain()   { renderExplainView(); },
   train:     function renderTrain()     { renderTrainView(); },
-  generate:  function renderGenerate()  { /* W6 */ },
+  generate:  function renderGenerate()  { renderGenerateView(); },
   history:   function renderHistory()   { /* W8 */ },
-  doctor:    function renderDoctor()    { /* W7 */ },
+  doctor:    function renderDoctor()    { renderDoctorView(); },
 };
 
 // ── keyboard-help modal (web/A11Y.md) ─────────────────────────────────────
@@ -1322,6 +1322,365 @@ function cssEscapeID(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g, '-');
 }
 
+// ── generate view (W7) ───────────────────────────────────────────────────
+// SSE-driven token stream. The renderer is invoked on every navigation to
+// /g/<model>; it (re)wires the controls and primes the UI. Starting a run
+// opens an EventSource against /sse/generate?model=...&prompt=...&tokens=...
+// and pushes each TokenSnapshot into the DOM. Every emitted token is a
+// focusable <span class="tok"> the user can click (or Enter on while
+// focused) to navigate to /k/<model>?kernel=<lastKernelID> — the
+// click-through to the producing fused kernel per spec §5.6.
+//
+// a11y (web/A11Y.md §3e):
+//   - Every control is labelled (model select, prompt input, tokens input,
+//     buttons, both checkboxes).
+//   - The prompt input has maxlength + aria-describedby for the cap rule.
+//   - The token stream is aria-live="polite" + aria-atomic="false";
+//     announcements are batched every 5 tokens OR 500ms (whichever first)
+//     so a fast generation does not flood the SR.
+//   - The last-token panel is its own role="region" so SR users can
+//     navigate to it via region jump and read the structured detail.
+//   - Reduced-motion: the gold pulse on the fresh token is replaced by
+//     an instant fill via the CSS rule already in studio.css.
+//   - Each .tok span is tabindex="0" and Enter activates click-through.
+//   - The warming hint is announced once on first activation.
+
+const _genState = {
+  model: 'gpt2',
+  es: null,                // active EventSource, null when idle
+  promptText: '',
+  maxTokens: 32,
+  compare: false,
+  bundle: true,
+  warmed: false,           // first SSE frame has arrived?
+  tokenCount: 0,
+  lastKernelID: '',
+  // Batched announcement: collect token texts, flush every 5 OR after
+  // 500ms — whichever comes first — to avoid screen-reader spam.
+  pendingAnnounce: [],
+  announceTimer: null,
+};
+
+function modelFromGenPath(pathname) {
+  const m = /^\/g\/([^/?#]+)/.exec(pathname);
+  return m ? decodeURIComponent(m[1]) : 'gpt2';
+}
+
+function renderGenerateView() {
+  const sel = document.getElementById('gen-model');
+  const prompt = document.getElementById('gen-prompt');
+  const tokens = document.getElementById('gen-tokens');
+  const start = document.getElementById('gen-start');
+  const cancel = document.getElementById('gen-cancel');
+  const compare = document.getElementById('gen-compare');
+  const bundle = document.getElementById('gen-bundle');
+  if (!sel || !prompt || !tokens || !start || !cancel) return;
+
+  // Sync model select from the URL deep link (/g/<model>).
+  const model = modelFromGenPath(window.location.pathname);
+  _genState.model = model;
+  const opt = Array.from(sel.options).find((o) => o.value === model);
+  if (opt && sel.value !== model) sel.value = model;
+
+  // URL params override defaults for prompt / tokens / compare.
+  try {
+    const u = new URL(window.location.href);
+    const pp = u.searchParams.get('prompt');
+    if (pp != null && pp.length > 0) prompt.value = pp;
+    const tt = u.searchParams.get('tokens');
+    if (tt != null && Number(tt) > 0) tokens.value = String(Math.min(256, Number(tt)));
+    if (u.searchParams.get('compare') === '1' && compare) compare.checked = true;
+    if (u.searchParams.get('bundle') === '0' && bundle) bundle.checked = false;
+  } catch (_) {}
+
+  start.onclick = generateStart;
+  cancel.onclick = generateCancel;
+}
+
+function generateStart() {
+  // If a stream is already open, cancel it first.
+  generateCancel();
+
+  const sel = document.getElementById('gen-model');
+  const promptEl = document.getElementById('gen-prompt');
+  const tokensEl = document.getElementById('gen-tokens');
+  const compareEl = document.getElementById('gen-compare');
+  const bundleEl = document.getElementById('gen-bundle');
+  const start = document.getElementById('gen-start');
+  const cancel = document.getElementById('gen-cancel');
+  const status = document.getElementById('gen-status');
+  const warming = document.getElementById('gen-warming');
+  const out = document.getElementById('gen-tokens-out');
+  const echo = document.getElementById('gen-prompt-echo');
+  const lastText = document.getElementById('gen-last-text');
+  const lastId = document.getElementById('gen-last-id');
+  const lastLogit = document.getElementById('gen-last-logit');
+  const lastRef = document.getElementById('gen-last-ref');
+
+  const model = (sel && sel.value) || 'gpt2';
+  const promptText = (promptEl && promptEl.value) || '';
+  if (!promptText.trim()) {
+    announce('generate: prompt is required');
+    return;
+  }
+  const nTokens = Math.max(1, Math.min(256, parseInt(tokensEl && tokensEl.value, 10) || 32));
+  const wantCompare = !!(compareEl && compareEl.checked);
+  const wantBundle = !!(bundleEl && bundleEl.checked);
+
+  _genState.model = model;
+  _genState.promptText = promptText;
+  _genState.maxTokens = nTokens;
+  _genState.compare = wantCompare;
+  _genState.bundle = wantBundle;
+  _genState.warmed = false;
+  _genState.tokenCount = 0;
+  _genState.lastKernelID = '';
+  _genState.pendingAnnounce = [];
+  if (_genState.announceTimer) {
+    clearTimeout(_genState.announceTimer);
+    _genState.announceTimer = null;
+  }
+
+  // Reset UI.
+  if (out) out.textContent = '';
+  if (echo) echo.textContent = promptText;
+  if (lastText) lastText.textContent = '—';
+  if (lastId) lastId.textContent = '—';
+  if (lastLogit) lastLogit.textContent = '—';
+  if (lastRef) lastRef.textContent = wantCompare ? 'pending' : '—';
+  if (status) status.textContent = 'starting…';
+  if (warming) warming.hidden = false;
+
+  // Update URL deep link.
+  try {
+    const params = new URLSearchParams();
+    params.set('prompt', promptText);
+    if (wantCompare) params.set('compare', '1');
+    if (!wantBundle) params.set('bundle', '0');
+    const url = '/g/' + encodeURIComponent(model) + '?' + params.toString();
+    if (window.location.pathname + window.location.search !== url) {
+      history.replaceState({ viewId: 'generate' }, '', url);
+    }
+  } catch (_) {}
+
+  if (start)  start.disabled = true;
+  if (cancel) cancel.disabled = false;
+
+  // Build SSE URL.
+  const u = new URL('/sse/generate', window.location.origin);
+  u.searchParams.set('model', model);
+  u.searchParams.set('prompt', promptText);
+  u.searchParams.set('tokens', String(nTokens));
+  u.searchParams.set('compare', wantCompare ? '1' : '0');
+  u.searchParams.set('bundle', wantBundle ? '1' : '0');
+
+  let es;
+  try {
+    es = new EventSource(u.toString());
+  } catch (e) {
+    announce('generate: cannot open SSE: ' + (e && e.message));
+    generateCancel();
+    return;
+  }
+  _genState.es = es;
+  announce('generating with ' + model + ' started');
+
+  es.addEventListener('message', (ev) => {
+    let tok;
+    try { tok = JSON.parse(ev.data); }
+    catch (e) { return; }
+    onTokenSnapshot(tok);
+  });
+  es.addEventListener('done', (ev) => {
+    let payload = {};
+    try { payload = JSON.parse(ev.data || '{}'); } catch (_) {}
+    const total = payload.total_tokens || _genState.tokenCount;
+    const wall = payload.wall_ms || 0;
+    if (status) status.textContent = 'done · ' + total + ' tokens · ' + wall + ' ms';
+    announce('generation complete: ' + total + ' tokens in ' + wall + ' ms');
+    finishGenerate();
+  });
+  es.addEventListener('error', (_ev) => {
+    if (es.readyState === EventSource.CLOSED) {
+      finishGenerate();
+      return;
+    }
+    announce('generate: stream error');
+    finishGenerate();
+  });
+}
+
+function generateCancel() {
+  if (_genState.es) {
+    try { _genState.es.close(); } catch (_) {}
+    _genState.es = null;
+    announce('generation cancelled');
+  }
+  const start = document.getElementById('gen-start');
+  const cancel = document.getElementById('gen-cancel');
+  if (start)  start.disabled = false;
+  if (cancel) cancel.disabled = true;
+}
+
+function finishGenerate() {
+  if (_genState.es) {
+    try { _genState.es.close(); } catch (_) {}
+    _genState.es = null;
+  }
+  const start = document.getElementById('gen-start');
+  const cancel = document.getElementById('gen-cancel');
+  if (start)  start.disabled = false;
+  if (cancel) cancel.disabled = true;
+  // Flush any pending announcement.
+  flushGenAnnounce();
+}
+
+function onTokenSnapshot(tok) {
+  if (!tok || typeof tok !== 'object') return;
+
+  // The first frame (any phase) hides the warming hint.
+  if (!_genState.warmed) {
+    _genState.warmed = true;
+    const warming = document.getElementById('gen-warming');
+    if (warming) warming.hidden = true;
+    const status = document.getElementById('gen-status');
+    if (status && tok.phase === 'init') status.textContent = 'warming up done · streaming';
+    else if (status) status.textContent = 'streaming';
+  }
+
+  // Phase routing.
+  if (tok.phase === 'done') {
+    finishGenerate();
+    return;
+  }
+  if (tok.phase === 'error') {
+    announce('generate error: ' + (tok.error || 'unknown'));
+    const status = document.getElementById('gen-status');
+    if (status) status.textContent = 'error: ' + (tok.error || 'unknown');
+    finishGenerate();
+    return;
+  }
+  // Lifecycle PhaseInit carries no token; the warming-hint hide above
+  // already used it.
+  if (tok.phase === 'init') {
+    return;
+  }
+
+  // PhaseTraining (used as "generating") — append a token span.
+  const text = typeof tok.token_text === 'string' ? tok.token_text : '';
+  appendTokenSpan(tok, text);
+  _genState.tokenCount++;
+  _genState.lastKernelID = tok.last_kernel_id || _genState.lastKernelID;
+
+  // Update last-token panel.
+  setGenText('gen-last-text', text === '' ? '(empty)' : JSON.stringify(text));
+  setGenText('gen-last-id', String(tok.token_id != null ? tok.token_id : '—'));
+  setGenText('gen-last-logit', tok.logit_summary || '—');
+  if (typeof tok.ref_match === 'boolean') {
+    setGenText('gen-last-ref', tok.ref_match ? '✓ match' : '✗ no match');
+  } else if (_genState.compare) {
+    setGenText('gen-last-ref', 'pending');
+  } else {
+    setGenText('gen-last-ref', '—');
+  }
+
+  // Update click-through href to the producing kernel.
+  const link = document.getElementById('gen-click-through');
+  if (link) {
+    const kid = _genState.lastKernelID;
+    if (kid) {
+      link.href = '/k/' + encodeURIComponent(_genState.model)
+                + '?kernel=' + encodeURIComponent(kid);
+    } else {
+      link.href = '/k/' + encodeURIComponent(_genState.model);
+    }
+  }
+
+  // Compiler pulse: the train view's kernel-thumb is reused if visible
+  // (best-effort — typically not present in the generate DOM, so guard).
+  if (tok.last_kernel_id) {
+    try { pulseKernelDot(tok.last_kernel_id); } catch (_) {}
+  }
+
+  // Batched announce: every 5 tokens OR 500ms.
+  _genState.pendingAnnounce.push(text || '');
+  if (_genState.pendingAnnounce.length >= 5) {
+    flushGenAnnounce();
+  } else if (!_genState.announceTimer) {
+    _genState.announceTimer = setTimeout(flushGenAnnounce, 500);
+  }
+}
+
+function appendTokenSpan(tok, text) {
+  const out = document.getElementById('gen-tokens-out');
+  if (!out) return;
+
+  // Drop the .fresh class from any previously freshly-emitted token so
+  // only the newest one glows.
+  const prev = out.querySelector('.tok.fresh');
+  if (prev) prev.classList.remove('fresh');
+
+  const span = document.createElement('span');
+  span.className = 'tok fresh';
+  span.setAttribute('tabindex', '0');
+  span.textContent = text;
+  span.dataset.tokenId = String(tok.token_id != null ? tok.token_id : '');
+  span.dataset.kernelId = String(tok.last_kernel_id || '');
+  // Ref-match marker: when ?compare=1 each token carries a yes/no glyph.
+  if (typeof tok.ref_match === 'boolean') {
+    span.classList.add(tok.ref_match ? 'refmatch-yes' : 'refmatch-no');
+  }
+  // Click + Enter both activate the click-through.
+  span.addEventListener('click', (e) => {
+    e.preventDefault();
+    openKernelForToken(span);
+  });
+  span.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openKernelForToken(span);
+    }
+  });
+  out.appendChild(span);
+
+  // Auto-scroll the stream so the latest token stays in view.
+  const stream = out.parentElement;
+  if (stream && stream.scrollTop != null) {
+    stream.scrollTop = stream.scrollHeight;
+  }
+}
+
+// openKernelForToken navigates to /k/<model>?kernel=<id> so the user
+// lands in the producing fused kernel for the clicked token. This is
+// the click-through promised by spec §5.6.
+function openKernelForToken(span) {
+  const kid = span.dataset.kernelId || _genState.lastKernelID;
+  const model = _genState.model || 'gpt2';
+  const url = kid
+    ? '/k/' + encodeURIComponent(model) + '?kernel=' + encodeURIComponent(kid)
+    : '/k/' + encodeURIComponent(model);
+  history.pushState({ viewId: 'kernels' }, '', url);
+  setActiveView('kernels');
+}
+
+function setGenText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function flushGenAnnounce() {
+  if (_genState.announceTimer) {
+    clearTimeout(_genState.announceTimer);
+    _genState.announceTimer = null;
+  }
+  if (_genState.pendingAnnounce.length === 0) return;
+  const last = _genState.pendingAnnounce[_genState.pendingAnnounce.length - 1];
+  const msg = 'generated ' + _genState.tokenCount + ' tokens, last token: '
+            + JSON.stringify(last);
+  announce(msg);
+  _genState.pendingAnnounce = [];
+}
+
 // ── visualize view (W4) ───────────────────────────────────────────────────
 // Spec: notes/anneal_web_spec.md §5.2.
 // Two pieces share this section:
@@ -1997,6 +2356,509 @@ function initExplainPlayButton() {
   });
 }
 
+// ── studio home view (W9): tensor-inspect dropzone ───────────────────────
+// Spec: notes/anneal_web_spec.md §5.1.
+//
+// The dropzone reads a dropped .npy / .npz / .safetensors file into a
+// Uint8Array, dispatches it to the WASM bridge (annealInspectTensor), and
+// renders the InspectResult JSON into the table. Bytes never leave the tab;
+// there is no server endpoint for tensor inspection (the privacy property
+// that falls out of WASM-tier inspection per spec §1).
+//
+// a11y notes:
+//   - dropzone is `role="region"` with an aria-label and aria-describedby
+//   - file input sits inside the dropzone for pointer + AT users
+//   - result section is aria-live="polite" so a screen reader announces it
+//   - result table uses real <th scope="col"> headers
+//   - keyboard: focus the dropzone and press Enter or Space to open the
+//     file picker
+
+const _inspectState = {
+  armed: false,
+};
+
+function renderStudioView() {
+  initInspectDropzone();
+  initStudioDropzone();
+}
+
+function initInspectDropzone() {
+  if (_inspectState.armed) return;
+  _inspectState.armed = true;
+
+  const zone = document.getElementById('tensor-dropzone');
+  const picker = document.getElementById('tensor-picker');
+  if (!zone || !picker) return;
+
+  // Click anywhere in the zone opens the picker (so pointer users don't
+  // have to find the small input). The inner input click is allowed
+  // through; stopping the recursion is what the `e.target === picker`
+  // guard does.
+  zone.addEventListener('click', (e) => {
+    if (e.target === picker) return;
+    picker.click();
+  });
+  // Keyboard activation: Enter / Space on the dropzone opens the picker.
+  zone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      picker.click();
+    }
+  });
+
+  // Drag and drop events. dragover with preventDefault is required to make
+  // a drop target functional; dragleave clears the visual highlight.
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('drag-over');
+  });
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) inspectFile(file);
+  });
+
+  picker.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) inspectFile(file);
+  });
+}
+
+function detectInspectFormat(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.endsWith('.npy'))         return 'npy';
+  if (n.endsWith('.npz'))         return 'npz';
+  if (n.endsWith('.safetensors')) return 'safetensors';
+  return '';
+}
+
+async function inspectFile(file) {
+  const format = detectInspectFormat(file.name);
+  const resultEl = document.getElementById('tensor-result');
+  const nameEl = document.getElementById('tensor-file-name');
+  const metaEl = document.getElementById('tensor-result-meta');
+  const tbody = document.getElementById('tensor-rows');
+  if (!resultEl || !nameEl || !metaEl || !tbody) return;
+
+  nameEl.textContent = file.name;
+  resultEl.hidden = false;
+  tbody.innerHTML = '';
+
+  if (!format) {
+    metaEl.textContent = 'unknown extension — expected .npy, .npz, or .safetensors';
+    announce('tensor inspect: unknown extension');
+    return;
+  }
+
+  metaEl.textContent = 'reading ' + file.size.toLocaleString() + ' bytes…';
+  let bytes;
+  try {
+    const buf = await file.arrayBuffer();
+    bytes = new Uint8Array(buf);
+  } catch (e) {
+    metaEl.textContent = 'read error: ' + ((e && e.message) || String(e));
+    return;
+  }
+
+  let raw;
+  try {
+    raw = await wasm.call('annealInspectTensor', bytes, format);
+  } catch (e) {
+    metaEl.textContent = 'wasm not loaded — build anneal.wasm to use the inspector';
+    announce('tensor inspect: wasm not loaded');
+    return;
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
+    metaEl.textContent = 'invalid JSON from annealInspectTensor';
+    return;
+  }
+  if (payload && payload.error) {
+    metaEl.textContent = 'parse error: ' + payload.error;
+    return;
+  }
+  renderInspectRows(payload);
+  announce('tensor inspect: ' + (payload.tensors ? payload.tensors.length : 0) + ' tensor(s) read');
+}
+
+function renderInspectRows(payload) {
+  const metaEl = document.getElementById('tensor-result-meta');
+  const tbody = document.getElementById('tensor-rows');
+  if (!metaEl || !tbody) return;
+  const tensors = (payload && payload.tensors) || [];
+  metaEl.textContent = 'format: ' + (payload.format || '?') +
+    ' · tensors: ' + tensors.length;
+  tbody.innerHTML = '';
+  for (const t of tensors) {
+    const tr = document.createElement('tr');
+    appendCell(tr, t.name || '');
+    appendCell(tr, t.dtype || '');
+    appendCell(tr, '[' + ((t.shape || []).join(',')) + ']');
+    appendCell(tr, String(t.numel || 0));
+    const previewCell = appendCell(tr, '');
+    previewCell.className = 'tensor-preview';
+    previewCell.textContent = formatPreview(t.preview || []);
+    tbody.appendChild(tr);
+  }
+}
+
+function appendCell(tr, text) {
+  const td = document.createElement('td');
+  td.textContent = text;
+  tr.appendChild(td);
+  return td;
+}
+
+function formatPreview(values) {
+  if (!Array.isArray(values) || values.length === 0) return '[]';
+  const formatted = values.map((v) => {
+    if (typeof v !== 'number' || !isFinite(v)) return String(v);
+    const a = Math.abs(v);
+    if (a !== 0 && (a < 1e-3 || a >= 1e4)) return v.toExponential(3);
+    return v.toFixed(4);
+  });
+  return '[' + formatted.join(', ') + ']';
+}
+
+// ── studio home view (W8): ONNX dropzone ─────────────────────────────────
+// Spec: notes/anneal_web_spec.md §5.1, §8.
+//
+// The studio reads a dropped .onnx file into a Uint8Array, dispatches it to
+// the WASM bridge (annealImportONNX) which runs the importer in
+// structure-only mode, and renders the topology immediately.
+//
+// Privacy contract (spec §1.3): model bytes never leave the tab. There is
+// NO server endpoint. The entire import path is WASM-tier.
+//
+// The imported summary's graph_id is stashed in sessionStorage so the
+// "visualize" and "kernels" deep links resolve on a subsequent page load:
+//   sessionStorage["anneal-imported-<graphID>"] = JSON.stringify(summary)
+// W9+ will lift these into a real /v/imported-<id> route renderer.
+//
+// a11y notes:
+//   - dropzone is `role="region"` with aria-label + aria-describedby
+//   - keyboard: focus the dropzone, press Enter or Space, or use the pick
+//     button (a real <button>) for AT users
+//   - result section is aria-live="polite" so the import announces
+//     incrementally without stealing focus
+//   - unsupported-op list uses ember accent + ● glyph + dashed underline
+//     (DD1: colour never alone)
+//   - errors (malformed protobuf, unsupported dtype, etc.) surface in the
+//     summary line and announce as "import error: …"
+
+const _onnxState = {
+  armed: false,
+};
+
+function initStudioDropzone() {
+  if (_onnxState.armed) return;
+  _onnxState.armed = true;
+
+  const zone = document.getElementById('onnx-dropzone');
+  const picker = document.getElementById('onnx-picker');
+  const pickerBtn = document.getElementById('onnx-picker-btn');
+  if (!zone || !picker) return;
+
+  if (pickerBtn) {
+    pickerBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      picker.click();
+    });
+  }
+
+  // Click the zone (anywhere except the picker / button) opens the picker.
+  zone.addEventListener('click', (e) => {
+    if (e.target === picker) return;
+    if (e.target === pickerBtn) return;
+    picker.click();
+  });
+  // Keyboard activation: Enter / Space on the dropzone opens the picker.
+  zone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      // Don't intercept space when the focused element is a button (the
+      // pick button consumes it natively).
+      if (e.target === pickerBtn || e.target === picker) return;
+      e.preventDefault();
+      picker.click();
+    }
+  });
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('drag-over');
+  });
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) importONNXFile(file);
+  });
+
+  picker.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) importONNXFile(file);
+  });
+}
+
+async function importONNXFile(file) {
+  const resultEl = document.getElementById('onnx-result');
+  const nameEl = document.getElementById('onnx-model-name');
+  const sumEl = document.getElementById('onnx-summary');
+  const unsupSec = document.getElementById('onnx-unsupported-section');
+  const unsupList = document.getElementById('onnx-unsupported-list');
+  const visualizeLink = document.getElementById('onnx-visualize-link');
+  const kernelsLink = document.getElementById('onnx-kernels-link');
+  if (!resultEl || !nameEl || !sumEl) return;
+
+  resultEl.hidden = false;
+  // Strip the extension for display.
+  const displayName = String(file.name || 'model').replace(/\.onnx$/i, '');
+  nameEl.textContent = displayName;
+  sumEl.textContent = 'reading ' + file.size.toLocaleString() + ' bytes…';
+  if (unsupSec) unsupSec.hidden = true;
+  if (unsupList) unsupList.innerHTML = '';
+
+  let bytes;
+  try {
+    const buf = await file.arrayBuffer();
+    bytes = new Uint8Array(buf);
+  } catch (e) {
+    sumEl.textContent = 'read error: ' + ((e && e.message) || String(e));
+    announce('import error: read failed');
+    return;
+  }
+
+  let raw;
+  try {
+    raw = await wasm.call('annealImportONNX', bytes);
+  } catch (e) {
+    sumEl.textContent = 'wasm not loaded — build anneal.wasm to import ONNX models';
+    announce('import error: wasm not loaded');
+    return;
+  }
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (_e) {
+    sumEl.textContent = 'invalid JSON from annealImportONNX';
+    announce('import error: invalid JSON');
+    return;
+  }
+  if (payload && payload.error) {
+    sumEl.textContent = 'parse error: ' + payload.error;
+    announce('import error: ' + payload.error);
+    return;
+  }
+  renderONNXSummary(payload, displayName);
+}
+
+function renderONNXSummary(payload, displayName) {
+  const sumEl = document.getElementById('onnx-summary');
+  const unsupSec = document.getElementById('onnx-unsupported-section');
+  const unsupList = document.getElementById('onnx-unsupported-list');
+  const visualizeLink = document.getElementById('onnx-visualize-link');
+  const kernelsLink = document.getElementById('onnx-kernels-link');
+  if (!sumEl || !payload) return;
+
+  const nodeCount = payload.node_count || 0;
+  const initCount = payload.initializer_count || 0;
+  const unsupOps = (payload.unsupported_ops || []);
+  const unsupCount = unsupOps.length;
+
+  let summary = nodeCount + ' nodes · ' + initCount + ' initializers';
+  if (payload.opset) summary += ' · opset ' + payload.opset;
+  if (unsupCount > 0) {
+    summary += ' · ' + unsupCount + ' unsupported op';
+    if (unsupCount !== 1) summary += 's';
+  }
+  if (payload.note) summary += ' · ' + payload.note;
+  sumEl.textContent = summary;
+
+  if (unsupSec && unsupList) {
+    if (unsupCount > 0) {
+      unsupSec.hidden = false;
+      unsupList.innerHTML = '';
+      for (const u of unsupOps) {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.className = 'op-name';
+        name.textContent = u.op_type + (u.count > 1 ? ' (' + u.count + ')' : '');
+        const reason = document.createElement('span');
+        reason.className = 'op-reason';
+        reason.textContent = ' — ' + (u.reason || 'no handler registered');
+        li.appendChild(name);
+        li.appendChild(reason);
+        unsupList.appendChild(li);
+      }
+    } else {
+      unsupSec.hidden = true;
+    }
+  }
+
+  // Stash the imported summary in sessionStorage so the deep links can
+  // resolve graph_id on a subsequent page load.
+  const gid = payload.graph_id;
+  if (gid) {
+    try {
+      sessionStorage.setItem('anneal-imported-' + gid, JSON.stringify({
+        ...payload,
+        display_name: displayName,
+      }));
+    } catch (_e) { /* private mode / quota */ }
+    if (visualizeLink) visualizeLink.setAttribute('href', '/v/' + gid + '?stage=forward');
+    if (kernelsLink) kernelsLink.setAttribute('href', '/k/' + gid);
+  }
+
+  let msg = 'imported ' + nodeCount + ' nodes';
+  if (unsupCount > 0) {
+    msg += ', ' + unsupCount + ' unsupported op';
+    if (unsupCount !== 1) msg += 's';
+  }
+  announce(msg);
+}
+
+// ── doctor view (W9) ─────────────────────────────────────────────────────
+// Spec: notes/anneal_web_spec.md §5.8.
+//
+// Two cards: the native binary's adapter via GET /api/device, and the
+// browser's own navigator.gpu.requestAdapter() probe run in-page. The
+// browser card carries a binding caveat — the two adapters are independent
+// enumerations on the same machine; anneal kernels do NOT run in the
+// browser's WebGPU. The caveat is a real <p>, not aria-hidden, because it
+// is important context.
+//
+// navigator.gpu is NOT available in Web Workers (it is a Window-only API
+// in all current browsers); the probe runs on the main thread here. If
+// the browser does not expose navigator.gpu (older browsers, restrictive
+// contexts), the renderer fills in a friendly fallback line.
+
+async function renderDoctorView() {
+  fillNativeCard();
+  fillBrowserCard();
+}
+
+async function fillNativeCard() {
+  const dl = document.getElementById('native-info');
+  if (!dl) return;
+  dl.innerHTML = '<dt>loading…</dt><dd></dd>';
+  try {
+    const resp = await fetch('/api/device', { headers: { 'Accept': 'application/json' } });
+    const data = await resp.json();
+    const rows = [
+      ['adapter',     data.adapter_name || '?'],
+      ['backend',     data.backend || '?'],
+      ['os / arch',   (data.os || '?') + ' / ' + (data.arch || '?')],
+      ['anneal',      data.anneal_version || '?'],
+      ['shader-f16',  data.shader_f16 ? 'yes' : 'no'],
+      ['max storage', formatBytes(data.max_storage_buffer_binding_size)],
+    ];
+    if (data.error) {
+      rows.push(['error', data.error]);
+    }
+    dl.innerHTML = '';
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = String(v);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    }
+  } catch (e) {
+    dl.innerHTML = '';
+    const dt = document.createElement('dt');
+    dt.textContent = 'error';
+    const dd = document.createElement('dd');
+    dd.textContent = (e && e.message) || String(e);
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+}
+
+async function fillBrowserCard() {
+  const dl = document.getElementById('browser-info');
+  if (!dl) return;
+  dl.innerHTML = '<dt>requesting…</dt><dd></dd>';
+  if (!('gpu' in navigator)) {
+    dl.innerHTML = '';
+    const dt = document.createElement('dt');
+    dt.textContent = 'webgpu';
+    const dd = document.createElement('dd');
+    dd.textContent = 'not available in this browser';
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+    return;
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      dl.innerHTML = '';
+      const dt = document.createElement('dt');
+      dt.textContent = 'adapter';
+      const dd = document.createElement('dd');
+      dd.textContent = 'navigator.gpu present but no adapter granted';
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+      return;
+    }
+    // Adapter info: name, architecture, vendor (where exposed). Newer
+    // browsers expose adapter.info; older ones expose requestAdapterInfo().
+    let info = adapter.info;
+    if (!info && typeof adapter.requestAdapterInfo === 'function') {
+      try { info = await adapter.requestAdapterInfo(); } catch (_) {}
+    }
+    const features = [];
+    if (adapter.features && adapter.features.forEach) {
+      adapter.features.forEach((f) => features.push(f));
+    }
+    const rows = [
+      ['vendor',       (info && info.vendor) || '?'],
+      ['architecture', (info && info.architecture) || '?'],
+      ['device',       (info && info.device) || '?'],
+      ['description',  (info && info.description) || '?'],
+      ['shader-f16',   features.indexOf('shader-f16') >= 0 ? 'yes' : 'no'],
+    ];
+    if (adapter.limits) {
+      rows.push(['max storage', formatBytes(adapter.limits.maxStorageBufferBindingSize)]);
+    }
+    dl.innerHTML = '';
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = String(v);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    }
+  } catch (e) {
+    dl.innerHTML = '';
+    const dt = document.createElement('dt');
+    dt.textContent = 'error';
+    const dd = document.createElement('dd');
+    dd.textContent = (e && e.message) || String(e);
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  }
+}
+
+function formatBytes(n) {
+  if (typeof n !== 'number' || !isFinite(n) || n <= 0) return '?';
+  if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GiB';
+  if (n >= 1024 * 1024)        return (n / (1024 * 1024)).toFixed(1)        + ' MiB';
+  if (n >= 1024)               return (n / 1024).toFixed(1)                 + ' KiB';
+  return n + ' B';
+}
+
 // ── boot ──────────────────────────────────────────────────────────────────
 
 function boot() {
@@ -2027,8 +2889,15 @@ export const __studio = {
   tokenizeWGSL, renderKernelsView, selectKernel, modelFromPath,
   // W6 hooks (train view).
   renderTrainView, trainStart, trainCancel, modelFromTrainPath,
+  // W7 hooks (generate view).
+  renderGenerateView, generateStart, generateCancel, modelFromGenPath,
   // W4 hooks (visualize view).
   renderVisualizeView, closeNodeInspector, modelFromVizPath, nodeIdFromQuery,
   // W3 hooks (explain view).
   renderExplainView, selectOp, opFromExplainPath, drawMiniGraph,
+  // W9 hooks (tensor inspect dropzone + doctor view).
+  renderStudioView, inspectFile, detectInspectFormat, formatPreview,
+  renderDoctorView, fillNativeCard, fillBrowserCard, formatBytes,
+  // W8 hooks (ONNX dropzone).
+  initStudioDropzone, importONNXFile, renderONNXSummary,
 };

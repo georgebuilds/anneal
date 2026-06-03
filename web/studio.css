@@ -1072,6 +1072,260 @@ main {
   .kernel-thumb { border-width: 2px; }
 }
 
+/* ── generate view (W7) ───────────────────────────────────────────────────
+   Layout: controls row up top, status line, the token stream (a fluid
+   monospace block where each emitted token is a focusable span), and a
+   sidebar logit panel showing last-token detail. The compare-to-reference
+   toggle gets a brand-teal accent because it surfaces the studio's killer
+   feature (the GPT-2 value oracle) per spec §5.6.
+
+   a11y (web/A11Y.md §3e):
+   - The token stream is aria-live="polite" + aria-atomic="false";
+     studio.js batches announcements to every 5 tokens / 500ms to avoid
+     screen-reader spam during a fast generation.
+   - Each .tok span is tabindex="0" so a keyboard user can land on a
+     token and Enter activates the click-through to its producing
+     kernel.
+   - The logit panel is its own region so SR users can navigate to it
+     and read the structured detail (token text, id, summary, ref
+     match) without re-reading the stream. */
+
+.generate-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-areas:
+    "controls  controls"
+    "status    status"
+    "stream    logit"
+    "stream    logit";
+  gap: 16px;
+  align-items: start;
+}
+.generate-controls {
+  grid-area: controls;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+}
+.generate-controls select,
+.generate-controls input[type="text"],
+.generate-controls input[type="number"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--hair);
+  border-radius: 3px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  min-height: 44px;
+}
+.generate-controls select { min-width: 140px; }
+.generate-controls input[type="text"] { flex: 1 1 240px; min-width: 200px; }
+.generate-controls input[type="number"] { width: 96px; }
+.generate-controls button {
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--text);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+.generate-controls button:hover { background: var(--surface-2); }
+.generate-controls button.primary {
+  border-color: var(--gold);
+  color: var(--text);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  font-weight: 600;
+}
+.generate-controls button.primary:hover {
+  background: color-mix(in srgb, var(--gold) 24%, transparent);
+}
+.generate-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.generate-controls .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.generate-controls input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+}
+/* The compare-to-reference toggle gets the brand teal so it visually
+   announces itself as the killer feature (DD1: paired with the literal
+   label "compare to reference"). */
+.generate-controls #gen-compare {
+  accent-color: var(--teal);
+}
+.generate-controls #gen-compare:focus-visible + * {
+  outline: 2px solid var(--teal);
+}
+.generate-controls label.checkbox-label:has(#gen-compare:checked) {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.generate-status {
+  grid-area: status;
+  font-size: 0.75rem;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.warming-hint {
+  color: var(--teal);
+  font-style: italic;
+}
+
+.token-stream {
+  grid-area: stream;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  min-height: 240px;
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.token-stream .echo {
+  color: var(--muted);
+}
+.tok {
+  display: inline;
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+  transition: background-color 240ms ease-out;
+}
+.tok:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+.tok:hover {
+  background-color: color-mix(in srgb, var(--teal) 16%, transparent);
+}
+/* Gold pulse for the just-emitted token (one-frame flash; the JS removes
+   the .fresh class after the animation has played, so only the most
+   recent token glows). */
+.tok.fresh {
+  animation: tok-flash 1.2s ease-out forwards;
+}
+@keyframes tok-flash {
+  0%   { background-color: color-mix(in srgb, var(--gold) 80%, transparent); }
+  100% { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tok.fresh {
+    animation: none !important;
+    /* Instant fill instead of flash. */
+    background-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  }
+  .tok { transition: none !important; }
+}
+
+/* The ref-match marker rides alongside each token when ?compare=1.
+   Token spans get .refmatch-yes or .refmatch-no classes; the marker
+   is a leading ✓/✗ glyph rendered via ::before so the colour pairs
+   with shape (DD1). */
+.tok.refmatch-yes::before {
+  content: "✓";
+  color: var(--teal);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.tok.refmatch-no::before {
+  content: "✗";
+  color: var(--ember, #d97757);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.logit-panel {
+  grid-area: logit;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+}
+.logit-panel h2 {
+  margin: 0 0 10px 0;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.logit-panel dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+}
+.logit-panel dt {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.logit-panel dd {
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+  word-break: break-word;
+}
+.logit-panel #gen-click-through {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--teal);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 0.75rem;
+}
+.logit-panel #gen-click-through:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+@media (prefers-contrast: more) {
+  .generate-controls,
+  .token-stream,
+  .logit-panel { border-width: 2px; }
+}
+
+@media (max-width: 720px) {
+  .generate-pane {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "controls"
+      "status"
+      "stream"
+      "logit";
+  }
+}
+
 /* ── visualize view (W4) ──────────────────────────────────────────────────
    Layout: an iframe on the left running the existing viz artifact verbatim,
    a node-inspector drawer on the right. The drawer is `hidden` by default
@@ -1494,5 +1748,244 @@ main {
   .gradient-rule {
     border-color: CanvasText;
     border-left-color: CanvasText;
+  }
+}
+
+/* ── W9: tensor-inspect dropzone (spec §5.1) ─────────────────────────────
+   Same visual idiom as the (forthcoming) ONNX dropzone: a dashed border
+   that becomes solid on hover/focus, a teal accent on dragenter, an
+   inline result table below. The dropzone is keyboard-reachable
+   (tabindex=0) and an associated <input type="file"> sits inside it for
+   pointer + screen-reader users. */
+.dropzone {
+  border: 1.5px dashed var(--hair);
+  border-radius: 8px;
+  padding: 24px;
+  margin: 16px 0;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+}
+.dropzone:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.dropzone:hover,
+.dropzone.drag-over {
+  border-color: var(--teal);
+  background: var(--surface-2);
+}
+.dropzone p {
+  margin: 4px 0;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.875rem;
+}
+.dropzone-hint {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.dropzone input[type="file"] {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.dropzone-result {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+}
+.dropzone-result h2 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+}
+.tensor-result-meta {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  margin: 0 0 12px 0;
+}
+.tensor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+.tensor-table th,
+.tensor-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--hair);
+  vertical-align: top;
+}
+.tensor-table th {
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: lowercase;
+}
+.tensor-table td {
+  color: var(--text);
+}
+.tensor-preview {
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* ── W8: ONNX dropzone (spec §5.1, §8) ────────────────────────────────────
+   Same .dropzone idiom as W9 (the visual primitives above are shared).
+   This block adds the ONNX-specific bits:
+     - the unsupported-op list uses the ember accent (DD1: colour paired
+       with a leading dot glyph AND a dashed underline so colour is never
+       the only signal);
+     - the action row sits below the summary with the primary "visualize"
+       link in gold + bold, the secondary "kernels" link in teal, and the
+       quiet "explain ops" link in muted ink — same idiom as DESIGN.md
+       §6 navigation accents.
+   Reduced-motion + forced-colors blocks are inherited from the W9 block. */
+.onnx-dropzone .dropzone-hint {
+  /* The hint text carries the privacy claim "never leave the tab"; keep it
+     visible enough to scan even in dim themes. */
+  color: var(--muted);
+}
+.onnx-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.875rem;
+}
+.onnx-actions a {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--hair);
+  text-decoration: none;
+  color: var(--text);
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.onnx-actions a.primary {
+  border-color: var(--gold);
+  color: var(--gold);
+  font-weight: 600;
+}
+.onnx-actions a.quiet {
+  color: var(--muted);
+  border-style: dashed;
+}
+.onnx-actions a:hover,
+.onnx-actions a:focus-visible {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+.onnx-actions a:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.onnx-unsupported {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+.onnx-unsupported li {
+  padding: 4px 0;
+  color: var(--text);
+}
+/* DD1: ember colour AND a leading bullet glyph + dashed underline.
+   Colour alone never carries the meaning. */
+.onnx-unsupported li::before {
+  content: "● ";
+  color: var(--ember);
+  margin-right: 6px;
+}
+.onnx-unsupported .op-name {
+  text-decoration: underline dashed var(--ember);
+  text-underline-offset: 3px;
+  color: var(--text);
+}
+.onnx-unsupported .op-reason {
+  color: var(--muted);
+}
+.muted {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+/* ── W9: doctor view (spec §5.8) ─────────────────────────────────────────
+   Two cards side by side: native + browser. Each card is an <article>
+   with a heading and a <dl>. The browser card carries a binding caveat
+   paragraph below the dl (the two adapters are independent enumerations;
+   anneal kernels do not run in the browser's WebGPU). */
+.doctor-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 16px 0;
+}
+.doctor-card {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+}
+.doctor-card h2 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+}
+.doctor-card dl {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+.doctor-card dt {
+  color: var(--muted);
+}
+.doctor-card dd {
+  margin: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+.doctor-card .caveat {
+  margin: 12px 0 0 0;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Commit Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  line-height: 1.5;
+}
+@media (max-width: 720px) {
+  .doctor-pane {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Forced-colors: keep dashed dropzone border + card borders visible. */
+@media (forced-colors: active) {
+  .dropzone {
+    border-color: CanvasText;
+  }
+  .doctor-card,
+  .dropzone-result {
+    border-color: CanvasText;
+  }
+}
+
+/* Reduced-motion: the result section just shows; no animation. */
+@media (prefers-reduced-motion: reduce) {
+  .dropzone,
+  .dropzone-result {
+    transition: none !important;
+    animation: none !important;
   }
 }

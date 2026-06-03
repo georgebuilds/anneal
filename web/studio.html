@@ -136,6 +136,76 @@
         view: studio. device card, model cards, and recent runs land here in W1+.
         the routing, theme, keyboard, and worker scaffolding underneath are live.
       </div>
+
+      <!-- W9: tensor-inspect dropzone (spec §5.1). The studio holds the
+           file in a Uint8Array and dispatches through the WASM bridge
+           (annealInspectTensor); bytes never reach the server. Format is
+           detected by filename extension; unknown extensions surface a
+           blameless error. The result table is a real <table> so screen
+           readers get column headers; the live region attribute on the
+           result section announces the inspection inline. -->
+      <div class="dropzone tensor-inspect-zone" id="tensor-dropzone" tabindex="0"
+           role="region" aria-label="tensor file dropzone"
+           aria-describedby="tensor-hint">
+        <p>drop a .npy / .npz / .safetensors here to inspect</p>
+        <p id="tensor-hint" class="dropzone-hint">
+          payload stays in the tab. shape, dtype, numel, first 16 values.
+        </p>
+        <input type="file" id="tensor-picker" accept=".npy,.npz,.safetensors" aria-label="select tensor file">
+      </div>
+      <div class="dropzone-result" id="tensor-result" hidden aria-live="polite" aria-atomic="false">
+        <h2>inspected: <span id="tensor-file-name"></span></h2>
+        <p class="tensor-result-meta" id="tensor-result-meta"></p>
+        <table class="tensor-table" aria-label="tensor info">
+          <thead>
+            <tr>
+              <th scope="col">name</th>
+              <th scope="col">dtype</th>
+              <th scope="col">shape</th>
+              <th scope="col">numel</th>
+              <th scope="col">preview</th>
+            </tr>
+          </thead>
+          <tbody id="tensor-rows"></tbody>
+        </table>
+      </div>
+
+      <!-- W8: ONNX dropzone (spec §5.1, §8). The studio reads an .onnx file
+           in the browser, dispatches the bytes through the WASM bridge
+           (annealImportONNX) which runs the importer in structure-only mode,
+           and renders the topology immediately. The privacy contract (spec
+           §1.3) is load-bearing: model bytes never reach even the local
+           server. There is NO /api/onnx/* endpoint. The result region uses
+           polite aria-live so screen readers announce the import summary
+           without stealing focus from the dropzone. -->
+      <div class="dropzone onnx-dropzone" id="onnx-dropzone" tabindex="0"
+           role="region" aria-label="ONNX model dropzone"
+           aria-describedby="dropzone-hint">
+        <p>drop an .onnx model here to visualize</p>
+        <p class="dropzone-hint" id="dropzone-hint">
+          structure only — model bytes never leave the tab. press Enter or use the picker below.
+        </p>
+        <input type="file" id="onnx-picker" accept=".onnx" aria-label="select ONNX model file">
+        <button class="ghost" id="onnx-picker-btn" type="button"
+                aria-label="pick ONNX model file">pick file</button>
+      </div>
+      <div class="dropzone-result" id="onnx-result" hidden aria-live="polite" aria-atomic="false">
+        <h2>imported: <span id="onnx-model-name"></span></h2>
+        <p class="summary" id="onnx-summary"></p>
+        <section aria-label="unsupported ops" id="onnx-unsupported-section" hidden>
+          <h3>unsupported ops in this model</h3>
+          <ul id="onnx-unsupported-list" class="onnx-unsupported"></ul>
+          <p class="muted">the rest of the graph is shown below; the runnable subgraph excludes the unsupported nodes.</p>
+        </section>
+        <div class="onnx-actions">
+          <a id="onnx-visualize-link" class="primary" href="#"
+             aria-label="visualize imported graph">visualize</a>
+          <a id="onnx-kernels-link" href="#"
+             aria-label="kernels for imported graph">kernels</a>
+          <a id="onnx-explain-link" class="quiet" href="/x/"
+             aria-label="explain ops in this model">explain ops</a>
+        </div>
+      </div>
     </section>
 
     <!-- W4: visualize view embeds the existing viz artifact verbatim in an
@@ -370,10 +440,76 @@
       </div>
     </section>
 
+    <!-- W7: generate view. SSE-driven token stream. The controls row
+         launches a real /sse/generate run; each emitted token is
+         appended to #gen-tokens-out as a focusable <span class="tok">.
+         Clicking a token navigates to /k/<model>?kernel=<lastKernelID>
+         so the user lands in the producing fused kernel (spec §5.6).
+         a11y: controls labelled, token stream is aria-live="polite"
+         with batched announcements, last-token panel is its own
+         region, prompt input has maxlength + aria-describedby. See
+         web/A11Y.md §3e. -->
     <section class="view" id="view-generate" aria-labelledby="view-generate-heading">
       <h1 id="view-generate-heading">generate</h1>
       <div class="lede">forward-pass inference, token by token. every token clicks through to the producing kernel.</div>
-      <div class="stub">view: generate coming soon.</div>
+      <div class="generate-pane">
+        <div class="generate-controls">
+          <label for="gen-model" class="visually-hidden">model</label>
+          <select id="gen-model" aria-label="model to generate from">
+            <option value="gpt2">gpt2-small</option>
+            <option value="nanogpt">nanogpt</option>
+          </select>
+          <label for="gen-prompt" class="visually-hidden">prompt</label>
+          <input id="gen-prompt" type="text" placeholder="prompt"
+                 aria-label="prompt"
+                 aria-describedby="gen-prompt-help"
+                 maxlength="2048" value="Hello">
+          <span id="gen-prompt-help" class="visually-hidden">
+            max 2048 characters; up to 256 tokens generated.
+          </span>
+          <label for="gen-tokens" class="visually-hidden">max tokens</label>
+          <input id="gen-tokens" type="number" min="1" max="256" value="32"
+                 aria-label="number of tokens to generate (max 256)">
+          <button id="gen-start" type="button" class="primary"
+                  aria-label="start generation">generate</button>
+          <button id="gen-cancel" type="button" class="ghost" disabled
+                  aria-label="cancel generation">cancel</button>
+          <label class="checkbox-label">
+            <input id="gen-compare" type="checkbox"
+                   aria-label="compare each token to the reference oracle">
+            compare to reference
+          </label>
+          <label class="checkbox-label">
+            <input id="gen-bundle" type="checkbox" checked
+                   aria-label="save run bundle to ~/.cache/anneal/runs/">
+            save bundle
+          </label>
+        </div>
+        <div class="generate-status" aria-live="polite" aria-atomic="false">
+          <span id="gen-status">ready</span>
+          <span class="warming-hint" id="gen-warming" hidden>warming up (first run loads weights)…</span>
+        </div>
+        <div class="token-stream"
+             role="region"
+             aria-live="polite"
+             aria-atomic="false"
+             aria-label="generated tokens">
+          <span id="gen-prompt-echo" class="echo"></span><span id="gen-tokens-out"></span>
+        </div>
+        <aside class="logit-panel"
+               role="region"
+               aria-label="last-token logit summary">
+          <h2>last token</h2>
+          <dl>
+            <dt>token text</dt><dd id="gen-last-text">—</dd>
+            <dt>token id</dt><dd id="gen-last-id">—</dd>
+            <dt>logit summary</dt><dd id="gen-last-logit">—</dd>
+            <dt>ref match</dt><dd id="gen-last-ref">—</dd>
+          </dl>
+          <a id="gen-click-through" class="quiet" href="#"
+             aria-label="open the producing kernel for the last token">open producing kernel</a>
+        </aside>
+      </div>
     </section>
 
     <section class="view" id="view-history" aria-labelledby="view-history-heading">
@@ -382,10 +518,29 @@
       <div class="stub">view: history coming soon.</div>
     </section>
 
+    <!-- W9: doctor view (spec §5.8). Two cards side by side: the native
+         binary's adapter via /api/device, and the browser's own
+         navigator.gpu.requestAdapter() probe run in-page. The browser-card
+         caveat is binding per spec — the two adapters are independent
+         enumerations on the same machine; anneal does not run kernels in the
+         browser's WebGPU. -->
     <section class="view" id="view-doctor" aria-labelledby="view-doctor-heading">
       <h1 id="view-doctor-heading">doctor</h1>
       <div class="lede">what the binary sees · what your browser sees. side by side, same machine.</div>
-      <div class="stub">view: doctor coming soon.</div>
+      <div class="doctor-pane">
+        <article class="doctor-card" aria-label="native">
+          <h2>native (anneal)</h2>
+          <dl id="native-info" aria-live="polite" aria-atomic="false"><dt>loading…</dt><dd></dd></dl>
+        </article>
+        <article class="doctor-card" aria-label="browser">
+          <h2>browser (navigator.gpu)</h2>
+          <dl id="browser-info" aria-live="polite" aria-atomic="false"><dt>requesting…</dt><dd></dd></dl>
+          <p class="caveat muted">
+            the browser's WebGPU is an independent enumeration. anneal kernels do
+            not run in this adapter; this is a diagnostic only.
+          </p>
+        </article>
+      </div>
     </section>
 
   </main>

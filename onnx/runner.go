@@ -23,12 +23,17 @@ type ValueInfo struct {
 // Handlers see the lowered Node (their OpType, attrs, in/out names), the
 // arena to construct UOps on, the resolved inputs (Values), the resolved
 // primary opset, and the device tag.
+//
+// StructureOnly mirrors Runner.structureOnly so payload-reading handlers
+// (Constant, ConstantOfShape) can pick the no-payload code path when the
+// Runner was imported via WithStructureOnly().
 type HandlerCtx struct {
-	Arena  *uop.Arena
-	Device string
-	Node   *Node
-	Inputs []Value
-	Opset  int64
+	Arena         *uop.Arena
+	Device        string
+	Node          *Node
+	Inputs        []Value
+	Opset         int64
+	StructureOnly bool
 }
 
 // Handler is the signature for device-tier op implementations. Returning
@@ -56,7 +61,35 @@ type Runner struct {
 	opset        int64
 
 	handlers map[string]Handler
+
+	// structureOnly, when true, skips materialising initializer payload bytes
+	// and skips Constant/ConstantOfShape attr-Tensor decode. The Runner still
+	// exposes correct shapes and dtypes for every value, so the visualization
+	// (graph walk + shape inference + topology) works; Run() returns an error
+	// because payloads aren't there. Set via WithStructureOnly().
+	structureOnly bool
 }
+
+// ImportOpt is a Functional option for Import. Use WithStructureOnly() to
+// opt out of materialising initializer payload bytes (visualization use).
+type ImportOpt func(*Runner)
+
+// WithStructureOnly opts out of materializing initializer payload bytes.
+// Initializer entries are created with the correct shape + dtype but with
+// empty Data() slices; Constant / ConstantOfShape attr-Tensor decoding is
+// also skipped (a zero-filled leaf of the right shape is returned instead).
+//
+// Use this for visualization where shapes and topology matter and values do
+// not. Subsequent r.Run() calls will fail loudly because payloads aren't
+// there; the contract is "structure preserves topology, not values".
+func WithStructureOnly() ImportOpt {
+	return func(r *Runner) { r.structureOnly = true }
+}
+
+// StructureOnly reports whether this Runner was imported in structure-only
+// mode. Visualization callers may use this to label the rendering and
+// surface the documented caveat (no Run, no values).
+func (r *Runner) StructureOnly() bool { return r.structureOnly }
 
 // Arena returns the runner's arena.
 func (r *Runner) Arena() *uop.Arena { return r.arena }
@@ -87,13 +120,22 @@ func (r *Runner) RegisterHandler(opType string, h Handler) {
 	r.handlers[opType] = h
 }
 
+// HasHandler reports whether the runner has a device-tier handler registered
+// for the given op type. The structure-only viz path (W8) uses this to flag
+// unsupported ops in the dropzone summary without exporting the whole
+// handler table.
+func (r *Runner) HasHandler(opType string) bool {
+	_, ok := r.handlers[opType]
+	return ok
+}
+
 // ImportFile parses a model from disk. Convenience wrapper over Import.
-func ImportFile(path string, arena *uop.Arena, device string) (*Runner, error) {
+func ImportFile(path string, arena *uop.Arena, device string, opts ...ImportOpt) (*Runner, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("onnx: read %q: %w", path, err)
 	}
-	return Import(data, arena, device)
+	return Import(data, arena, device, opts...)
 }
 
 // Import parses the ONNX protobuf bytes and constructs a Runner. The model's
@@ -104,7 +146,7 @@ func ImportFile(path string, arena *uop.Arena, device string) (*Runner, error) {
 // is "" or "ai.onnx" — that is the primary opset version. opset < 10 is a
 // hard error (plan §4 cutoff); opset > 17 emits a warning (we don't refuse,
 // but in-window correctness is what is exercised by tests).
-func Import(modelBytes []byte, arena *uop.Arena, device string) (*Runner, error) {
+func Import(modelBytes []byte, arena *uop.Arena, device string, opts ...ImportOpt) (*Runner, error) {
 	if arena == nil {
 		return nil, fmt.Errorf("onnx.Import: nil arena")
 	}
@@ -124,6 +166,9 @@ func Import(modelBytes []byte, arena *uop.Arena, device string) (*Runner, error)
 		initializers: make(map[string]Value),
 		handlers:     make(map[string]Handler),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
 
 	// Resolve primary opset.
 	opset, err := resolvePrimaryOpset(model.GetOpsetImport())
@@ -133,7 +178,9 @@ func Import(modelBytes []byte, arena *uop.Arena, device string) (*Runner, error)
 	r.opset = opset
 
 	// Intern initializers (structural identity: identical TensorProtos share
-	// the same arena leaf).
+	// the same arena leaf). In structure-only mode, materialise a leaf with
+	// the correct shape + dtype but skip the payload decode — Data() returns
+	// nil. Visualization needs topology, not values.
 	type internEntry struct {
 		v Value
 	}
@@ -144,7 +191,15 @@ func Import(modelBytes []byte, arena *uop.Arena, device string) (*Runner, error)
 			r.initializers[tp.GetName()] = hit.v
 			continue
 		}
-		t, terr := tensorFromProto(arena, tp, device)
+		var (
+			t    *tensor.Tensor
+			terr error
+		)
+		if r.structureOnly {
+			t, terr = structureOnlyLeafFromProto(arena, tp, device)
+		} else {
+			t, terr = tensorFromProto(arena, tp, device)
+		}
 		if terr != nil {
 			return nil, terr
 		}
@@ -274,6 +329,9 @@ func lowerValueInfos(arena *uop.Arena, vis []*onnxpb.ValueInfoProto) ([]ValueInf
 // is gating on: it proves the dispatch loop walks the graph and surfaces
 // missing handlers as a clean failure rather than a silent wrong output.
 func (r *Runner) Run(named map[string]*tensor.Tensor) (map[string]*tensor.Tensor, error) {
+	if r.structureOnly {
+		return nil, fmt.Errorf("onnx: Run is unsupported in structure-only mode (WithStructureOnly() skips payload materialisation; use a full Import for execution)")
+	}
 	state := make(map[string]Value, len(r.initializers)+len(named))
 	for k, v := range r.initializers {
 		state[k] = v
@@ -333,11 +391,12 @@ func (r *Runner) Run(named map[string]*tensor.Tensor) (map[string]*tensor.Tensor
 				node.OpType, node.Name, node.Inputs, node.Outputs)
 		}
 		ctx := &HandlerCtx{
-			Arena:  r.arena,
-			Device: r.device,
-			Node:   node,
-			Inputs: inputs,
-			Opset:  r.opset,
+			Arena:         r.arena,
+			Device:        r.device,
+			Node:          node,
+			Inputs:        inputs,
+			Opset:         r.opset,
+			StructureOnly: r.structureOnly,
 		}
 		outs, err := h(ctx)
 		if err != nil {

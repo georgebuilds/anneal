@@ -1,6 +1,7 @@
 package examples
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
@@ -10,6 +11,117 @@ import (
 	"github.com/georgebuilds/anneal/tensor/nn"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// NanoGPTStreamToken is one record emitted by NanoGPTGenerateStream — a
+// per-token callback payload for the studio's /sse/generate handler. The
+// shape mirrors gpt2.StreamToken so the SSE wire format stays uniform.
+type NanoGPTStreamToken struct {
+	Step         int     // 0-based token index within this generation
+	ID           int32   // sampled token id (argmax for the current path)
+	Text         string  // decoded text fragment for this id alone
+	Argmax       int32   // argmax id at this step
+	LogitMax     float32 // value of the max logit
+	LogitMaxIdx  int     // index where the max logit lives
+	LogitSummary string  // pre-formatted "max=X.YZ at idx N"
+}
+
+// NanoGPTGenerateStream is the streaming entry point used by the studio's
+// /sse/generate handler. It constructs a fresh nanoGPT (seeded
+// deterministically so successive runs over the same prompt diverge only
+// on context), encodes the prompt against the tinyshakespeare vocabulary,
+// and runs nGen autoregressive steps. Each emitted token is reported via
+// onTok with the per-step record; the function returns the decoded text
+// after the loop completes.
+//
+// The model is initialized fresh (no training); the generation is a
+// compiler-correctness demo, not a language-modelling demo. The
+// per-token kernel pulse and the WGSL click-through are the value
+// proposition.
+//
+// The context is checked at the top of every step so a client disconnect
+// (caught by the SSE handler) cleanly aborts.
+func NanoGPTGenerateStream(
+	ctx context.Context,
+	device string,
+	prompt string,
+	nGen int,
+	onTok func(NanoGPTStreamToken),
+) (string, error) {
+	if onTok == nil {
+		return "", fmt.Errorf("nanogpt: NanoGPTGenerateStream: onTok callback must be non-nil")
+	}
+	if nGen <= 0 {
+		return "", fmt.Errorf("nanogpt: NanoGPTGenerateStream: nGen must be > 0, got %d", nGen)
+	}
+
+	ds, err := loadShakespeareDataset()
+	if err != nil {
+		return "", err
+	}
+	cfg := defaultNanoGPTConfig(ds.VocabSize())
+
+	a0 := uop.NewArena(1 << 14)
+	g := nn.NewGPT(a0, cfg.Vocab, cfg.NLayer, cfg.NHead, cfg.NEmbd, cfg.BlockSize)
+	initGPTSmall(g, nanoGPTInitScale, rand.New(rand.NewSource(42)))
+	params := g.Params()
+
+	T := int64(cfg.BlockSize)
+	V := cfg.Vocab
+
+	encoded := ds.Encode(prompt)
+	ctxBuf := make([]int32, T)
+	if int64(len(encoded)) >= T {
+		copy(ctxBuf, encoded[int64(len(encoded))-T:])
+	} else {
+		pad := int(T) - len(encoded)
+		copy(ctxBuf[pad:], encoded)
+	}
+	produced := make([]int32, 0, len(encoded)+nGen)
+	produced = append(produced, encoded...)
+
+	for k := 0; k < nGen; k++ {
+		if err := ctx.Err(); err != nil {
+			return ds.Decode(produced), err
+		}
+		a := uop.NewArena(1 << 20)
+		for _, p := range params {
+			p.Load(a)
+		}
+		idx := tensor.NewLeaf(a, []int64{1, T}, uop.Dtypes.Int32, device)
+		idx.SetData(int32sAsBits(ctxBuf))
+
+		logits := g.Forward(idx)
+		if err := tensor.Realize(logits); err != nil {
+			return ds.Decode(produced), fmt.Errorf("nanogpt: NanoGPTGenerateStream: realize at step %d: %w", k, err)
+		}
+		data := logits.Data()
+		base := (int(T) - 1) * V
+		var bestID int32
+		bestVal := float32(math.Inf(-1))
+		for j := 0; j < V; j++ {
+			v := data[base+j]
+			if v > bestVal {
+				bestVal = v
+				bestID = int32(j)
+			}
+		}
+		produced = append(produced, bestID)
+		copy(ctxBuf, ctxBuf[1:])
+		ctxBuf[T-1] = bestID
+
+		fragment := ds.Decode([]int32{bestID})
+		onTok(NanoGPTStreamToken{
+			Step:         k,
+			ID:           bestID,
+			Text:         fragment,
+			Argmax:       bestID,
+			LogitMax:     bestVal,
+			LogitMaxIdx:  int(bestID),
+			LogitSummary: fmt.Sprintf("max=%.3f at idx %d", bestVal, bestID),
+		})
+	}
+	return ds.Decode(produced), nil
+}
 
 func init() {
 	Register(&Example{

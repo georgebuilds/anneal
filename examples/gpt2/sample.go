@@ -1,6 +1,7 @@
 package gpt2
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -11,6 +12,24 @@ import (
 	"github.com/georgebuilds/anneal/tensor/nn"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// StreamToken is one record emitted by SampleStream — a per-token callback
+// payload that carries the id, decoded text fragment, and a logit-summary
+// string the studio's generate view renders in the last-token panel.
+//
+// Argmax is the argmax over the full logit vector at this step. For a
+// greedy decode Argmax equals ID; for stochastic sampling Argmax is the
+// "what would the deterministic path have picked" and ID is the actual
+// sampled id.
+type StreamToken struct {
+	Step         int     // 0-based token index within this generation
+	ID           int32   // sampled token id
+	Text         string  // decoded text fragment for this id alone
+	Argmax       int32   // argmax id at this step (for ref-match comparisons)
+	LogitMax     float32 // value of the max logit
+	LogitMaxIdx  int     // index where the max logit lives (same as Argmax)
+	LogitSummary string  // pre-formatted "max=X.YZ at idx N"
+}
 
 // ── Sampling configuration ───────────────────────────────────────────────────
 
@@ -121,6 +140,106 @@ func Sample(g *nn.GPT, bpe *BPE, prompt string, ctxLen int, device string, opts 
 		ids = append(ids, nextID)
 	}
 
+	return bpe.Decode(ids), nil
+}
+
+// SampleStream is the streaming variant of Sample used by the studio's
+// /sse/generate handler. It runs the same autoregressive forward loop but
+// invokes onTok(...) after each emitted token with the per-step record;
+// the returned string is the same decoded concatenation Sample returns.
+//
+// The context is checked at the top of every step so a client disconnect
+// (caught by the SSE handler) cleanly aborts the generation. The error
+// returned in that case is ctx.Err(); the caller can decide whether to
+// treat it as a failure (PhaseError) or a graceful stop.
+//
+// onTok must be non-nil; otherwise the streaming contract is meaningless
+// and Sample is the right entry point. Returns the decoded text up to and
+// including the last successfully emitted token if the context is
+// cancelled mid-stream.
+func SampleStream(
+	ctx context.Context,
+	g *nn.GPT,
+	bpe *BPE,
+	prompt string,
+	ctxLen int,
+	device string,
+	opts SampleOptions,
+	onTok func(StreamToken),
+) (string, error) {
+	if onTok == nil {
+		return "", fmt.Errorf("gpt2: SampleStream: onTok callback must be non-nil")
+	}
+	if opts.MaxTokens <= 0 {
+		return "", fmt.Errorf("gpt2: SampleStream: MaxTokens must be > 0, got %d", opts.MaxTokens)
+	}
+	if ctxLen <= 0 || ctxLen > g.BlockSize {
+		return "", fmt.Errorf("gpt2: SampleStream: ctxLen %d must be in (0, %d]", ctxLen, g.BlockSize)
+	}
+	rng := opts.Rng
+	if !opts.Greedy && rng == nil {
+		rng = rand.New(rand.NewSource(1))
+	}
+
+	ids := bpe.Encode(prompt)
+	if len(ids) == 0 {
+		return "", fmt.Errorf("gpt2: SampleStream: prompt encoded to zero tokens (%q)", prompt)
+	}
+	startLen := len(ids)
+
+	for k := 0; k < opts.MaxTokens; k++ {
+		if err := ctx.Err(); err != nil {
+			return bpe.Decode(ids), err
+		}
+
+		windowIds := ids
+		if len(windowIds) > ctxLen {
+			windowIds = windowIds[len(windowIds)-ctxLen:]
+		}
+		T := int64(len(windowIds))
+
+		a := uop.NewArena(1 << 20)
+		for _, p := range g.Params() {
+			p.Load(a)
+		}
+		idx := tensor.NewLeaf(a, []int64{1, T}, uop.Dtypes.Int32, device)
+		idx.SetData(int32sAsLeafBits(windowIds))
+
+		logits := g.Forward(idx)
+		if err := tensor.Realize(logits); err != nil {
+			return bpe.Decode(ids), fmt.Errorf("gpt2: SampleStream: realize logits at step %d: %w", k, err)
+		}
+
+		data := logits.Data()
+		V := g.Vocab
+		base := (int(T) - 1) * V
+		last := data[base : base+V]
+
+		argmaxID := argmaxInt32(last)
+		var nextID int32
+		if opts.Greedy {
+			nextID = argmaxID
+		} else {
+			nextID = sampleFromLogits(last, opts.Temperature, opts.TopK, rng)
+		}
+
+		// Per-step text fragment: the studio prepends the prompt-echo so
+		// the SSE payload only carries the newly emitted token text.
+		fragment := bpe.Decode([]int32{nextID})
+		maxV := last[argmaxID]
+		onTok(StreamToken{
+			Step:         k,
+			ID:           nextID,
+			Text:         fragment,
+			Argmax:       argmaxID,
+			LogitMax:     maxV,
+			LogitMaxIdx:  int(argmaxID),
+			LogitSummary: fmt.Sprintf("max=%.3f at idx %d", maxV, argmaxID),
+		})
+		ids = append(ids, nextID)
+	}
+
+	_ = startLen
 	return bpe.Decode(ids), nil
 }
 

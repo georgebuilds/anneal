@@ -87,12 +87,12 @@ func serveMux() *http.ServeMux {
 		mux.Handle("/visualize/static/", http.StripPrefix("/visualize/static/", staticFileServer(vizFS)))
 	}
 
-	mux.HandleFunc("/api/device",         stubJSON("device probe not yet implemented"))
+	mux.HandleFunc("/api/device",         handleAPIDevice)
 	mux.HandleFunc("/api/runs",           runsHandler())
 	mux.HandleFunc("/api/runs/",          runsHandler())
 	mux.HandleFunc("/api/compile/tuned",  stubJSON("native BEAM compile not yet implemented"))
 	mux.HandleFunc("/sse/train",          handleSSETrain)
-	mux.HandleFunc("/sse/generate",       stubJSON("generate SSE not yet implemented"))
+	mux.HandleFunc("/sse/generate",       handleSSEGenerate)
 
 	return mux
 }
