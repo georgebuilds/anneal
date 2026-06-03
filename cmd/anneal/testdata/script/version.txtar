@@ -1,0 +1,9 @@
+# Both --version and `version` print the same dev-tag string.
+
+anneal --version
+stdout '^anneal 0\.0\.0-dev$'
+! stderr .
+
+anneal version
+stdout '^anneal 0\.0\.0-dev$'
+! stderr .

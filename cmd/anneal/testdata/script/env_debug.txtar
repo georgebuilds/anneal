@@ -1,0 +1,7 @@
+# DEBUG=2 should be accepted as a verbosity alias on benign commands.
+# We only assert exit code 0 here; the internal trace detail is unstable.
+
+env DEBUG=2
+anneal graph mlp
+stdout 'graph: mlp'
+! stderr .

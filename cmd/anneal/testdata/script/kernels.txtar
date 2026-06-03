@@ -1,0 +1,14 @@
+# `kernels` renders WGSL without requiring a GPU (per `anneal help kernels`).
+
+anneal kernels mlp
+stdout 'kernels: mlp'
+stdout 'device: webgpu'
+stdout '@compute'
+stdout 'fn main'
+stdout '--- kernel 0 ---'
+! stderr .
+
+# Missing model name lists the available models and exits non-zero.
+! anneal kernels
+stdout 'usage: anneal kernels'
+stdout 'available models:'
