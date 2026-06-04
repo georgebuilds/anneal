@@ -279,6 +279,105 @@ func SampleArgmaxFirst(g *nn.GPT, bpe *BPE, prompt string, ctxLen int, device st
 
 // ── Sampling helpers ─────────────────────────────────────────────────────────
 
+// SampleGreedyKV runs autoregressive greedy decoding on top of an explicit
+// KV cache, projecting Q/K/V only for the new token each step rather than
+// recomputing the whole context. Returns the generated text (excluding the
+// original prompt) and the full id sequence (prompt + generated). The K/V
+// cache buffer shapes are fixed at maxContext positions so the WGSL kernel
+// cache reuses pipelines across every step (no per-step recompilation).
+//
+// maxContext bounds the total context length (prompt + new tokens). It must
+// be in (0, g.BlockSize] and at least len(prompt_ids) + 1. The cache shape
+// is fixed at maxContext, regardless of how many tokens are actually drawn.
+//
+// Greedy decode only: this slice does not support temperature or top-k. The
+// temperature / top-k path stays on the existing Sample function until a
+// later slice unifies the two paths.
+func SampleGreedyKV(g *nn.GPT, bpe *BPE, prompt string, maxContext, maxNewTokens int, device string) (string, []int32, error) {
+	if maxContext <= 0 || maxContext > g.BlockSize {
+		return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: maxContext %d must be in (0, %d]", maxContext, g.BlockSize)
+	}
+	if maxNewTokens <= 0 {
+		return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: maxNewTokens must be > 0, got %d", maxNewTokens)
+	}
+	promptIds := bpe.Encode(prompt)
+	if len(promptIds) == 0 {
+		return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: prompt encoded to zero tokens (%q)", prompt)
+	}
+	if len(promptIds)+maxNewTokens > maxContext {
+		return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: prompt len %d + maxNewTokens %d > maxContext %d",
+			len(promptIds), maxNewTokens, maxContext)
+	}
+
+	cache := nn.NewKVCache(g.NLayer, g.NHead, g.NEmbd/g.NHead, maxContext)
+	ids := make([]int32, 0, len(promptIds)+maxNewTokens)
+	ids = append(ids, promptIds...)
+
+	// Prefill: feed every prompt token through the KV step path and capture
+	// the logits at the LAST prompt token (used to choose the first generated
+	// id). Per-token Arena means each step rebuilds the parameter leaves and
+	// the cache leaves; kernel sources are byte-identical so the compiler
+	// cache reuses pipelines across steps.
+	var lastLogits []float32
+	for _, id := range promptIds {
+		logits, err := runKVStep(g, cache, id, device)
+		if err != nil {
+			return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: prefill step %d: %w", cache.Pos, err)
+		}
+		lastLogits = logits
+	}
+
+	// Decode: greedy-pick from the last prefill logits, then loop. Each
+	// decode step uses the just-picked id as the input to the next step.
+	for n := 0; n < maxNewTokens; n++ {
+		nextID := argmaxInt32(lastLogits)
+		ids = append(ids, nextID)
+		if n == maxNewTokens-1 {
+			break
+		}
+		logits, err := runKVStep(g, cache, nextID, device)
+		if err != nil {
+			return "", nil, fmt.Errorf("gpt2: SampleGreedyKV: decode step %d: %w", n, err)
+		}
+		lastLogits = logits
+	}
+
+	return bpe.Decode(ids[len(promptIds):]), ids, nil
+}
+
+// runKVStep is the per-token GPU pass used by SampleGreedyKV. It builds the
+// fresh-arena, reload-params graph, runs Realize twice (once for logits, once
+// for the per-layer K_new / V_new buffers that the host-side cache update
+// reads), copies K_new and V_new into the cache at slot Pos, then advances
+// Pos. Returns the [Vocab]-shaped logits for the single-token output.
+func runKVStep(g *nn.GPT, cache *nn.KVCache, id int32, device string) ([]float32, error) {
+	a := uop.NewArena(1 << 22)
+	for _, p := range g.Params() {
+		p.Load(a)
+	}
+	idx := tensor.NewLeaf(a, []int64{1, 1}, uop.Dtypes.Int32, device)
+	idx.SetData([]float32{math.Float32frombits(uint32(id))})
+
+	logits, kNews, vNews := g.ForwardKVStep(idx, cache)
+	if err := tensor.Realize(logits); err != nil {
+		return nil, fmt.Errorf("realize logits: %w", err)
+	}
+	out := make([]float32, g.Vocab)
+	copy(out, logits.Data())
+
+	kvOutputs := make([]*tensor.Tensor, 0, 2*g.NLayer)
+	kvOutputs = append(kvOutputs, kNews...)
+	kvOutputs = append(kvOutputs, vNews...)
+	if err := tensor.Realize(kvOutputs...); err != nil {
+		return nil, fmt.Errorf("realize kv: %w", err)
+	}
+	for li := 0; li < g.NLayer; li++ {
+		cache.StoreLayerKV(li, kNews[li].Data(), vNews[li].Data())
+	}
+	cache.Advance()
+	return out, nil
+}
+
 // argmaxInt32 returns the index of the maximum element in v. Stable across
 // ties: the lowest index wins (matches PyTorch's argmax convention).
 func argmaxInt32(v []float32) int32 {

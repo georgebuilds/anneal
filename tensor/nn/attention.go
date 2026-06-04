@@ -295,6 +295,132 @@ func (m *CausalSelfAttention) Forward(x *tensor.Tensor) *tensor.Tensor {
 	return m.Proj.Forward(out)
 }
 
+// ForwardKVStep computes one decode step on top of a fixed-shape K/V cache.
+//
+// xNew is the residual stream for the single new token, shape [1, 1, NEmbd].
+// kCache and vCache are fresh BUFFER leaves uploaded by KVCache.UploadKLeaf /
+// UploadVLeaf for the layer being decoded; both have shape
+// [1, NHead, MaxSeqLen, dHead] where dHead = NEmbd / NHead. They contain the
+// past keys and values written to slots [0, Pos) plus zeros at slots [Pos, MaxSeqLen).
+//
+// posOneHot is shape [1, 1, MaxSeqLen, 1] with 1.0 at slot Pos and 0.0
+// elsewhere. lenMask is shape [1, 1, 1, MaxSeqLen] with 1.0 at every position
+// in [0, Pos] and 0.0 above. Both are uploaded from KVCache helpers each step.
+//
+// Returns y (the projected attention output [1, 1, NEmbd]) and the freshly
+// computed kNew and vNew for this token, each shape [1, NHead, 1, dHead]. The
+// caller is expected to Realize y alongside kNew / vNew, then read kNew.Data()
+// and vNew.Data() and call cache.StoreLayerKV(layer, ...) before advancing Pos.
+//
+// Kernel shapes depend only on (B=1, NHead, MaxSeqLen, dHead, NEmbd), not on
+// Pos, so the compiler.go pipeline cache reuses every kernel across token
+// steps. The only per-step variation is the BUFFER contents of kCache, vCache,
+// posOneHot, lenMask, and xNew.
+func (m *CausalSelfAttention) ForwardKVStep(
+	xNew, kCache, vCache, posOneHot, lenMask *tensor.Tensor,
+) (y, kNew, vNew *tensor.Tensor) {
+	xShape := xNew.Shape()
+	if len(xShape) != 3 || xShape[0] != 1 || xShape[1] != 1 || xShape[2] != int64(m.NEmbd) {
+		panic(fmt.Sprintf("nn: CausalSelfAttention.ForwardKVStep: xNew must be [1,1,%d], got %v", m.NEmbd, xShape))
+	}
+	kShape := kCache.Shape()
+	if len(kShape) != 4 || kShape[0] != 1 || kShape[1] != int64(m.NHead) || kShape[3] != int64(m.NEmbd/m.NHead) {
+		panic(fmt.Sprintf("nn: CausalSelfAttention.ForwardKVStep: kCache must be [1,%d,MaxSeqLen,%d], got %v",
+			m.NHead, m.NEmbd/m.NHead, kShape))
+	}
+	vShape := vCache.Shape()
+	if len(vShape) != 4 || vShape[0] != 1 || vShape[1] != int64(m.NHead) || vShape[2] != kShape[2] || vShape[3] != kShape[3] {
+		panic(fmt.Sprintf("nn: CausalSelfAttention.ForwardKVStep: vCache shape %v does not match kCache %v", vShape, kShape))
+	}
+	maxLen := kShape[2]
+	posShape := posOneHot.Shape()
+	if len(posShape) != 4 || posShape[0] != 1 || posShape[1] != 1 || posShape[2] != maxLen || posShape[3] != 1 {
+		panic(fmt.Sprintf("nn: CausalSelfAttention.ForwardKVStep: posOneHot must be [1,1,%d,1], got %v", maxLen, posShape))
+	}
+	lenShape := lenMask.Shape()
+	if len(lenShape) != 4 || lenShape[0] != 1 || lenShape[1] != 1 || lenShape[2] != 1 || lenShape[3] != maxLen {
+		panic(fmt.Sprintf("nn: CausalSelfAttention.ForwardKVStep: lenMask must be [1,1,1,%d], got %v", maxLen, lenShape))
+	}
+
+	B := int64(1)
+	T := int64(1)
+	E := int64(m.NEmbd)
+	H := int64(m.NHead)
+	D := E / H
+
+	a := xNew.Arena()
+
+	// Fused QKV projection on the single new token. Output [1, 1, 3E].
+	qkv := m.QKV.Forward(xNew)
+
+	// Split along the last axis. Each piece is [1, 1, E].
+	qLin := qkv.Shrink([][2]int64{{0, B}, {0, T}, {0, E}})
+	kLin := qkv.Shrink([][2]int64{{0, B}, {0, T}, {E, 2 * E}})
+	vLin := qkv.Shrink([][2]int64{{0, B}, {0, T}, {2 * E, 3 * E}})
+
+	// Reshape [1, 1, E] to [1, 1, H, D] then permute to [1, H, 1, D]. kNew and
+	// vNew must be FINAL output buffers (not consumed by any later kernel in
+	// this Realize), otherwise assignOutputs in realize.go skips them and the
+	// caller sees an empty Data() slice. We achieve this by building the
+	// returned kNew / vNew through their own Contiguous chain, and using a
+	// SEPARATE (un-contiguised) splitHeads view for the in-graph attention
+	// computation. The two chains share upstream UOps (interning) but the
+	// caller-visible buffers are read only by the host side.
+	splitHeads := func(t *tensor.Tensor) *tensor.Tensor {
+		return t.Reshape([]int64{B, T, H, D}).Permute([]int{0, 2, 1, 3})
+	}
+	q := splitHeads(qLin)
+	kForAttn := splitHeads(kLin)
+	vForAttn := splitHeads(vLin)
+	// kNew and vNew share the same upstream UOps as kForAttn / vForAttn via
+	// interning. The caller is expected to Realize them in a SEPARATE call from
+	// y so that they appear as final outputs (not consumed by any kernel in
+	// their own sink) and assignOutputs lands their data on the returned
+	// tensor. Realizing y, kNew, vNew in a single call leaves kNew and vNew as
+	// intermediates of the y kernel chain and the returned Data() comes back
+	// empty.
+	kNew = kForAttn.Contiguous()
+	vNew = vForAttn.Contiguous()
+
+	// Inject kNew and vNew at slot Pos of the fixed-shape cache buffer via the
+	// posOneHot mask. The cache leaves arrive with slot Pos zeroed (cache was
+	// last advanced after storing the previous step's values at Pos-1), so a
+	// scalar add of the broadcast-and-masked new entry lands kNew exactly at
+	// slot Pos and leaves every other position untouched. Mirrors PyTorch
+	// StaticCache.update: k_full = k_cache + k_new_padded_with_zeros.
+	posOneHotKVBroadcast := posOneHot.Expand([]int64{B, H, maxLen, D})
+	kNewExp := kForAttn.Expand([]int64{B, H, maxLen, D})
+	vNewExp := vForAttn.Expand([]int64{B, H, maxLen, D})
+	kFull := kCache.Add(kNewExp.Mul(posOneHotKVBroadcast))
+	vFull := vCache.Add(vNewExp.Mul(posOneHotKVBroadcast))
+
+	// Scaled dot-product. q is [1, H, 1, D]; kFull is [1, H, MaxLen, D].
+	// kFull.Transpose swaps the last two axes giving [1, H, D, MaxLen]; the
+	// matmul produces scores of shape [1, H, 1, MaxLen].
+	scores := q.Matmul(kFull.Transpose())
+
+	invSqrtD := tensor.FullSints(a, scores.ShapeSints(),
+		1.0/math.Sqrt(float64(D)), m.dtype, m.device)
+	scores = scores.Mul(invSqrtD)
+
+	// Masked softmax with the multiplicative mask trick (mirrors Forward).
+	// lenMask is [1, 1, 1, MaxLen]; broadcast to [1, H, 1, MaxLen].
+	lenBroadcast := lenMask.Expand([]int64{B, H, T, maxLen})
+	expScores := scores.Exp()
+	expMasked := expScores.Mul(lenBroadcast)
+	sumRed := expMasked.Sum([]int{3}, false)      // [1, H, 1]
+	sumExp := sumRed.Reshape([]int64{B, H, T, 1}) // [1, H, 1, 1]
+	attn := expMasked.Div(sumExp)                 // [1, H, 1, MaxLen]
+
+	// attn @ vFull. Output shape [1, H, 1, D].
+	out := attn.Matmul(vFull)
+
+	// Permute back and reshape [1, H, 1, D] to [1, 1, H, D] to [1, 1, E].
+	out = out.Permute([]int{0, 2, 1, 3}).Reshape([]int64{B, T, E})
+	y = m.Proj.Forward(out)
+	return y, kNew, vNew
+}
+
 // Params returns the trainable parameters: QKV.Weight, QKV.Bias, Proj.Weight,
 // Proj.Bias. The causal mask is intentionally excluded (it is a fixed leaf,
 // not a trainable parameter).

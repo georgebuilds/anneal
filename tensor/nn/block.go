@@ -73,6 +73,23 @@ func (b *Block) Forward(x *tensor.Tensor) *tensor.Tensor {
 	return h.Add(b.MLP.Forward(b.LN2.Forward(h)))
 }
 
+// ForwardKVStep computes one decode step of the block on a single new token,
+// reusing the per-layer K and V cache. xNew shape [1, 1, NEmbd]; kCache, vCache,
+// posOneHot, lenMask follow the contract documented on
+// CausalSelfAttention.ForwardKVStep. Returns the residual stream y of shape
+// [1, 1, NEmbd] plus the freshly computed kNew, vNew for the caller to copy
+// into the layer's KVCache slot. The MLP / LayerNorm submodules are reused
+// untouched: they are sequence-position agnostic and the [1, 1, NEmbd] shape
+// flows through them with no per-step recompilation.
+func (b *Block) ForwardKVStep(
+	xNew, kCache, vCache, posOneHot, lenMask *tensor.Tensor,
+) (y, kNew, vNew *tensor.Tensor) {
+	attnOut, kNew, vNew := b.Attn.ForwardKVStep(b.LN1.Forward(xNew), kCache, vCache, posOneHot, lenMask)
+	h := xNew.Add(attnOut)
+	y = h.Add(b.MLP.Forward(b.LN2.Forward(h)))
+	return y, kNew, vNew
+}
+
 // Params returns all trainable parameters in deterministic order:
 //
 //	LN1.Weight, LN1.Bias,

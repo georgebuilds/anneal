@@ -224,6 +224,99 @@ func (g *GPT) Forward(idx *tensor.Tensor) *tensor.Tensor {
 	return logits
 }
 
+// ForwardKVStep runs one decode step on a single new token using the KV cache.
+//
+// idxNew is the token id for the next position, shape [1, 1] Int32. cache must
+// be a fully sized KVCache compatible with this model (NumLayers == g.NLayer,
+// NumHeads == g.NHead, HeadDim == g.NEmbd / g.NHead, MaxSeqLen <= g.BlockSize).
+// cache.Pos must be in [0, g.BlockSize) and identifies which Wpe row the
+// positional embedding for this token is drawn from.
+//
+// Returns logits of shape [1, 1, Vocab] and the per-layer kNews / vNews each
+// of shape [1, NHead, 1, HeadDim]. After Realize-ing all returned tensors the
+// caller is expected to extract kNews[i].Data() and vNews[i].Data() and call
+// cache.StoreLayerKV(i, ...) for each layer, then cache.Advance() to bump Pos
+// for the next step. Calling tensor.Realize once on the full output tuple
+// schedules the whole forward in a single pass (Realize is variadic).
+//
+// All kernel shapes depend only on the model config and the cache's MaxSeqLen,
+// not on cache.Pos, so the WGSL pipeline cache reuses every kernel from step
+// to step. Per-step variation is in the BUFFER payloads only.
+func (g *GPT) ForwardKVStep(idxNew *tensor.Tensor, cache *KVCache) (logits *tensor.Tensor, kNews, vNews []*tensor.Tensor) {
+	if idxNew.Rank() != 2 {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: idxNew must be rank 2 [1, 1], got rank %d", idxNew.Rank()))
+	}
+	idxShape := idxNew.Shape()
+	if idxShape[0] != 1 || idxShape[1] != 1 {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: idxNew must be shape [1, 1], got %v", idxShape))
+	}
+	if idxNew.DType() != uop.Dtypes.Int32 {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: idxNew dtype must be Int32, got %s", idxNew.DType()))
+	}
+	if cache == nil {
+		panic("nn: GPT.ForwardKVStep: cache is nil")
+	}
+	if cache.NumLayers != g.NLayer || cache.NumHeads != g.NHead || cache.HeadDim != g.NEmbd/g.NHead {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: cache geometry (NumLayers=%d NumHeads=%d HeadDim=%d) does not match model (NLayer=%d NHead=%d HeadDim=%d)",
+			cache.NumLayers, cache.NumHeads, cache.HeadDim, g.NLayer, g.NHead, g.NEmbd/g.NHead))
+	}
+	if cache.MaxSeqLen > g.BlockSize {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: cache.MaxSeqLen=%d exceeds model BlockSize=%d", cache.MaxSeqLen, g.BlockSize))
+	}
+	if cache.Pos < 0 || cache.Pos >= cache.MaxSeqLen {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: cache.Pos=%d out of range [0, %d)", cache.Pos, cache.MaxSeqLen))
+	}
+
+	a := idxNew.Arena()
+	device := "webgpu"
+
+	// Token embedding for the single new token. Wte.Forward expects a 1-D
+	// index leaf; build one of length 1 from idxNew.Data() and reshape the
+	// [1, NEmbd] output to [1, 1, NEmbd].
+	idxData := idxNew.Data()
+	if idxData == nil {
+		panic("nn: GPT.ForwardKVStep: idxNew.Data() is nil; call idxNew.SetData(...) before ForwardKVStep")
+	}
+	if len(idxData) != 1 {
+		panic(fmt.Sprintf("nn: GPT.ForwardKVStep: idxNew.Data() length %d != 1", len(idxData)))
+	}
+	idxFlat := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Int32, device)
+	idxFlatData := []float32{idxData[0]}
+	idxFlat.SetData(idxFlatData)
+
+	tokEmbFlat := g.Wte.Forward(idxFlat)                        // [1, NEmbd]
+	tokEmb := tokEmbFlat.Reshape([]int64{1, 1, int64(g.NEmbd)}) // [1, 1, NEmbd]
+
+	// Positional embedding for slot cache.Pos. Wpe.Forward also wants a 1-D
+	// index leaf; build one with the single value cache.Pos.
+	posIdx := tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Int32, device)
+	posIdx.SetData([]float32{math.Float32frombits(uint32(int32(cache.Pos)))})
+
+	posEmbRow := g.Wpe.Forward(posIdx)                         // [1, NEmbd]
+	posEmb := posEmbRow.Reshape([]int64{1, 1, int64(g.NEmbd)}) // [1, 1, NEmbd]
+
+	x := tokEmb.Add(posEmb)
+
+	dtype := g.Wte.Weight.dtype
+	posOneHot := cache.UploadPosOneHotLeaf(a, dtype, device)
+	lenMask := cache.UploadLengthMaskLeaf(a, dtype, device)
+
+	kNews = make([]*tensor.Tensor, g.NLayer)
+	vNews = make([]*tensor.Tensor, g.NLayer)
+	for i, blk := range g.Blocks {
+		kCache := cache.UploadKLeaf(a, i, dtype, device)
+		vCache := cache.UploadVLeaf(a, i, dtype, device)
+		var kNew, vNew *tensor.Tensor
+		x, kNew, vNew = blk.ForwardKVStep(x, kCache, vCache, posOneHot, lenMask)
+		kNews[i] = kNew
+		vNews[i] = vNew
+	}
+
+	x = g.LNf.Forward(x)
+	logits = g.LMHead.Forward(x)
+	return logits, kNews, vNews
+}
+
 // Params returns all trainable parameters in deterministic order:
 //
 //	Wte.Weight,
