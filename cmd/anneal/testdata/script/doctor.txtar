@@ -3,6 +3,10 @@
 
 [!gpu] skip 'no WebGPU adapter — doctor needs hardware'
 
+# Mesa shader cache writes to $HOME/.cache; testscript defaults HOME=/no-home.
+env HOME=$WORK
+env XDG_CACHE_HOME=$WORK/.cache
+
 anneal doctor
 stdout '^device: '
 stdout '^backend: '
