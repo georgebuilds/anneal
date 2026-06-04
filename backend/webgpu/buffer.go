@@ -56,7 +56,7 @@ func (b *deviceBuffer) Write(data []byte) error {
 // NSAutoreleasePool drain would race a different OS thread. See the readBuffer
 // commentary in open.go and the original executor.go for the full rationale.
 func (b *deviceBuffer) Read() ([]byte, error) {
-	byteSize := uint64(b.elems) * elemBytes(b.dt)
+	byteSize := bufferByteSize(b.elems, b.dt)
 
 	staging, err := b.dev.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Usage: gputypes.BufferUsageCopyDst | gputypes.BufferUsageMapRead,

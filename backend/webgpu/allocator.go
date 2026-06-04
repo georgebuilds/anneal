@@ -32,8 +32,9 @@ func newAllocator(dev *Device) *allocator {
 }
 
 // Alloc creates a fresh storage buffer sized to hold elems * elemBytes(dt)
-// bytes. usage controls the wgpu.BufferUsage flag set (leaf inputs skip the
-// CopySrc bit; everything else gets the IO triple).
+// bytes (or ceil(elems/4) * 16 bytes for image dtypes — one vec4 slot per
+// 4 logical elements). usage controls the wgpu.BufferUsage flag set (leaf
+// inputs skip the CopySrc bit; everything else gets the IO triple).
 func (a *allocator) Alloc(elems int64, dt *uop.DType, usage backend.BufferUsage, label string) (backend.DeviceBuffer, error) {
 	flags := gputypes.BufferUsageStorage | gputypes.BufferUsageCopyDst
 	if usage != backend.BufferUsageLeafInput {
@@ -42,7 +43,7 @@ func (a *allocator) Alloc(elems int64, dt *uop.DType, usage backend.BufferUsage,
 	buf, err := a.dev.device.CreateBuffer(&wgpu.BufferDescriptor{
 		Label: label,
 		Usage: flags,
-		Size:  uint64(elems) * elemBytes(dt),
+		Size:  bufferByteSize(elems, dt),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("webgpu: alloc %q: %w", label, err)
@@ -110,7 +111,9 @@ func (a *allocator) Reset() {
 // representation for the destination dtype's GPU layout: f16 narrows to
 // IEEE 754 half, bf16 narrows (round-to-nearest-even) and lands in the upper
 // 16 bits of each u32 slot (codegen/wgsl.go _bf16_rtne_bits expects this
-// layout), and everything else passes through as little-endian f32 bits.
+// layout), image dtypes pad the tail to a full vec4 slot (ceil(n/4)*4 f32
+// lanes; tail bytes are zero-filled), and everything else passes through as
+// little-endian f32 bits.
 //
 // Used by the orchestrator when uploading leaf input data through the
 // inputs map[uint32][]float32 contract of Executor/SymbolicExecutor.
@@ -120,9 +123,27 @@ func EncodeFloat32Input(data []float32, dt *uop.DType) []byte {
 		return float32sToF16Bytes(data)
 	case dt != nil && dt.Scalar() == uop.Dtypes.BFloat16:
 		return float32sToBF16U32Bytes(data)
+	case dt != nil && dt.IsImage():
+		return float32sToImageBytes(data)
 	default:
 		return float32sToBytes(data)
 	}
+}
+
+// float32sToImageBytes encodes float32 values for an image-dtype storage
+// buffer. The buffer holds ceil(n/4) vec4 slots (16 bytes each); the leading
+// n*4 bytes are the f32 input values in order and the tail of the final
+// vec4 (when n%4 != 0) is zero-padded. GPU loads at index i ≥ n are never
+// emitted by codegen because the dispatch bound stays at n; the tail bytes
+// only matter for write-path masking and Read truncation.
+func float32sToImageBytes(data []float32) []byte {
+	n := len(data)
+	slots := (n + 3) / 4
+	b := make([]byte, slots*16)
+	for i, v := range data {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(v))
+	}
+	return b
 }
 
 // float16ToFloat32 converts an IEEE 754 half-precision bit pattern to float32.

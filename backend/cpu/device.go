@@ -54,7 +54,9 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 		if dt == nil {
 			dt = uop.Dtypes.Float32
 		}
-		if dt.Scalar() != uop.Dtypes.Float32 {
+		// Image-storage dtypes share their scalar peer's compute identity;
+		// CPU holds them as a flat f32 slice (vec4 packing is a GPU concept).
+		if dt.Scalar() != uop.Dtypes.Float32 && !dt.IsImage() {
 			return nil, fmt.Errorf("cpu: leaf %d has dtype %s but only f32 host inputs are supported in slice 1", uopIdx, dt)
 		}
 		dst := buf.asF32()

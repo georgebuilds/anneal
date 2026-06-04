@@ -66,7 +66,7 @@ func (p *program) Dispatch(args backend.DispatchArgs) error {
 		entries[i] = wgpu.BindGroupEntry{
 			Binding: uint32(i),
 			Buffer:  db.buf,
-			Size:    uint64(db.elems) * elemBytes(db.dt),
+			Size:    bufferByteSize(db.elems, db.dt),
 		}
 	}
 

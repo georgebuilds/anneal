@@ -580,8 +580,11 @@ func collectVarNames(be schedule.BoundExpr, binding map[string]int64) {
 	}
 }
 
-// elemBytes returns the GPU buffer element size in bytes for a dtype, via the
-// single per-dtype WGSL metadata table in codegen.
-func elemBytes(d *uop.DType) uint64 {
-	return codegen.WGSLTypeInfoFor(d).SizeBytes
+// bufferByteSize returns the total GPU buffer byte size for elems logical
+// elements of dtype d. Forks on dtype.IsImage so the vec4 packing
+// (ceil(elems/4) * 16 bytes) is honored at every allocation site; for non-
+// image dtypes this matches the pre-image elems * per-element-size formula.
+// Single source of truth for GPU buffer sizing in this package.
+func bufferByteSize(elems int64, d *uop.DType) uint64 {
+	return codegen.BufferByteSize(elems, d)
 }

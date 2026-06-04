@@ -72,7 +72,12 @@ func newBuffer(elems int64, dt *uop.DType) (*Buffer, error) {
 	}
 	b := &Buffer{dt: dt, elems: elems}
 	switch {
-	case dt == nil || dt.Scalar() == uop.Dtypes.Float32:
+	case dt == nil || dt.Scalar() == uop.Dtypes.Float32 || dt.IsImage():
+		// Image-storage dtypes behave as their scalar peer on the CPU: the
+		// vec4 packing is a GPU buffer concept, so host storage is a plain
+		// flat f32 slice. Tensor.Realize round-trips through Write/Read
+		// without the vec4 stride. (Currently only ImageFloat32 exists; its
+		// scalar peer is Float32.)
 		b.f32 = make([]float32, elems)
 	case dt.Scalar() == uop.Dtypes.Int32, dt.Scalar() == uop.Dtypes.UInt32:
 		b.i32 = make([]int32, elems)

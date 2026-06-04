@@ -58,7 +58,7 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 		gb, err := d.device.CreateBuffer(&wgpu.BufferDescriptor{
 			Label: fmt.Sprintf("bench_buf_%d", i),
 			Usage: gputypes.BufferUsageStorage,
-			Size:  uint64(buf.Size) * elemBytes(buf.DType),
+			Size:  bufferByteSize(buf.Size, buf.DType),
 		})
 		if err != nil {
 			for j := 0; j < i; j++ {
@@ -80,7 +80,7 @@ func (d *Device) benchmarkLocked(item schedule.ExecItem, warmup, iterations int)
 		entries[i] = wgpu.BindGroupEntry{
 			Binding: uint32(i),
 			Buffer:  gb,
-			Size:    uint64(item.Bufs[i].Size) * elemBytes(item.Bufs[i].DType),
+			Size:    bufferByteSize(item.Bufs[i].Size, item.Bufs[i].DType),
 		}
 	}
 	bg, err := d.device.CreateBindGroup(&wgpu.BindGroupDescriptor{
