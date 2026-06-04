@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	_ "github.com/georgebuilds/anneal/examples"
@@ -12,19 +13,24 @@ import (
 )
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
 	name := "mlp"
-	if len(os.Args) > 1 {
-		name = os.Args[1]
+	if len(args) > 0 {
+		name = args[0]
 	}
 	t, err := viz.BuildTimeline(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "captrace:", err)
-		os.Exit(1)
+		_, _ = fmt.Fprintln(stderr, "captrace:", err)
+		return 1
 	}
 	b, err := t.ToJSON()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "captrace: json:", err)
-		os.Exit(1)
+		_, _ = fmt.Fprintln(stderr, "captrace: json:", err)
+		return 1
 	}
-	_, _ = os.Stdout.Write(b)
+	_, _ = stdout.Write(b)
+	return 0
 }
