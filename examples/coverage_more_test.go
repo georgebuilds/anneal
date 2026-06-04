@@ -327,17 +327,49 @@ func TestTrainDynMLPZeroBatchFallback(t *testing.T) {
 	}
 }
 
-func TestTrainViTZeroSteps(t *testing.T) {
-	cfg := TrainConfig{Steps: 0, LR: 0, LogEvery: 0, Batch: 0}
-	if err := trainViT("webgpu", cfg, func(int, float32) {}); err != nil {
-		t.Fatalf("trainViT zero-steps: %v", err)
+// TestRunViTLogTextEmits drives runViT with zero steps against a tiny
+// in-memory CIFAR-10 fixture; the loop body is skipped (Steps=0) but the
+// lr/batch fallback resolution, model assembly, and final wall-time
+// LogText emission all execute. CPU-only — no GPU dispatch.
+func TestRunViTLogTextEmits(t *testing.T) {
+	ds := synthCIFAR10(8, rand.New(rand.NewSource(41)))
+	var captured strings.Builder
+	cfg := TrainConfig{
+		Steps:   0,
+		LR:      0, // exercises the zero -> vitAdamLR swap
+		Batch:   0, // exercises the <=0 -> vitBatch swap
+		LogText: func(s string) { captured.WriteString(s) },
+	}
+	if err := runViT("webgpu", cfg, func(int, float32) {}, ds, 1); err != nil {
+		t.Fatalf("runViT (default fallbacks): %v", err)
+	}
+	if !strings.Contains(captured.String(), "training complete") {
+		t.Errorf("LogText did not receive wall-time line; got %q", captured.String())
 	}
 }
 
-func TestTrainViTSentinelLR(t *testing.T) {
-	cfg := TrainConfig{Steps: 0, LR: cmdTrainSGDDefaultLR, LogEvery: 0, Batch: 2}
-	if err := trainViT("webgpu", cfg, func(int, float32) {}); err != nil {
-		t.Fatalf("trainViT sentinel LR: %v", err)
+// TestRunViTSentinelLR covers the cmdTrainSGDDefaultLR sentinel branch in
+// the lr-fallback ladder. Steps=0 keeps us out of the Forward path so this
+// stays CPU-only.
+func TestRunViTSentinelLR(t *testing.T) {
+	ds := synthCIFAR10(4, rand.New(rand.NewSource(42)))
+	cfg := TrainConfig{Steps: 0, LR: cmdTrainSGDDefaultLR, Batch: 2}
+	if err := runViT("webgpu", cfg, func(int, float32) {}, ds, 1); err != nil {
+		t.Fatalf("runViT (sentinel LR): %v", err)
+	}
+}
+
+// TestEvalViTLossCIFARNoGPUReturnsNaN covers the CIFAR-batch eval helper
+// without a GPU; Realize fails fast and the helper returns NaN. Mirrors
+// TestResNet9EvalLossNoGPUReturnsNaN.
+func TestEvalViTLossCIFARNoGPUReturnsNaN(t *testing.T) {
+	a := uop.NewArena(1 << 14)
+	v := nn.NewViT(a, vitImageH, vitImageW, vitPatch, vitInCh,
+		vitEmbedDim, vitNLayer, vitNHead, vitNumClasses)
+	ds := synthCIFAR10(4, rand.New(rand.NewSource(43)))
+	loss := evalViTLossCIFAR(v, v.Params(), ds, rand.New(rand.NewSource(44)), 2, "webgpu")
+	if !math.IsNaN(float64(loss)) {
+		t.Errorf("evalViTLossCIFAR: expected NaN, got %v", loss)
 	}
 }
 

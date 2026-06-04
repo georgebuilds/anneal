@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"time"
 
+	resnet9data "github.com/georgebuilds/anneal/examples/resnet9"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/tensor/nn"
 	"github.com/georgebuilds/anneal/uop"
@@ -13,7 +15,7 @@ import (
 func init() {
 	Register(&Example{
 		Name:    "vit",
-		Summary: "vision transformer (patch embed + 2-block encoder + mean-pool head); synthetic 32x32 RGB classification",
+		Summary: "vision transformer (patch embed + 2-block encoder + mean-pool head); CIFAR-10",
 		Build:   buildViT,
 		Train:   trainViT,
 	})
@@ -97,11 +99,36 @@ func buildViT(device string) (*BuildResult, error) {
 	}, nil
 }
 
-// trainViT runs the ViT training loop.
+// trainViT loads CIFAR-10 via the shared resnet9data host pipeline, then
+// hands off to runViT. The two-step split mirrors trainResNet9 so the
+// network-bound Load() never enters the test path; tests construct an
+// in-memory CIFAR10 fixture and call runViT directly.
 func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)) error {
+	ds, err := resnet9data.Load()
+	if err != nil {
+		return fmt.Errorf("vit: load CIFAR-10: %w", err)
+	}
+	return runViT(device, cfg, logFn, ds, 42)
+}
+
+// runViT is the shared trainer used by both the production entry point
+// (CIFAR-10) and the smoke tests (in-memory fixture). The model is the
+// same vit-tiny config as the synthetic-batch example; vit-tiny on real
+// CIFAR-10 is undertrained for the canonical 90%+ headline (no positional
+// inductive bias, no augmentation, no warmup), but the loss-decrease
+// trajectory and the compiler surface (PatchEmbed reshape/permute chain,
+// non-causal attention softmax, mean-pool classification head, full
+// forward/backward fusion through Adam) are what the demo proves.
+func runViT(
+	device string,
+	cfg TrainConfig,
+	logFn func(step int, loss float32),
+	ds *resnet9data.CIFAR10,
+	seed int64,
+) error {
 	// Use Adam by default. cmd_train's --lr default is SGD-tuned (0.05); when
 	// the caller passes that sentinel through, switch to vitAdamLR. Any other
-	// value is respected verbatim. Mirrors the nanogpt example's pattern.
+	// value is respected verbatim. Mirrors the resnet9 example's pattern.
 	lr := cfg.LR
 	if lr == cmdTrainSGDDefaultLR || lr == 0 {
 		lr = vitAdamLR
@@ -114,16 +141,16 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 
 	// Seed arena.
 	seedArena := uop.NewArena(1 << 14)
-	seed := nn.NewViT(seedArena, vitImageH, vitImageW, vitPatch, vitInCh,
+	seedModel := nn.NewViT(seedArena, vitImageH, vitImageW, vitPatch, vitInCh,
 		vitEmbedDim, vitNLayer, vitNHead, vitNumClasses)
-	initRNG := rand.New(rand.NewSource(42))
-	initViTSmall(seed, vitInitScale, initRNG)
+	initRNG := rand.New(rand.NewSource(seed))
+	initViTSmall(seedModel, vitInitScale, initRNG)
 
 	// Persistent model (values survive arena resets).
 	a0 := uop.NewArena(1 << 14)
 	model := nn.NewViT(a0, vitImageH, vitImageW, vitPatch, vitInCh,
 		vitEmbedDim, vitNLayer, vitNHead, vitNumClasses)
-	srcParams := seed.Params()
+	srcParams := seedModel.Params()
 	dstParams := model.Params()
 	if len(srcParams) != len(dstParams) {
 		return fmt.Errorf("vit: param-count mismatch between seed (%d) and compute (%d) models",
@@ -136,20 +163,29 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 	params := model.Params()
 	opt := nn.NewAdam(params, lr)
 
-	// Synthetic dataset: fixed batch of B images with K class-conditional
-	// patterns. The classifier learns to separate the K patterns from each
-	// other; loss starts around log(K) and drops as the model fits.
-	dataRNG := rand.New(rand.NewSource(43))
-	images, labels := vitDataset(batch, vitInCh, vitImageH, vitImageW,
-		vitNumClasses, dataRNG)
+	// Per-step batch-sampling RNG. Independent from the init RNG so a fresh
+	// init can be paired with any sampling seed without affecting weights.
+	sampleRNG := rand.New(rand.NewSource(seed + 1))
+
+	// Reusable host-side batch buffers; the train step uploads them into a
+	// fresh-per-step input leaf.
+	const imagePixels = int64(3 * 32 * 32) // [C, H, W] flat row-major
+	xHost := make([]float32, batch*imagePixels)
+	yHost := make([]int32, batch)
+	ohHost := make([]float32, batch*vitNumClasses)
 
 	// Initial-loss probe.
 	if cfg.LogEvery > 0 {
-		l0 := evalViTLoss(model, params, images, labels, batch, device)
+		l0 := evalViTLossCIFAR(model, params, ds, sampleRNG, batch, device)
 		logFn(0, l0)
 	}
 
+	start := time.Now()
+
 	for step := 1; step <= cfg.Steps; step++ {
+		ds.Batch(sampleRNG, int(batch), xHost, yHost)
+		resnet9data.OneHot(yHost, ohHost)
+
 		a := uop.NewArena(1 << 20)
 		for _, p := range params {
 			p.Load(a)
@@ -157,11 +193,10 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 
 		x := tensor.NewLeaf(a, []int64{batch, vitInCh, vitImageH, vitImageW},
 			uop.Dtypes.Float32, device)
-		x.SetData(append([]float32{}, images...))
+		x.SetData(append([]float32{}, xHost...))
 
-		// One-hot targets [B, numClasses].
 		oh := tensor.NewLeaf(a, []int64{batch, vitNumClasses}, uop.Dtypes.Float32, device)
-		oh.SetData(oneHotBitsViT(labels, int(vitNumClasses)))
+		oh.SetData(append([]float32{}, ohHost...))
 
 		logits := model.Forward(x) // [B, numClasses]
 		loss := vitCrossEntropy(logits, oh, batch, vitNumClasses)
@@ -188,12 +223,52 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 		}
 
 		if cfg.LogEvery > 0 && step%cfg.LogEvery == 0 {
-			lp := evalViTLoss(model, params, images, labels, batch, device)
+			lp := evalViTLossCIFAR(model, params, ds, sampleRNG, batch, device)
 			logFn(step, lp)
 		}
 	}
 
+	elapsed := time.Since(start)
+	if cfg.LogText != nil {
+		cfg.LogText(fmt.Sprintf("vit: training complete in %s (%d steps)\n",
+			elapsed.Round(time.Millisecond), cfg.Steps))
+	}
+
 	return nil
+}
+
+// evalViTLossCIFAR samples a fresh batch from ds and computes the
+// classification loss in a fresh arena. Mirrors resnet9EvalLoss; used to
+// log loss without keeping the training arena alive across steps.
+func evalViTLossCIFAR(
+	v *nn.ViT,
+	params []*nn.Parameter,
+	ds *resnet9data.CIFAR10,
+	rng *rand.Rand,
+	B int64,
+	device string,
+) float32 {
+	const imagePixels = int64(3 * 32 * 32)
+	xHost := make([]float32, B*imagePixels)
+	yHost := make([]int32, B)
+	ohHost := make([]float32, B*vitNumClasses)
+	ds.Batch(rng, int(B), xHost, yHost)
+	resnet9data.OneHot(yHost, ohHost)
+
+	a := uop.NewArena(1 << 20)
+	for _, p := range params {
+		p.Load(a)
+	}
+	x := tensor.NewLeaf(a, []int64{B, vitInCh, vitImageH, vitImageW},
+		uop.Dtypes.Float32, device)
+	x.SetData(xHost)
+	oh := tensor.NewLeaf(a, []int64{B, vitNumClasses}, uop.Dtypes.Float32, device)
+	oh.SetData(ohHost)
+	loss := vitCrossEntropy(v.Forward(x), oh, B, vitNumClasses)
+	if err := tensor.Realize(loss); err != nil {
+		return float32(math.NaN())
+	}
+	return loss.Data()[0]
 }
 
 // vitCrossEntropy computes mean per-sample cross-entropy over a batch of
