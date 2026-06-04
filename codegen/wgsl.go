@@ -336,9 +336,30 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 		case InstrStore:
 			idxExpr := ins.IndexExpr
-			if ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16 {
+			switch {
+			case ins.DType != nil && ins.DType.IsImage():
+				// Image storage: buffer is bound as array<vec4<f32>>; logical
+				// element idx lives at data0[idx / 4u].{x,y,z,w}. We avoid
+				// runtime-indexed component writes (data0[slot][lane] = expr)
+				// because the naga WGSL→MSL pipeline silently degrades them
+				// to writing only static lane 0. A four-arm if-cascade over
+				// the static swizzles is portable: per WGSL spec, the
+				// assignment `data0[slot].x = expr` writes a single
+				// component without touching siblings, so sibling threads
+				// targeting different lanes of the same slot do not race.
+				ind := indent()
+				fmt.Fprintf(&b, "%s{\n", ind)
+				fmt.Fprintf(&b, "%s  let _img_slot = u32(%s) / 4u;\n", ind, idxExpr)
+				fmt.Fprintf(&b, "%s  let _img_lane = u32(%s) %% 4u;\n", ind, idxExpr)
+				fmt.Fprintf(&b, "%s  let _img_val = %s;\n", ind, ins.Expr)
+				fmt.Fprintf(&b, "%s  if (_img_lane == 0u) { data0[_img_slot].x = _img_val; }\n", ind)
+				fmt.Fprintf(&b, "%s  else if (_img_lane == 1u) { data0[_img_slot].y = _img_val; }\n", ind)
+				fmt.Fprintf(&b, "%s  else if (_img_lane == 2u) { data0[_img_slot].z = _img_val; }\n", ind)
+				fmt.Fprintf(&b, "%s  else { data0[_img_slot].w = _img_val; }\n", ind)
+				fmt.Fprintf(&b, "%s}\n", ind)
+			case ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16:
 				fmt.Fprintf(&b, "%sdata0[%s] = _bf16_rtne_bits(%s);\n", indent(), idxExpr, ins.Expr)
-			} else {
+			default:
 				fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
 			}
 		}

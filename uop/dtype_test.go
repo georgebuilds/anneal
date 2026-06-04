@@ -368,13 +368,15 @@ func TestDTypeStructuralHashGolden(t *testing.T) {
 		dt     *uop.DType
 		golden uint64
 	}{
-		{"Float32", uop.Dtypes.Float32, 0x7f4278a474769c36},
-		{"Int32", uop.Dtypes.Int32, 0xfee909559c15d11a},
-		{"Float16", uop.Dtypes.Float16, 0x07091dd970d2d7c0},
-		{"Bool", uop.Dtypes.Bool, 0x7e387016041cc497},
-		{"Index", uop.Dtypes.Index, 0x7a131b2190c6940c},
-		{"Float32×4", uop.Dtypes.Float32.Vec(4), 0xc512b320f01638d4},
-		{"Float32.ptr(Global)", uop.Dtypes.Float32.Ptr(-1, uop.Global), 0x743ef066b1770e27},
+		// Goldens updated when image-storage dtype isImage flag was added to
+		// the StructuralHash mix-in (SPEC §1.3 image dtype slice).
+		{"Float32", uop.Dtypes.Float32, 0xb48f3571e58b6fc2},
+		{"Int32", uop.Dtypes.Int32, 0x3bcbf67839124f2e},
+		{"Float16", uop.Dtypes.Float16, 0xc755787ab6449b40},
+		{"Bool", uop.Dtypes.Bool, 0x96ab0c68fce20c95},
+		{"Index", uop.Dtypes.Index, 0x350b2609016d9064},
+		{"Float32x4", uop.Dtypes.Float32.Vec(4), 0xececfd7c32c37bc0},
+		{"Float32.ptr(Global)", uop.Dtypes.Float32.Ptr(-1, uop.Global), 0x79a0074aaf25a6e1},
 	}
 	for _, tc := range cases {
 		h := tc.dt.StructuralHash()
@@ -394,11 +396,12 @@ func TestStructuralKeysGolden(t *testing.T) {
 	c := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
 	keys := uop.StructuralKeys(a)
 
-	// NOTE: golden depends on uint64(node.op); regenerate when new Op
-	// constants are inserted into the iota sequence above the position of
-	// OpConst. Updated 2026-06-02 when OpErf (unary) and OpMin (binary)
-	// were added (ONNX Phase 3 Stage-2 transformer core).
-	const golden uint64 = 0x0a1054b7f008a60c
+	// NOTE: golden depends on uint64(node.op) and the dtype StructuralHash.
+	// Regenerate when new Op constants are inserted into the iota sequence
+	// above the position of OpConst, or when the dtype hash mix-in changes.
+	// Updated when image-storage dtype isImage field was mixed into
+	// StructuralHash (SPEC §1.3 image dtype slice).
+	const golden uint64 = 0x96676cdacc910c00
 	got := keys[c.Index()]
 	t.Logf("const(1.0 f32) structural key: 0x%016x (golden: 0x%016x)", got, golden)
 	if got != golden {

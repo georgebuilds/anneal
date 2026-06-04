@@ -52,6 +52,13 @@ type DType struct {
 	addrSpace AddrSpace // address space of the pointer
 	ptrVec    int       // ptr vectorization width (1 = non-vectorized)
 	ptrSize   int       // element count of the pointed-to buffer; -1 = unbounded
+
+	// isImage marks an image-storage dtype: behaves identically to its scalar
+	// peer (e.g. Float32) for ALU, promotion, autodiff, and comparisons; the
+	// only effect is on the GPU storage layout (buffer is bound as
+	// array<vec4<f32>> rather than array<f32>; logical element i maps to
+	// buffer[i/4][i%4]). Storage layout choice, not a compute-level type.
+	isImage bool
 }
 
 // ── properties ────────────────────────────────────────────────────────────────
@@ -97,12 +104,14 @@ func (d *DType) Base() *DType {
 // ── type predicates ───────────────────────────────────────────────────────────
 
 // IsFloat reports whether d (or its scalar element, for vectors) is a
-// floating-point type.
+// floating-point type. Image-storage dtypes share their scalar peer's
+// compute identity and are also counted as float.
 func (d *DType) IsFloat() bool {
 	s := d.Scalar()
 	return s == Dtypes.Float16 || s == Dtypes.BFloat16 ||
 		s == Dtypes.Float32 || s == Dtypes.Float64 ||
-		s == Dtypes.FP8E4M3 || s == Dtypes.FP8E5M2
+		s == Dtypes.FP8E4M3 || s == Dtypes.FP8E5M2 ||
+		s == Dtypes.ImageFloat32
 }
 
 // IsInt reports whether d (or its scalar element) is an integer type
@@ -131,14 +140,32 @@ func (d *DType) IsUnsigned() bool {
 // IsBool reports whether d is the bool dtype.
 func (d *DType) IsBool() bool { return d.Scalar() == Dtypes.Bool }
 
+// IsImage reports whether d is an image-storage dtype. Image dtypes behave
+// as their scalar peer for compute (ALU, autodiff, promotion) and only
+// differ in GPU buffer layout (array<vec4<f32>> instead of array<f32>;
+// logical element i lives at buffer[i/4][i%4]). The vec4 packing is in the
+// storage layout, not in the dtype lane count, so IsImage is a per-dtype
+// predicate distinct from Count > 1.
+func (d *DType) IsImage() bool {
+	if d == nil {
+		return false
+	}
+	return d.isImage
+}
+
 // ── construction ──────────────────────────────────────────────────────────────
 
 // Vec returns a vector dtype with sz lanes of element type d.
 // Returns d unchanged for sz == 1 or when d is Dtypes.Void.
-// Panics if d is already a vector dtype.
+// Panics if d is already a vector dtype, or if d is an image dtype: the
+// vec4 packing of an image lives in the storage layout, not the dtype lane
+// count, so Vec on image dtypes is structurally meaningless.
 func (d *DType) Vec(sz int) *DType {
 	if sz == 1 || d == Dtypes.Void {
 		return d
+	}
+	if d.isImage {
+		panic(fmt.Sprintf("uop: cannot vectorize image dtype %s: vec4 packing is in storage layout, not dtype lane count", d))
 	}
 	if d.count != 1 {
 		panic(fmt.Sprintf("uop: cannot vectorize %s: already a vector (count=%d)", d, d.count))
@@ -223,6 +250,7 @@ type dtypeKey struct {
 	addrSpace AddrSpace
 	ptrVec    int
 	ptrSize   int
+	isImage   bool
 }
 
 var (
@@ -236,6 +264,7 @@ func internDType(d DType) *DType {
 	key := dtypeKey{ //nolint:staticcheck // S1016: explicit field list intentional, dtype interning key composition stays visible at call site
 		d.priority, d.bitsize, d.name, d.fmt, d.count,
 		d.scalar, d.isPtr, d.base, d.addrSpace, d.ptrVec, d.ptrSize,
+		d.isImage,
 	}
 	dtypeCacheMu.Lock()
 	defer dtypeCacheMu.Unlock()
@@ -255,6 +284,21 @@ func newScalar(priority, bitsize int, name, fmtStr string) *DType {
 		name:     name,
 		fmt:      fmtStr,
 		count:    1,
+	})
+}
+
+// newImageScalar creates and interns an image-storage scalar DType. The
+// fields are intentionally identical to the matching newScalar call so the
+// only structural difference is the isImage flag; the intern cache keys on
+// the full struct so the two singletons are distinct.
+func newImageScalar(priority, bitsize int, name, fmtStr string) *DType {
+	return internDType(DType{
+		priority: priority,
+		bitsize:  bitsize,
+		name:     name,
+		fmt:      fmtStr,
+		count:    1,
+		isImage:  true,
 	})
 }
 
@@ -287,6 +331,12 @@ var Dtypes = struct {
 	BFloat16 *DType
 	Float32  *DType
 	Float64  *DType
+
+	// Image-storage variants — behave as their scalar peer for ALU, autodiff,
+	// and promotion. The only difference is GPU buffer storage layout (the
+	// buffer is bound as array<vec4<f32>> rather than array<f32>; logical
+	// element i lives at buffer[i/4][i%4]). See DType.IsImage and SPEC §1.3.
+	ImageFloat32 *DType
 
 	// Convenience aliases matching tinygrad naming.
 	Float  *DType // = Float32
@@ -322,6 +372,12 @@ var Dtypes = struct {
 	BFloat16: newScalar(12, 16, "__bf16", ""),
 	Float32:  newScalar(13, 32, "float", "f"),
 	Float64:  newScalar(14, 64, "double", "d"),
+
+	// Image-storage dtype: same priority/bitsize/name as Float32 but with the
+	// isImage flag set so the intern cache discriminates the two singletons.
+	// All other fields match Float32 so the promotion lattice can treat them
+	// as interchangeable peers (LeastUpperDType collapses to Float32).
+	ImageFloat32: newImageScalar(13, 32, "float", "f"),
 }
 
 func init() {
@@ -376,6 +432,15 @@ func (d *DType) StructuralHash() uint64 {
 		h = mix(h, uint64(d.addrSpace))
 		h = mix(h, uint64(d.ptrVec))
 		h = mix(h, uint64(int64(d.ptrSize))) // -1 → ^uint64(0), distinct from 0
+	} else {
+		h = mix(h, 0)
+	}
+	// Image-storage flag: pure-field mix-in keeps StructuralHash a function
+	// of dtype identity (SPEC §10 portability invariant). Two dtypes with
+	// the same scalar identity but differing isImage must hash distinctly so
+	// the cross-arena identity test catches a missed field.
+	if d.isImage {
+		h = mix(h, 1)
 	} else {
 		h = mix(h, 0)
 	}
@@ -538,6 +603,13 @@ func buildPromoLattice() {
 		D.BFloat16: {D.Float32},
 		D.Float32:  {D.Float64},
 		// Float64 is the lattice top; no outgoing edges.
+
+		// Image-storage variants share their compute identity with their
+		// scalar peer. The edge Image→Float32 makes LeastUpperDType collapse
+		// (Image, scalar) pairs to the scalar (storage choice, not compute
+		// type). The (Image, Image) case is handled by LeastUpperDType's
+		// "all inputs equal" early-exit so the result is Image, not Float32.
+		D.ImageFloat32: {D.Float32},
 	}
 }
 
@@ -639,9 +711,29 @@ func ancestors(d *DType) map[*DType]struct{} {
 // be promoted to without loss of precision, mirroring tinygrad's
 // least_upper_dtype.  Returns nil if ds is empty or if the intersection of
 // ancestor sets is empty (which should not occur for well-formed inputs).
+//
+// Image-storage dtypes (DType.IsImage) are interchangeable with their scalar
+// peer at the compute level: LeastUpperDType(ImageFloat32, Float32) == Float32.
+// The image-vs-image case is special-cased so it collapses to the image
+// dtype rather than its scalar peer (storage layout is preserved when every
+// input agrees on it).
 func LeastUpperDType(ds ...*DType) *DType {
 	if len(ds) == 0 {
 		return nil
+	}
+	// All-inputs-equal early exit preserves the image-vs-image case so
+	// LeastUpperDType(ImageFloat32, ImageFloat32) == ImageFloat32 (the
+	// promotion lattice itself routes Image→Scalar, which would otherwise
+	// collapse the result to the scalar peer even when every input is image).
+	allEqual := true
+	for _, d := range ds[1:] {
+		if d != ds[0] {
+			allEqual = false
+			break
+		}
+	}
+	if allEqual {
+		return ds[0]
 	}
 	common := ancestors(ds[0])
 	for _, d := range ds[1:] {
@@ -652,6 +744,14 @@ func LeastUpperDType(ds ...*DType) *DType {
 			}
 		}
 	}
+	// The intersection never contains both ImageFloat32 and Float32 at the
+	// same time: ImageFloat32's ancestor set is {Image, F32, F64} while
+	// every non-image scalar's set tops out at {F32, F64}, so the (Image,
+	// Scalar) tie-break is unreachable from the present lattice and the
+	// pre-tie-break CmpDType total order is sufficient. If a future slice
+	// adds image edges that COULD collide (e.g. ImageFloat16), reintroduce
+	// the isImage tie-breaker here and prefer the non-image so the lattice
+	// result stays the compute identity.
 	var best *DType
 	for d := range common {
 		if best == nil || CmpDType(d, best) < 0 {

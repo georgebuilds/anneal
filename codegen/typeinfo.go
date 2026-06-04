@@ -28,6 +28,7 @@ func WGSLTypeInfoFor(d *uop.DType) WGSLTypeInfo {
 	scalar := d.Scalar()
 
 	bf16Storage := scalar == uop.Dtypes.BFloat16
+	imageStorage := d.IsImage()
 
 	var wgslName string
 	var sizeBytes uint64 = 4
@@ -69,6 +70,29 @@ func WGSLTypeInfoFor(d *uop.DType) WGSLTypeInfo {
 	if bf16Storage || buf == "bool" {
 		buf = "u32"
 	}
+	if imageStorage {
+		// Image dtypes bind their storage buffer as array<vec4<f32>>; the
+		// per-logical-element size stays 4 bytes (SizeBytes is per logical
+		// f32 element). Byte-size callers (backend allocators) round up to
+		// the vec4 packing via BufferByteSize so allocations cover
+		// ceil(elems/4) vec4 slots.
+		buf = "vec4<f32>"
+	}
 
 	return WGSLTypeInfo{Scalar: wgslName, BufferElem: buf, SizeBytes: sizeBytes}
+}
+
+// BufferByteSize returns the total GPU buffer byte size for a buffer of
+// elems logical elements of dtype d. For image dtypes the buffer holds
+// ceil(elems/4) vec4 slots (16 bytes each); for everything else it is the
+// pre-image elems * SizeBytes formula every call site previously used.
+func BufferByteSize(elems int64, d *uop.DType) uint64 {
+	info := WGSLTypeInfoFor(d)
+	if d != nil && d.IsImage() {
+		// One vec4 slot covers 4 logical f32 elements; round up the slot
+		// count via ceiling division and multiply by 16 bytes per slot.
+		slots := uint64((elems + 3) / 4)
+		return slots * 16
+	}
+	return uint64(elems) * info.SizeBytes
 }

@@ -1233,7 +1233,23 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	if isLocal {
 		rhs = fmt.Sprintf("%s[%s]", localName, flatExpr)
 	} else {
-		rhs = fmt.Sprintf("data%d[%s]", paramIdx, flatExpr)
+		// Image storage: buffer is bound as array<vec4<f32>>; logical
+		// element idx lives at data{i}[idx / 4u].{x,y,z,w}. The DefineLocal
+		// path above is unaffected — image storage is a GPU buffer
+		// concept and workgroup scratchpads stay scalar. We avoid
+		// runtime-indexed component access (data{i}[slot][lane]) because
+		// the naga WGSL→MSL pipeline silently degrades dynamic component
+		// indexing on storage to static-lane-0 reads; a select-chain over
+		// the four static swizzles is portable. flatExpr is i32-typed;
+		// cast to u32 once so the / and % operators bind without
+		// triggering the ambiguous-overload error.
+		if l.paramIsImage(paramIdx) {
+			rhs = fmt.Sprintf(
+				"select(select(select(data%d[u32(%s) / 4u].w, data%d[u32(%s) / 4u].z, (u32(%s) %% 4u) == 2u), data%d[u32(%s) / 4u].y, (u32(%s) %% 4u) == 1u), data%d[u32(%s) / 4u].x, (u32(%s) %% 4u) == 0u)",
+				paramIdx, flatExpr, paramIdx, flatExpr, flatExpr, paramIdx, flatExpr, flatExpr, paramIdx, flatExpr, flatExpr)
+		} else {
+			rhs = fmt.Sprintf("data%d[%s]", paramIdx, flatExpr)
+		}
 	}
 	emitDType := u.DType()
 	if emitDType != nil {
@@ -1705,6 +1721,15 @@ func (l *lowerer) paramShape(paramIdx int) []int64 {
 		return []int64{1}
 	}
 	return l.item.Bufs[paramIdx].Shape
+}
+
+// paramIsImage reports whether paramIdx's buffer dtype is image-storage
+// (DType.IsImage). Drives the codegen fork between scalar `data{i}[idx]`
+// indexing and the vec4-packed `data{i}[idx / 4u][idx % 4u]` form. The
+// bounds-check is rolled into the predicate so a malformed item never
+// indexes out of Bufs (paranoia mirror of paramShape).
+func (l *lowerer) paramIsImage(paramIdx int) bool {
+	return paramIdx < len(l.item.Bufs) && l.item.Bufs[paramIdx].DType != nil && l.item.Bufs[paramIdx].DType.IsImage()
 }
 
 // paramDimFactor returns a strideAcc representing the size of dim `dim` of
