@@ -14,7 +14,7 @@ A few framing points that explain most of the rules below:
   1. There is **no Z3/SMT solver** in the core indexing path — it's graph rewrite plus interval arithmetic.
   2. Upstream's rewrite driver is **recursive**; ours is **iterative** by design (a deliberate improvement, not an accident to "fix").
   3. The IR memory model is an **integer-indexed arena with interning**, never a `*UOp` pointer graph.
-- **Adding a new backend.** A backend implements `backend.Renderer`, `backend.Compiler`, `backend.Allocator`, `backend.Program`, and `backend.DeviceBuffer`; the orchestrator pattern in `backend/webgpu/executor.go` is the reference for how to compose them. Threading discipline (a locked OS-thread GPU-owner goroutine, see `backend/webgpu/open.go`) is required if the target driver, like Metal, has thread-affine state; WebGPU's `onGPU` funnel is the canonical example.
+- **Adding a new backend.** A backend implements `backend.Renderer`, `backend.Compiler`, `backend.Allocator`, `backend.Program`, and `backend.DeviceBuffer`; the orchestrator pattern in `backend/webgpu/executor.go` is the reference for how to compose them. Threading discipline (a locked OS-thread GPU-owner goroutine, see `backend/webgpu/open.go`) is required if the target driver, like Metal, has thread-affine state; WebGPU's `onGPU` funnel is the canonical example. A backend that does not codegen-to-source (the CPU interpreter at `backend/cpu/` is the reference) can implement only `backend.Executor` directly and skip Renderer / Compiler / Program; the executor walks the linearized `schedule.ExecItem` AST against host buffers. Pick this path for fallbacks and value oracles where zero-CGO and no toolchain at runtime are non-negotiable.
 
 ## Getting set up
 
@@ -25,7 +25,7 @@ go test ./...
 go run ./cmd/anneal doctor   # confirm a WebGPU device is reachable
 ```
 
-You'll need a recent Go toolchain (see `go.mod`) and a platform with a WebGPU-capable driver. anneal links the driver at runtime via zero-CGO, so you do **not** need a C compiler, CUDA toolkit, or Xcode at build time.
+You'll need a recent Go toolchain (see `go.mod`). A WebGPU-capable driver is required for the WebGPU backend (anneal links it at runtime via zero-CGO, so you do **not** need a C compiler, CUDA toolkit, or Xcode at build time); the pure-Go CPU interpreter (`anneal train <model> --device=cpu`) runs without one and is the recommended path for environments with no GPU.
 
 ### Optional: regenerating `docs/og-image.png`
 

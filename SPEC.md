@@ -48,7 +48,7 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 | Dynamic seq-length tensor API | ⛔ Deferred (Option-B capability is in; the tensor-surface constructor / fence is the open work) |
 | Devices | Single device (multi-device deferred) |
 | Autodiff | ✅ Full reverse-mode via typed graph traversal (D1 verified — §5) |
-| Backend | ✅ WebGPU (native + WASM; §7.8) |
+| Backend | ✅ WebGPU (native + WASM; §7.8); CPU pure-Go interpreter at `backend/cpu/` ships in-binary with no GPU required (slice 1 op coverage, value oracle for WebGPU at max-abs-diff 1.19e-07 forward / 2.98e-08 gradient on the MLP demo) |
 | JIT | ✅ Capture/replay (`tensor.JIT`; §7.5c) |
 | Schedule cache | ✅ Memoized on structural key (§7.6) |
 | Migration I/O | ✅ `.npy`/`.npz` load; `.safetensors` save/load |
