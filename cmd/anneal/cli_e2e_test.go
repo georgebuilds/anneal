@@ -15,9 +15,12 @@ import (
 // $PATH under each registered name; when re-executed under that name we run
 // the real CLI entry point.
 func TestMain(m *testing.M) {
-	testscript.Main(m, map[string]func(){
-		"anneal": func() { os.Exit(run(os.Args[1:])) },
-	})
+	// testscript.Main races with -coverprofile (the test binary writes coverage
+	// to GOCOVERDIR before the parent harness has set it up), so we stay on
+	// RunMain. The deprecation warning is intentional.
+	os.Exit(testscript.RunMain(m, map[string]func() int{ //nolint:staticcheck // see comment
+		"anneal": func() int { return run(os.Args[1:]) },
+	}))
 }
 
 // TestCLIScripts runs every .txtar script under testdata/script. Each script

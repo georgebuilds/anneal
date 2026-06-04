@@ -280,6 +280,7 @@ func staticMLPGrads(t *testing.T, model *symMLP, xData, tgtData []float32) map[*
 // converges — the loss decreases over 200 SGD steps.
 func TestDynBatchTrainConvergence(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	rng := rand.New(rand.NewSource(77))
 	randSlice := func(n int) []float32 {

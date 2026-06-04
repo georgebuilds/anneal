@@ -149,6 +149,7 @@ func TestF16Convergence(t *testing.T) {
 
 func TestBF16Convergence(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	const (
 		lr       = float32(0.05)

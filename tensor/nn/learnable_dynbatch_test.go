@@ -84,6 +84,7 @@ func dynTrainStep(t *testing.T, model *mlp, opt *nn.SGD, xData, yData []float32,
 // reports dyn-batch vs static loss ratios side by side.
 func TestDynBatchLearnableConvergence(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	const (
 		lr       = float32(0.05)

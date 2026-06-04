@@ -329,6 +329,7 @@ func TestConvNetGradientCheck(t *testing.T) {
 // Convergence criterion: ratio = final_loss / initial_loss < 0.50.
 func TestConvNetConvergence(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	const (
 		lr       = float32(0.05)

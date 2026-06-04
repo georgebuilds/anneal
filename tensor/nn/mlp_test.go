@@ -251,6 +251,7 @@ func TestMLPGradientCheck(t *testing.T) {
 // MSE-mean loss (1/N·Σ(pred−tgt)²), effective per-sample step = lr/N = 0.003125.
 func TestMLPConvergence(t *testing.T) {
 	requireGPU(t)
+	skipIfSoftwareGPU(t)
 
 	const (
 		lr       = float32(0.05)

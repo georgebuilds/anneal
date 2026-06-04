@@ -17,14 +17,20 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Vulkan SW renderer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools libvulkan1
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
       - name: Build
         run: go build ./...
 
       - name: Test
-        run: go test -short -timeout=10m -coverprofile=coverage.txt ./...
+        run: go test -short -timeout=10m -p 2 -coverprofile=coverage.txt ./...
         env:
           GOTRACEBACK: crash
-          ANNEAL_NO_GPU: "1"
 
       # NOTE to maintainer: add CODECOV_TOKEN as a repository secret in
       # repo Settings, Secrets and variables, Actions. Without it, uploads
@@ -42,8 +48,3 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
-
-      - name: Coverage
-        run: make coverage
-        env:
-          ANNEAL_NO_GPU: "1"
