@@ -6,16 +6,21 @@ package examples
 // using a scaled-down channel config. This file's load-bearing checks are:
 //   - the example is correctly registered with Build + Train
 //   - buildResNet9 constructs a graph (no Realize) without panic
-//   - trainResNet9 returns the documented gate error when the codegen
-//     workstream has not enabled training
+//   - resnet9CrossEntropy composes a scalar loss graph
 //   - initResNet9Small fills every Conv / BN / Head parameter and the
 //     in-place mutation is observable on the Param.Value slices
+//   - resnet9EvalLoss returns a finite scalar against a tiny synthetic
+//     CIFAR-10 batch on the GPU (skipped when no device is available)
 
 import (
+	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/georgebuilds/anneal/backend/webgpu"
+	resnet9data "github.com/georgebuilds/anneal/examples/resnet9"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/tensor/nn"
 	"github.com/georgebuilds/anneal/uop"
@@ -51,18 +56,6 @@ func TestBuildResNet9ConstructsForward(t *testing.T) {
 	sh := br.Output.Shape()
 	if len(sh) != 2 || sh[0] != resnet9Batch || sh[1] != 10 {
 		t.Fatalf("BuildResult.Output shape: got %v, want [%d, 10]", sh, resnet9Batch)
-	}
-}
-
-func TestTrainResNet9ReturnsGateError(t *testing.T) {
-	// Training is gated on a WGSL codegen bug; the entry point returns a
-	// descriptive error rather than running the broken backward path.
-	err := trainResNet9("webgpu", TrainConfig{Steps: 1}, func(int, float32) {})
-	if err == nil {
-		t.Fatal("expected gating error from trainResNet9")
-	}
-	if !strings.Contains(err.Error(), "codegen") {
-		t.Fatalf("gating error should mention codegen: %v", err)
 	}
 }
 
@@ -114,5 +107,109 @@ func TestInitResNet9SmallTouchesEveryParam(t *testing.T) {
 	}
 	if allZero(m.Head.Weight.Value) {
 		t.Error("Head.Weight all zero")
+	}
+}
+
+// synthCIFAR10 builds a tiny on-host CIFAR-10 struct (no network, no asset
+// cache) suitable for the resnet9EvalLoss smoke test below. The train set
+// holds nSamples records of small-amplitude Gaussian noise paired with
+// deterministic labels in [0, 10). Mirrors the layout that resnet9data.Batch
+// expects: a [N, 3, 32, 32] flat row-major Train block and a length-N
+// TrainLabels slice.
+func synthCIFAR10(nSamples int, rng *rand.Rand) *resnet9data.CIFAR10 {
+	const imagePixels = 3 * 32 * 32
+	x := make([]float32, nSamples*imagePixels)
+	y := make([]int32, nSamples)
+	for i := range x {
+		x[i] = float32(rng.NormFloat64()) * 0.1
+	}
+	for i := range y {
+		y[i] = int32(i % 10)
+	}
+	return &resnet9data.CIFAR10{
+		Train:       x,
+		TrainLabels: y,
+	}
+}
+
+// requireGPUForResNet9Test is the per-package GPU bootstrap mirroring the
+// one in nanogpt_test.go. We can't share it (Go forbids cross-test-file
+// symbol leaks via t.Helper alone — there's no conflict, this is just a
+// per-test isolation choice that keeps each smoke test self-contained).
+func requireGPUForResNet9Test(t *testing.T) {
+	t.Helper()
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	dev, err := webgpu.Open()
+	if err != nil {
+		t.Skipf("no GPU: %v", err)
+	}
+	t.Cleanup(func() {
+		tensor.DefaultExecutor = nil
+		dev.Close()
+	})
+	tensor.DefaultExecutor = dev
+}
+
+// TestResNet9EvalLossSmoke wires the eval helper end to end against a tiny
+// synthetic dataset on the GPU. The check is intentionally weak (finite,
+// non-NaN, non-Inf) — the loss value is not under test, only the wiring
+// (Batch -> OneHot -> Load -> Forward -> Realize -> Data[0]). Skipped when
+// no GPU is available so the CPU-only test run stays clean.
+func TestResNet9EvalLossSmoke(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping GPU-bound smoke test")
+	}
+	requireGPUForResNet9Test(t)
+
+	// Tiny model (scaled channels) so the GPU graph is small enough to
+	// realize quickly without exercising the full 6.57M-param config.
+	a0 := uop.NewArena(1 << 14)
+	m := nn.NewResNet9Scaled(a0, [4]int64{4, 8, 16, 32}, 10, uop.Dtypes.Float32, "webgpu")
+	initResNet9Small(m, 0.05, rand.New(rand.NewSource(11)))
+
+	ds := synthCIFAR10(8, rand.New(rand.NewSource(12)))
+	rng := rand.New(rand.NewSource(13))
+
+	loss := resnet9EvalLoss(m, m.Params(), ds, rng, int64(2), "webgpu")
+	if math.IsNaN(float64(loss)) || math.IsInf(float64(loss), 0) {
+		t.Fatalf("resnet9EvalLoss: non-finite loss %v", loss)
+	}
+}
+
+// TestRunResNet9LogTextEmits drives runResNet9 with zero steps against the
+// tiny in-memory fixture; the loop body is skipped (Steps=0, LogEvery=0)
+// but the lr/batch fallback resolution, model assembly, and final wall-time
+// LogText emission all execute. CPU-only — no GPU dispatch, no Realize.
+func TestRunResNet9LogTextEmits(t *testing.T) {
+	ds := synthCIFAR10(4, rand.New(rand.NewSource(31)))
+
+	var captured strings.Builder
+	cfg := TrainConfig{
+		Steps:   0,
+		LR:      0, // exercises the zero -> resnet9AdamLR swap
+		Batch:   0, // exercises the <=0 -> resnet9Batch swap
+		LogText: func(s string) { captured.WriteString(s) },
+	}
+	err := runResNet9("webgpu", cfg, func(int, float32) {}, ds,
+		[4]int64{2, 4, 8, 16}, 1)
+	if err != nil {
+		t.Fatalf("runResNet9 (default fallbacks): %v", err)
+	}
+	if !strings.Contains(captured.String(), "training complete") {
+		t.Errorf("LogText did not receive wall-time line; got %q", captured.String())
+	}
+}
+
+// TestRunResNet9SentinelLR covers the cmdTrainSGDDefaultLR sentinel branch
+// in the lr-fallback ladder. Steps=0 keeps us out of the Forward path so
+// this stays CPU-only.
+func TestRunResNet9SentinelLR(t *testing.T) {
+	ds := synthCIFAR10(4, rand.New(rand.NewSource(32)))
+	err := runResNet9("webgpu",
+		TrainConfig{Steps: 0, LR: cmdTrainSGDDefaultLR, Batch: 2},
+		func(int, float32) {}, ds, [4]int64{2, 4, 8, 16}, 1)
+	if err != nil {
+		t.Fatalf("runResNet9 (sentinel LR): %v", err)
 	}
 }
