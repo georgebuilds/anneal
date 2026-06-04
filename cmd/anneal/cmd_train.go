@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/georgebuilds/anneal/backend/cpu"
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples"
 	"github.com/georgebuilds/anneal/internal/bundle"
@@ -109,18 +110,37 @@ func trainCmdW(args []string, w io.Writer) int {
 		return 1
 	}
 
-	dev, err := webgpu.Open()
-	if err != nil {
-		fmt.Fprint(w, noAdapterError())
+	var (
+		adapterName string
+		backend     string
+	)
+	switch *device {
+	case "webgpu":
+		dev, openErr := webgpu.Open()
+		if openErr != nil {
+			fmt.Fprint(w, noAdapterError())
+			return 1
+		}
+		defer dev.Close()
+		tensor.DefaultExecutor = dev
+		defer func() { tensor.DefaultExecutor = nil }()
+		adapterName = dev.AdapterName()
+		backend = detectBackend()
+	case "cpu":
+		dev, openErr := cpu.Open()
+		if openErr != nil {
+			_, _ = fmt.Fprintf(w, "cpu backend: %v\n", openErr)
+			return 1
+		}
+		defer dev.Close()
+		tensor.DefaultExecutor = dev
+		defer func() { tensor.DefaultExecutor = nil }()
+		adapterName = "cpu (pure Go interpreter)"
+		backend = "cpu"
+	default:
+		_, _ = fmt.Fprintf(w, "unsupported --device %q; choose webgpu or cpu\n", *device)
 		return 1
 	}
-	defer dev.Close()
-
-	tensor.DefaultExecutor = dev
-	defer func() { tensor.DefaultExecutor = nil }()
-
-	adapterName := dev.AdapterName()
-	backend := detectBackend()
 
 	cfg := examples.TrainConfig{
 		Steps:    *steps,
