@@ -12,7 +12,7 @@
 [![codecov](https://codecov.io/github/georgebuilds/anneal/branch/main/graph/badge.svg?token=1S9OUTWWG8)](https://codecov.io/github/georgebuilds/anneal)
 [![license](https://img.shields.io/badge/license-AGPL3-blue)](LICENSE)
 
-[Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Design (web)](DESIGN.md) · [Accessibility](web/A11Y.md) · [Limitations](LIMITATIONS.md) · [Contributing](CONTRIBUTING.md)
+[Visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/) · [Architecture (SPEC)](SPEC.md) · [Accessibility](web/A11Y.md) · [Limitations](LIMITATIONS.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -88,8 +88,6 @@ WCAG 2.x AA is a binding requirement, not an aspiration. The brand tokens carry 
 The web studio default-writes a run bundle to `~/.cache/anneal/runs/<ts>-<model>-<6hex>/` (`manifest.json`, `schedule.json`, `kernels/*.wgsl`, `graph.json`, `loss.csv`, `generation.ndjson`, `events.ndjson`, `config.json`). `?bundle=0` disables. From the CLI, `anneal train` writes no bundle unless `--bundle` or `ANNEAL_BUNDLE=1` is set: CLI runs stay disk-side-effect-free by default.
 
 GPT-2-small forward fits cleanly on M3 through the generate view: a verified 47s cold-start wall for a 3-token completion and 3.82 GB peak RSS for a 10-token run.
-
-The full set of design invariants (DD1 through DD4: colour is never alone; real compiler only; the library is the product; restraint) lives in [`DESIGN.md`](DESIGN.md).
 
 ## Importing ONNX
 
