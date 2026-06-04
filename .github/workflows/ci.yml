@@ -24,6 +24,7 @@ jobs:
         run: go test -short -timeout=10m -coverprofile=coverage.txt ./...
         env:
           GOTRACEBACK: crash
+          ANNEAL_NO_GPU: "1"
 
       # NOTE to maintainer: add CODECOV_TOKEN as a repository secret in
       # repo Settings, Secrets and variables, Actions. Without it, uploads

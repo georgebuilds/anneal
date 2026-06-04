@@ -1,7 +1,9 @@
 package webgpu
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/gogpu/gputypes"
@@ -98,6 +100,9 @@ func (d *Device) onGPU(fn func() error) error {
 // The adapter/device acquisition runs on the GPU-owner goroutine because it also
 // drives Metal and creates autorelease pools.
 func Open() (*Device, error) {
+	if os.Getenv("ANNEAL_NO_GPU") == "1" {
+		return nil, errors.New("webgpu: disabled via ANNEAL_NO_GPU=1")
+	}
 	d := &Device{jobs: make(chan gpuJob)}
 	go d.gpuOwnerLoop()
 
