@@ -45,3 +45,5 @@ jobs:
 
       - name: Coverage
         run: make coverage
+        env:
+          ANNEAL_NO_GPU: "1"
