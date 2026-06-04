@@ -216,12 +216,12 @@ func handleSSEGenerate(w http.ResponseWriter, r *http.Request) {
 
 		body, err := json.Marshal(tok)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n",
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n",
 				jsonString("token snapshot marshal: "+err.Error()))
 			flusher.Flush()
 			break
 		}
-		fmt.Fprintf(w, "data: %s\n\n", body)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", body)
 		flusher.Flush()
 		if !isLifecycle {
 			lastTokenWrite = time.Now()
@@ -241,7 +241,7 @@ func handleSSEGenerate(w http.ResponseWriter, r *http.Request) {
 			"wall_ms":      wallMs,
 		}
 		body, _ := json.Marshal(donePayload)
-		fmt.Fprintf(w, "event: done\ndata: %s\n\n", body)
+		_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", body)
 		flusher.Flush()
 	}
 

@@ -44,7 +44,7 @@ func resolveShapeInput(v Value) ([]shape.Sint, error) {
 func handleConstant(ctx *HandlerCtx) ([]Value, error) {
 	tp := ctx.Node.Attrs["value"].Tensor()
 	if tp == nil {
-		return nil, fmt.Errorf("Constant: missing `value` attribute")
+		return nil, fmt.Errorf("constant: missing `value` attribute")
 	}
 	if ctx.StructureOnly {
 		leaf, err := structureOnlyLeafFromProto(ctx.Arena, tp, ctx.Device)
@@ -63,10 +63,10 @@ func handleConstant(ctx *HandlerCtx) ([]Value, error) {
 // handleIdentity passes the input through unchanged.
 func handleIdentity(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) != 1 {
-		return nil, fmt.Errorf("Identity: expected 1 input, got %d", len(ctx.Inputs))
+		return nil, fmt.Errorf("identity: expected 1 input, got %d", len(ctx.Inputs))
 	}
 	if !ctx.Inputs[0].IsDevice() {
-		return nil, fmt.Errorf("Identity: input is not a device tensor (kind=%d)", ctx.Inputs[0].Kind)
+		return nil, fmt.Errorf("identity: input is not a device tensor (kind=%d)", ctx.Inputs[0].Kind)
 	}
 	return []Value{ctx.Inputs[0]}, nil
 }
@@ -80,11 +80,11 @@ func handleIdentity(ctx *HandlerCtx) ([]Value, error) {
 // Runner won't be Run().
 func handleConstantOfShape(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 1 {
-		return nil, fmt.Errorf("ConstantOfShape: expected 1 input")
+		return nil, fmt.Errorf("constantOfShape: expected 1 input")
 	}
 	sh, err := resolveShapeInput(ctx.Inputs[0])
 	if err != nil {
-		return nil, fmt.Errorf("ConstantOfShape: %w", err)
+		return nil, fmt.Errorf("constantOfShape: %w", err)
 	}
 	val := 0.0
 	dt := onnxpb.TensorProto_FLOAT
@@ -106,13 +106,13 @@ func handleConstantOfShape(ctx *HandlerCtx) ([]Value, error) {
 					val = float64(vals[0])
 				}
 			default:
-				return nil, fmt.Errorf("ConstantOfShape: dtype %v not supported", dt)
+				return nil, fmt.Errorf("constantOfShape: dtype %v not supported", dt)
 			}
 		}
 	}
 	annealDT, _, _, ok := onnxDType(int32(dt))
 	if !ok {
-		return nil, fmt.Errorf("ConstantOfShape: dtype %v has no anneal mapping", dt)
+		return nil, fmt.Errorf("constantOfShape: dtype %v has no anneal mapping", dt)
 	}
 	out := tensor.FullSints(ctx.Arena, sh, val, annealDT, ctx.Device)
 	return []Value{Device(out)}, nil

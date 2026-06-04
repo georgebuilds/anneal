@@ -82,29 +82,29 @@ var conformanceSkipList = map[string]string{
 	"test_unique_*":  "Unique: data-dependent shapes, deferred to v1.1 (plan §9)",
 
 	// ── Conv group>1 and AveragePool not in v1 surface (plan §5 / §9) ──
-	"test_basic_conv_with_padding":    "Conv group>1 / 3-D pads: deferred to v1.1 (plan §9 / handler punt)",
-	"test_basic_conv_without_padding": "Conv group>1 / 3-D pads: deferred to v1.1 (plan §9 / handler punt)",
-	"test_conv_with_autopad_same":     "Conv auto_pad: deferred to v1.1 (plan §9; none of the v1 targets use auto_pad)",
-	"test_conv_with_strides_padding":  "Conv 3-D pads attr length 6: needs pad-axis rebroadcast (handler punt, v1.1)",
+	"test_basic_conv_with_padding":      "Conv group>1 / 3-D pads: deferred to v1.1 (plan §9 / handler punt)",
+	"test_basic_conv_without_padding":   "Conv group>1 / 3-D pads: deferred to v1.1 (plan §9 / handler punt)",
+	"test_conv_with_autopad_same":       "Conv auto_pad: deferred to v1.1 (plan §9; none of the v1 targets use auto_pad)",
+	"test_conv_with_strides_padding":    "Conv 3-D pads attr length 6: needs pad-axis rebroadcast (handler punt, v1.1)",
 	"test_conv_with_strides_no_padding": "Conv 3-D pads attr length 6: needs pad-axis rebroadcast (handler punt, v1.1)",
 
 	// ── MaxPool variants the handler punts on (plan §5) ──
-	"test_maxpool_1d_default":                    "MaxPool 1-D: v1 supports MaxPool2D only",
-	"test_maxpool_2d_ceil":                       "MaxPool ceil_mode=1: punted by handler (plan §5)",
+	"test_maxpool_1d_default":                        "MaxPool 1-D: v1 supports MaxPool2D only",
+	"test_maxpool_2d_ceil":                           "MaxPool ceil_mode=1: punted by handler (plan §5)",
 	"test_maxpool_2d_ceil_output_size_reduce_by_one": "MaxPool ceil_mode=1: punted by handler (plan §5)",
-	"test_maxpool_2d_dilations":                  "MaxPool dilations>1: punted by handler (plan §5)",
-	"test_maxpool_2d_precomputed_same_upper":     "MaxPool auto_pad SAME_UPPER: out of scope (plan §9)",
-	"test_maxpool_2d_same_lower":                 "MaxPool auto_pad SAME_LOWER: out of scope (plan §9)",
-	"test_maxpool_2d_same_upper":                 "MaxPool auto_pad SAME_UPPER: out of scope (plan §9)",
-	"test_maxpool_3d_default":                    "MaxPool 3-D: v1 supports MaxPool2D only",
-	"test_maxpool_3d_dilations":                  "MaxPool 3-D + dilations: out of scope (plan §5)",
-	"test_maxpool_3d_dilations_use_ref_impl":     "MaxPool 3-D + dilations: out of scope (plan §5)",
-	"test_maxpool_3d_dilations_use_ref_impl_large": "MaxPool 3-D + dilations: out of scope (plan §5)",
-	"test_maxpool_2d_uint8":                      "MaxPool uint8: v1 supports float MaxPool only",
-	"test_maxpool_2d_pads":                       "MaxPool with explicit pads: anneal zero-pads then pools; ONNX pads with -inf semantically (v1.1)",
-	"test_maxpool_2d_strides":                    "MaxPool 5x5/stride-3 with output trim: shrink-bound calc panics on non-divisible (v1.1)",
-	"test_maxpool_2d_precomputed_pads":           "MaxPool with explicit pads: anneal zero-pads then pools; ONNX pads with -inf (v1.1)",
-	"test_maxpool_2d_precomputed_strides":        "MaxPool 5x5/stride-3 trim: same shrink issue as test_maxpool_2d_strides (v1.1)",
+	"test_maxpool_2d_dilations":                      "MaxPool dilations>1: punted by handler (plan §5)",
+	"test_maxpool_2d_precomputed_same_upper":         "MaxPool auto_pad SAME_UPPER: out of scope (plan §9)",
+	"test_maxpool_2d_same_lower":                     "MaxPool auto_pad SAME_LOWER: out of scope (plan §9)",
+	"test_maxpool_2d_same_upper":                     "MaxPool auto_pad SAME_UPPER: out of scope (plan §9)",
+	"test_maxpool_3d_default":                        "MaxPool 3-D: v1 supports MaxPool2D only",
+	"test_maxpool_3d_dilations":                      "MaxPool 3-D + dilations: out of scope (plan §5)",
+	"test_maxpool_3d_dilations_use_ref_impl":         "MaxPool 3-D + dilations: out of scope (plan §5)",
+	"test_maxpool_3d_dilations_use_ref_impl_large":   "MaxPool 3-D + dilations: out of scope (plan §5)",
+	"test_maxpool_2d_uint8":                          "MaxPool uint8: v1 supports float MaxPool only",
+	"test_maxpool_2d_pads":                           "MaxPool with explicit pads: anneal zero-pads then pools; ONNX pads with -inf semantically (v1.1)",
+	"test_maxpool_2d_strides":                        "MaxPool 5x5/stride-3 with output trim: shrink-bound calc panics on non-divisible (v1.1)",
+	"test_maxpool_2d_precomputed_pads":               "MaxPool with explicit pads: anneal zero-pads then pools; ONNX pads with -inf (v1.1)",
+	"test_maxpool_2d_precomputed_strides":            "MaxPool 5x5/stride-3 trim: same shrink issue as test_maxpool_2d_strides (v1.1)",
 
 	// ── Slice negative-step > 1 (plan §6 callout) ──
 	"test_slice_neg_steps": "Slice |step|>1 (incl. negative): step=-1 supported, |step|>1 punted (plan §6)",
@@ -112,14 +112,14 @@ var conformanceSkipList = map[string]string{
 	// ── Cast involving exotic dtypes already covered above (FLOAT8/INT4/UINT4) ──
 
 	// ── Pow with integer-typed exponents / bases (handler restricts to f32) ──
-	"test_pow_types_float32_int32": "Pow int exponent: importer maps to OpPow on f32 only (plan §5)",
-	"test_pow_types_float32_int64": "Pow int exponent: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_float32_int32":  "Pow int exponent: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_float32_int64":  "Pow int exponent: importer maps to OpPow on f32 only (plan §5)",
 	"test_pow_types_float32_uint32": "Pow uint exponent: importer maps to OpPow on f32 only (plan §5)",
 	"test_pow_types_float32_uint64": "Pow uint exponent: importer maps to OpPow on f32 only (plan §5)",
-	"test_pow_types_int32_float32": "Pow int base: importer maps to OpPow on f32 only (plan §5)",
-	"test_pow_types_int32_int32":   "Pow int base+exp: importer maps to OpPow on f32 only (plan §5)",
-	"test_pow_types_int64_float32": "Pow int base: importer maps to OpPow on f32 only (plan §5)",
-	"test_pow_types_int64_int64":   "Pow int base+exp: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_int32_float32":  "Pow int base: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_int32_int32":    "Pow int base+exp: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_int64_float32":  "Pow int base: importer maps to OpPow on f32 only (plan §5)",
+	"test_pow_types_int64_int64":    "Pow int base+exp: importer maps to OpPow on f32 only (plan §5)",
 
 	// ── uint8 elementwise (anneal pipeline materialises as f32 host;
 	//    handler dispatches via Add/Sub/Mul/Div which assume float
@@ -136,21 +136,21 @@ var conformanceSkipList = map[string]string{
 
 	// ── ReduceX empty-set semantics (identity element + zero-axis output)
 	//    not pinned for v1; would need handler changes ──
-	"test_reduce_max_empty_set": "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
-	"test_reduce_min_empty_set": "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
-	"test_reduce_sum_empty_set": "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
+	"test_reduce_max_empty_set":                       "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
+	"test_reduce_min_empty_set":                       "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
+	"test_reduce_sum_empty_set":                       "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
 	"test_reduce_sum_empty_set_non_reduced_axis_zero": "Reduce empty-set: identity-element semantics not in v1 (plan §5)",
-	"test_reduce_sum_empty_axes_input_noop":            "ReduceSum noop with empty axes input: handler does not model noop_with_empty_axes (plan §5)",
-	"test_reduce_sum_empty_axes_input_noop_example":    "ReduceSum noop with empty axes input: handler does not model noop_with_empty_axes (plan §5)",
+	"test_reduce_sum_empty_axes_input_noop":           "ReduceSum noop with empty axes input: handler does not model noop_with_empty_axes (plan §5)",
+	"test_reduce_sum_empty_axes_input_noop_example":   "ReduceSum noop with empty axes input: handler does not model noop_with_empty_axes (plan §5)",
 
 	// ── Shape/Size/Range as graph outputs: host-tier values cannot
 	//    be returned as graph outputs in v1 (runner enforces device
 	//    output). Real models use these as intermediate values feeding
 	//    Reshape/Slice/etc., not as terminal outputs. (plan §1) ──
-	"test_shape":         "Shape as graph output: host-tier output not in v1 scope (plan §1)",
-	"test_shape_example": "Shape as graph output: host-tier output not in v1 scope (plan §1)",
-	"test_size":          "Size as graph output: host-tier output not in v1 scope (plan §1)",
-	"test_size_example":  "Size as graph output: host-tier output not in v1 scope (plan §1)",
+	"test_shape":                           "Shape as graph output: host-tier output not in v1 scope (plan §1)",
+	"test_shape_example":                   "Shape as graph output: host-tier output not in v1 scope (plan §1)",
+	"test_size":                            "Size as graph output: host-tier output not in v1 scope (plan §1)",
+	"test_size_example":                    "Size as graph output: host-tier output not in v1 scope (plan §1)",
 	"test_range_float_type_positive_delta": "Range as graph output: host-tier output not in v1 scope (plan §1)",
 	"test_range_int32_type_negative_delta": "Range as graph output: host-tier output not in v1 scope (plan §1)",
 

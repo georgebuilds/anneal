@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	onnxpb "github.com/georgebuilds/anneal/onnx/onnxpb"
-	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
 )
@@ -195,13 +194,6 @@ func contains(haystack, needle string) bool {
 	return false
 }
 
-// makeLeaf builds a tensor leaf with float32 data on the test arena.
-func makeLeaf(arena *uop.Arena, sh []int64, data []float32) *tensor.Tensor {
-	t := tensor.NewLeaf(arena, sh, uop.Dtypes.Float32, "test")
-	t.SetData(data)
-	return t
-}
-
 // makeIntInitializer builds an INT64 raw_data initializer with given values.
 // Used to register host-tier shape inputs in single-node models.
 func makeIntInitializer(name string, dims []int64, vals []int64) *onnxpb.TensorProto {
@@ -246,13 +238,5 @@ func assertShape(t *testing.T, got *tensor.Tensor, want []int64) {
 		if gs[i] != want[i] {
 			t.Fatalf("dim %d=%d, want %d (shape=%v want %v)", i, gs[i], want[i], gs, want)
 		}
-	}
-}
-
-// assertShapeSints compares a tensor's symbolic shape rank.
-func assertSints(t *testing.T, got []shape.Sint, want []shape.Sint) {
-	t.Helper()
-	if !shape.SintShapesEqual(got, want) {
-		t.Fatalf("Sint shape mismatch")
 	}
 }

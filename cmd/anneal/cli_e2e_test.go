@@ -5,8 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/rogpeppe/go-internal/testscript"
+
+	"github.com/georgebuilds/anneal/backend/webgpu"
 )
 
 // TestMain makes the test binary double as the `anneal` binary when invoked
@@ -14,9 +15,9 @@ import (
 // $PATH under each registered name; when re-executed under that name we run
 // the real CLI entry point.
 func TestMain(m *testing.M) {
-	os.Exit(testscript.RunMain(m, map[string]func() int{
-		"anneal": func() int { return run(os.Args[1:]) },
-	}))
+	testscript.Main(m, map[string]func(){
+		"anneal": func() { os.Exit(run(os.Args[1:])) },
+	})
 }
 
 // TestCLIScripts runs every .txtar script under testdata/script. Each script

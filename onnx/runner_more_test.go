@@ -296,7 +296,7 @@ func TestImport_DimParamUnification(t *testing.T) {
 	// ValueInfos must report SymInt-backed shapes whose Variable index is
 	// identical (interning via FindDefineVar).
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name: "sym",
@@ -371,7 +371,7 @@ func TestImport_DimEmpty_FailsClosed(t *testing.T) {
 	// axes the model author meant to relate. Caller must name the axis
 	// or set a concrete dim.
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name: "empty-dim",
@@ -398,7 +398,7 @@ func TestImport_DimEmpty_FailsClosed(t *testing.T) {
 func TestImport_UnsupportedInputDtype(t *testing.T) {
 	// A graph input with COMPLEX64 dtype must error during lowerValueInfos.
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name: "bad-input-dtype",
@@ -424,7 +424,7 @@ func TestImport_UnsupportedInputDtype(t *testing.T) {
 // input *after* the initializers, so the user input wins.
 func TestRun_UserInputBeatsInitializer(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "collide",
@@ -465,7 +465,7 @@ func TestRun_MissingRequiredInput(t *testing.T) {
 	// Graph declares input "x" AND a node that consumes it. Caller supplies
 	// no inputs → resolution fails with a descriptive error.
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "miss",
@@ -498,7 +498,7 @@ func TestRun_MissingRequiredInput(t *testing.T) {
 func TestRun_OutputNeverAssigned(t *testing.T) {
 	// Graph declares output "z" but no node produces it.
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "noprod",
@@ -525,7 +525,7 @@ func TestRun_OutputNeverAssigned(t *testing.T) {
 // the Runner invokes it with the right inputs and propagates the output.
 func TestRegisterHandler_CustomDispatch(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "custom",
@@ -571,7 +571,7 @@ func TestRegisterHandler_CustomDispatch(t *testing.T) {
 
 func TestRegisterHandler_ErrorPropagates(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "errprop",
@@ -604,7 +604,7 @@ func TestRegisterHandler_ErrorPropagates(t *testing.T) {
 
 func TestRegisterHandler_TooManyOutputs(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "extra",
@@ -638,7 +638,7 @@ func TestRegisterHandler_TooManyOutputs(t *testing.T) {
 // consumes node 1's output, and asserts the dispatcher walks them in order.
 func TestRegisterHandler_TopologicalOrder(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name:   "topo",
@@ -680,7 +680,7 @@ func TestRegisterHandler_TopologicalOrder(t *testing.T) {
 
 func TestImport_BadInitializerPropagates(t *testing.T) {
 	model := &onnxpb.ModelProto{
-		IrVersion: 8,
+		IrVersion:   8,
 		OpsetImport: []*onnxpb.OperatorSetIdProto{{Domain: "", Version: 13}},
 		Graph: &onnxpb.GraphProto{
 			Name: "bad-init",

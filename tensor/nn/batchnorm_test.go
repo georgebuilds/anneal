@@ -97,7 +97,7 @@ func TestBatchNorm2dForwardTraining(t *testing.T) {
 	yData := y.Data()
 
 	// Per-channel: mean ~0, variance ~1.
-	perChan := int64(N * H * W)
+	perChan := N * H * W
 	for c := int64(0); c < C; c++ {
 		var sum, sq float64
 		for n := int64(0); n < N; n++ {

@@ -20,10 +20,10 @@ import (
 // with symmetric zero pads.
 func handleConv(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 2 {
-		return nil, fmt.Errorf("Conv: expected ≥ 2 inputs (X, W)")
+		return nil, fmt.Errorf("conv: expected ≥ 2 inputs (X, W)")
 	}
 	if !ctx.Inputs[0].IsDevice() || !ctx.Inputs[1].IsDevice() {
-		return nil, fmt.Errorf("Conv: X and W must be device tensors")
+		return nil, fmt.Errorf("conv: X and W must be device tensors")
 	}
 	x := ctx.Inputs[0].Tensor()
 	w := ctx.Inputs[1].Tensor()
@@ -34,20 +34,20 @@ func handleConv(ctx *HandlerCtx) ([]Value, error) {
 
 	autoPad := ctx.Node.Attrs["auto_pad"].String("NOTSET")
 	if autoPad != "NOTSET" && autoPad != "" {
-		return nil, fmt.Errorf("Conv: auto_pad %q not supported in v1 (use explicit pads)", autoPad)
+		return nil, fmt.Errorf("conv: auto_pad %q not supported in v1 (use explicit pads)", autoPad)
 	}
 	group := ctx.Node.Attrs["group"].Int(1)
 	if group != 1 {
-		return nil, fmt.Errorf("Conv: group != 1 not supported in v1 (got %d); requires grouped-Conv2d primitive", group)
+		return nil, fmt.Errorf("conv: group != 1 not supported in v1 (got %d); requires grouped-Conv2d primitive", group)
 	}
 
 	xRank := x.Rank()
 	wRank := w.Rank()
 	if xRank != wRank {
-		return nil, fmt.Errorf("Conv: X rank %d != W rank %d", xRank, wRank)
+		return nil, fmt.Errorf("conv: X rank %d != W rank %d", xRank, wRank)
 	}
 	if xRank != 3 && xRank != 4 {
-		return nil, fmt.Errorf("Conv: only 1-D / 2-D conv supported in v1 (got rank %d)", xRank)
+		return nil, fmt.Errorf("conv: only 1-D / 2-D conv supported in v1 (got rank %d)", xRank)
 	}
 
 	// 1-D conv lift: reshape to 4-D with W=1 singleton spatial dim.
@@ -71,12 +71,12 @@ func handleConv(ctx *HandlerCtx) ([]Value, error) {
 	if len(kAttr) > 0 {
 		if is1D {
 			if len(kAttr) != 1 {
-				return nil, fmt.Errorf("Conv: 1-D kernel_shape length %d", len(kAttr))
+				return nil, fmt.Errorf("conv: 1-D kernel_shape length %d", len(kAttr))
 			}
 			kH = kAttr[0]
 		} else {
 			if len(kAttr) != 2 {
-				return nil, fmt.Errorf("Conv: 2-D kernel_shape length %d", len(kAttr))
+				return nil, fmt.Errorf("conv: 2-D kernel_shape length %d", len(kAttr))
 			}
 			kH, kW = kAttr[0], kAttr[1]
 		}
@@ -98,7 +98,7 @@ func handleConv(ctx *HandlerCtx) ([]Value, error) {
 	if len(dilAttr) > 0 {
 		for _, d := range dilAttr {
 			if d != 1 {
-				return nil, fmt.Errorf("Conv: dilations != 1 not supported in v1 (got %v)", dilAttr)
+				return nil, fmt.Errorf("conv: dilations != 1 not supported in v1 (got %v)", dilAttr)
 			}
 		}
 	}
@@ -109,12 +109,12 @@ func handleConv(ctx *HandlerCtx) ([]Value, error) {
 		// default zeros
 	} else if is1D {
 		if len(padsAttr) != 2 {
-			return nil, fmt.Errorf("Conv: 1-D pads length %d", len(padsAttr))
+			return nil, fmt.Errorf("conv: 1-D pads length %d", len(padsAttr))
 		}
 		pHbegin, pHend = padsAttr[0], padsAttr[1]
 	} else {
 		if len(padsAttr) != 4 {
-			return nil, fmt.Errorf("Conv: 2-D pads length %d", len(padsAttr))
+			return nil, fmt.Errorf("conv: 2-D pads length %d", len(padsAttr))
 		}
 		pHbegin, pWbegin, pHend, pWend = padsAttr[0], padsAttr[1], padsAttr[2], padsAttr[3]
 	}

@@ -36,7 +36,7 @@ func init() {
 // all-concrete inputs collapses to HostInts.
 func hostShape(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 1 {
-		return Value{}, fmt.Errorf("Shape: expected 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("shape: expected 1 input, got %d", len(inputs))
 	}
 	in := inputs[0]
 	var sh []shape.Sint
@@ -49,7 +49,7 @@ func hostShape(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostSints:
 		return HostInts([]int64{int64(len(in.Ss))}), nil
 	default:
-		return Value{}, fmt.Errorf("Shape: unsupported input kind %d", in.Kind)
+		return Value{}, fmt.Errorf("shape: unsupported input kind %d", in.Kind)
 	}
 	if ints, ok := shapeSintsAsInts(sh); ok {
 		return HostInts(ints), nil
@@ -63,7 +63,7 @@ func hostShape(node *Node, inputs []Value, st *HostState) (Value, error) {
 // symbolic (Size's contract is a scalar int64).
 func hostSize(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 1 {
-		return Value{}, fmt.Errorf("Size: expected 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("size: expected 1 input, got %d", len(inputs))
 	}
 	in := inputs[0]
 	var sh []shape.Sint
@@ -75,13 +75,13 @@ func hostSize(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostSints:
 		return HostInt64(int64(len(in.Ss))), nil
 	default:
-		return Value{}, fmt.Errorf("Size: unsupported input kind %d", in.Kind)
+		return Value{}, fmt.Errorf("size: unsupported input kind %d", in.Kind)
 	}
 	prod := int64(1)
 	for i, s := range sh {
 		v, ok := s.ConstValue()
 		if !ok {
-			return Value{}, fmt.Errorf("Size: symbolic dim at axis %d (Size requires a concrete scalar in v1)", i)
+			return Value{}, fmt.Errorf("size: symbolic dim at axis %d (Size requires a concrete scalar in v1)", i)
 		}
 		prod *= v
 	}
@@ -95,7 +95,7 @@ func hostSize(node *Node, inputs []Value, st *HostState) (Value, error) {
 func hostConstant(node *Node, inputs []Value, st *HostState) (Value, error) {
 	tp := node.Attrs["value"].Tensor()
 	if tp == nil {
-		return Value{}, fmt.Errorf("Constant: missing or non-tensor `value` attribute (host)")
+		return Value{}, fmt.Errorf("constant: missing or non-tensor `value` attribute (host)")
 	}
 	dt := onnxpb.TensorProto_DataType(tp.GetDataType())
 	switch dt {
@@ -107,7 +107,7 @@ func hostConstant(node *Node, inputs []Value, st *HostState) (Value, error) {
 	}
 	vals, err := decodeIntTensor(tp)
 	if err != nil {
-		return Value{}, fmt.Errorf("Constant: %w", err)
+		return Value{}, fmt.Errorf("constant: %w", err)
 	}
 	// Scalar special case: dims=[] AND len(vals)==1.
 	if len(tp.GetDims()) == 0 && len(vals) == 1 {
@@ -120,22 +120,22 @@ func hostConstant(node *Node, inputs []Value, st *HostState) (Value, error) {
 // inputs must be HostInt64 / HostInts (scalar/length-1 vectors are accepted).
 func hostRange(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 3 {
-		return Value{}, fmt.Errorf("Range: expected 3 inputs, got %d", len(inputs))
+		return Value{}, fmt.Errorf("range: expected 3 inputs, got %d", len(inputs))
 	}
 	start, err := asHostScalar(inputs[0])
 	if err != nil {
-		return Value{}, fmt.Errorf("Range: start: %w", err)
+		return Value{}, fmt.Errorf("range: start: %w", err)
 	}
 	limit, err := asHostScalar(inputs[1])
 	if err != nil {
-		return Value{}, fmt.Errorf("Range: limit: %w", err)
+		return Value{}, fmt.Errorf("range: limit: %w", err)
 	}
 	delta, err := asHostScalar(inputs[2])
 	if err != nil {
-		return Value{}, fmt.Errorf("Range: delta: %w", err)
+		return Value{}, fmt.Errorf("range: delta: %w", err)
 	}
 	if delta == 0 {
-		return Value{}, fmt.Errorf("Range: delta is zero")
+		return Value{}, fmt.Errorf("range: delta is zero")
 	}
 	var out []int64
 	if delta > 0 {
@@ -173,7 +173,7 @@ func hostDiv(node *Node, inputs []Value, st *HostState) (Value, error) {
 
 func hostNeg(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) != 1 {
-		return Value{}, fmt.Errorf("Neg: expected 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("neg: expected 1 input, got %d", len(inputs))
 	}
 	switch inputs[0].Kind {
 	case KindHostInt64:
@@ -185,7 +185,7 @@ func hostNeg(node *Node, inputs []Value, st *HostState) (Value, error) {
 		}
 		return HostInts(out), nil
 	}
-	return Value{}, fmt.Errorf("Neg: unsupported input kind %d", inputs[0].Kind)
+	return Value{}, fmt.Errorf("neg: unsupported input kind %d", inputs[0].Kind)
 }
 
 // hostBinop applies fn elementwise with NumPy-style scalar broadcast over int.
@@ -230,11 +230,11 @@ func hostBinop(inputs []Value, fn func(a, b int64) int64, name string) (Value, e
 // host int vector (the common Shape→Gather→Reshape glue tail).
 func hostGather(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 2 {
-		return Value{}, fmt.Errorf("Gather: expected 2 inputs, got %d", len(inputs))
+		return Value{}, fmt.Errorf("gather: expected 2 inputs, got %d", len(inputs))
 	}
 	axis := node.Attrs["axis"].Int(0)
 	if axis != 0 {
-		return Value{}, fmt.Errorf("Gather (host): only axis=0 supported, got %d", axis)
+		return Value{}, fmt.Errorf("gather (host): only axis=0 supported, got %d", axis)
 	}
 	data := inputs[0]
 	idx := inputs[1]
@@ -245,7 +245,7 @@ func hostGather(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostInt64:
 		src = []int64{data.I}
 	default:
-		return Value{}, fmt.Errorf("Gather (host): data kind %d not supported", data.Kind)
+		return Value{}, fmt.Errorf("gather (host): data kind %d not supported", data.Kind)
 	}
 	var idxes []int64
 	switch idx.Kind {
@@ -254,7 +254,7 @@ func hostGather(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostInt64:
 		idxes = []int64{idx.I}
 	default:
-		return Value{}, fmt.Errorf("Gather (host): index kind %d not supported", idx.Kind)
+		return Value{}, fmt.Errorf("gather (host): index kind %d not supported", idx.Kind)
 	}
 	out := make([]int64, len(idxes))
 	for i, k := range idxes {
@@ -262,7 +262,7 @@ func hostGather(node *Node, inputs []Value, st *HostState) (Value, error) {
 			k += int64(len(src))
 		}
 		if k < 0 || k >= int64(len(src)) {
-			return Value{}, fmt.Errorf("Gather (host): index %d out of range for length %d", idxes[i], len(src))
+			return Value{}, fmt.Errorf("gather (host): index %d out of range for length %d", idxes[i], len(src))
 		}
 		out[i] = src[k]
 	}
@@ -277,11 +277,11 @@ func hostGather(node *Node, inputs []Value, st *HostState) (Value, error) {
 // shape-tier arithmetic; matches the classifier-tail glue chain).
 func hostConcat(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) == 0 {
-		return Value{}, fmt.Errorf("Concat: zero inputs")
+		return Value{}, fmt.Errorf("concat: zero inputs")
 	}
 	axis := node.Attrs["axis"].Int(0)
 	if axis != 0 {
-		return Value{}, fmt.Errorf("Concat (host): only axis=0 supported, got %d", axis)
+		return Value{}, fmt.Errorf("concat (host): only axis=0 supported, got %d", axis)
 	}
 	var out []int64
 	for i, in := range inputs {
@@ -291,7 +291,7 @@ func hostConcat(node *Node, inputs []Value, st *HostState) (Value, error) {
 		case KindHostInt64:
 			out = append(out, in.I)
 		default:
-			return Value{}, fmt.Errorf("Concat (host): input %d kind %d not supported", i, in.Kind)
+			return Value{}, fmt.Errorf("concat (host): input %d kind %d not supported", i, in.Kind)
 		}
 	}
 	if out == nil {
@@ -304,11 +304,11 @@ func hostConcat(node *Node, inputs []Value, st *HostState) (Value, error) {
 // Opset ≤ 12: axes is an attribute; opset ≥ 13: axes is input[1].
 func hostUnsqueeze(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 1 {
-		return Value{}, fmt.Errorf("Unsqueeze: expected ≥ 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("unsqueeze: expected ≥ 1 input, got %d", len(inputs))
 	}
 	axes, err := readAxesAttrOrInput(node, inputs, 1)
 	if err != nil {
-		return Value{}, fmt.Errorf("Unsqueeze: %w", err)
+		return Value{}, fmt.Errorf("unsqueeze: %w", err)
 	}
 	in := inputs[0]
 	var data []int64
@@ -318,7 +318,7 @@ func hostUnsqueeze(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostInt64:
 		data = []int64{in.I}
 	default:
-		return Value{}, fmt.Errorf("Unsqueeze: input kind %d not supported", in.Kind)
+		return Value{}, fmt.Errorf("unsqueeze: input kind %d not supported", in.Kind)
 	}
 	// Host Unsqueeze on a 1-D int vector: inserting at non-zero axis is a
 	// no-op for the linearised int payload (we're not tracking a rank > 1
@@ -335,7 +335,7 @@ func hostUnsqueeze(node *Node, inputs []Value, st *HostState) (Value, error) {
 // payload (the rank-tracking is implicit at host tier).
 func hostSqueeze(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) < 1 {
-		return Value{}, fmt.Errorf("Squeeze: expected ≥ 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("squeeze: expected ≥ 1 input, got %d", len(inputs))
 	}
 	in := inputs[0]
 	switch in.Kind {
@@ -346,12 +346,12 @@ func hostSqueeze(node *Node, inputs []Value, st *HostState) (Value, error) {
 	case KindHostInt64:
 		return HostInt64(in.I), nil
 	}
-	return Value{}, fmt.Errorf("Squeeze: input kind %d not supported", in.Kind)
+	return Value{}, fmt.Errorf("squeeze: input kind %d not supported", in.Kind)
 }
 
 func hostIdentity(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) != 1 {
-		return Value{}, fmt.Errorf("Identity: expected 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("identity: expected 1 input, got %d", len(inputs))
 	}
 	return inputs[0], nil
 }
@@ -359,7 +359,7 @@ func hostIdentity(node *Node, inputs []Value, st *HostState) (Value, error) {
 // hostCast: trivial int-to-int. Float-target casts fall through to device.
 func hostCast(node *Node, inputs []Value, st *HostState) (Value, error) {
 	if len(inputs) != 1 {
-		return Value{}, fmt.Errorf("Cast: expected 1 input, got %d", len(inputs))
+		return Value{}, fmt.Errorf("cast: expected 1 input, got %d", len(inputs))
 	}
 	to := onnxpb.TensorProto_DataType(node.Attrs["to"].Int(0))
 	switch to {
@@ -412,7 +412,7 @@ func decodeIntTensor(tp *onnxpb.TensorProto) ([]int64, error) {
 		}
 		raw := tp.GetRawData()
 		if elems > 0 && int64(len(raw)) != elems*4 {
-			return nil, fmt.Errorf("INT32 raw_data length %d != %d", len(raw), elems*4)
+			return nil, fmt.Errorf("iNT32 raw_data length %d != %d", len(raw), elems*4)
 		}
 		out := make([]int64, len(raw)/4)
 		for i := range out {
@@ -430,7 +430,7 @@ func decodeIntTensor(tp *onnxpb.TensorProto) ([]int64, error) {
 		}
 		raw := tp.GetRawData()
 		if elems > 0 && int64(len(raw)) != elems*8 {
-			return nil, fmt.Errorf("INT64 raw_data length %d != %d", len(raw), elems*8)
+			return nil, fmt.Errorf("iNT64 raw_data length %d != %d", len(raw), elems*8)
 		}
 		out := make([]int64, len(raw)/8)
 		for i := range out {

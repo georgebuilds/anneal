@@ -43,24 +43,24 @@ import (
 // transition via MaxPool. With H=W=32 this mirrors the CIFAR ResNet-9 layout
 // (just at half the channel widths to keep arena/eval cheap).
 type resnet9Spec struct {
-	N           int64
-	Cin         int64 // 3
-	H, W        int64 // 32
-	C1, C2, C3  int64 // 16, 32, 64
-	NumClass    int64
-	InputName   string
+	N          int64
+	Cin        int64 // 3
+	H, W       int64 // 32
+	C1, C2, C3 int64 // 16, 32, 64
+	NumClass   int64
+	InputName  string
 }
 
 func defaultResNet9Spec(N int64) resnet9Spec {
 	return resnet9Spec{
-		N:        N,
-		Cin:      3,
-		H:        32,
-		W:        32,
-		C1:       16,
-		C2:       32,
-		C3:       64,
-		NumClass: 10,
+		N:         N,
+		Cin:       3,
+		H:         32,
+		W:         32,
+		C1:        16,
+		C2:        32,
+		C3:        64,
+		NumClass:  10,
 		InputName: "x",
 	}
 }

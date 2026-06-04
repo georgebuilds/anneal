@@ -235,8 +235,8 @@ func TestBuildExplain_CanonicalCasing(t *testing.T) {
 // Drift safety: if a new gradient lands without an entry, this test fails
 // with the op name.
 func TestBuildExplain_AllRegisteredGradientsCovered(t *testing.T) {
+	var _ uop.Op // keep uop import used regardless of dispatch shape
 	for _, op := range tensor.Gradient.RegisteredOps() {
-		_ = uop.Op(op) // keep uop import used regardless of dispatch shape
 		e, err := BuildExplain(op.String())
 		if err != nil {
 			t.Errorf("BuildExplain(%s): %v", op, err)

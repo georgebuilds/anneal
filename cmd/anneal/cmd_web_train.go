@@ -170,13 +170,13 @@ func handleSSETrain(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// Marshalling Snapshot should never fail for normal float32
 			// data; if it does we abort the stream cleanly.
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n",
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n",
 				jsonString("snapshot marshal: "+err.Error()))
 			flusher.Flush()
 			break
 		}
 		// SSE frame: data: <json>\n\n  (one data line, blank-line terminated)
-		fmt.Fprintf(w, "data: %s\n\n", body)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", body)
 		flusher.Flush()
 		lastWrite = time.Now()
 
@@ -189,7 +189,7 @@ func handleSSETrain(w http.ResponseWriter, r *http.Request) {
 	// EventSource cleanly; the client's `event: done` handler resolves
 	// pending promises and enables the open-in-viz / save-run buttons.
 	if ctx.Err() == nil {
-		fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+		_, _ = fmt.Fprintf(w, "event: done\ndata: {}\n\n")
 		flusher.Flush()
 	}
 

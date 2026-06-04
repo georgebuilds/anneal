@@ -129,8 +129,8 @@ func TestBeamWGSLHashDistinguishesStructurally(t *testing.T) {
 // ── DefaultBeamConfig ────────────────────────────────────────────────────────
 
 func TestDefaultBeamConfigDefaults(t *testing.T) {
-	os.Unsetenv("BEAM_WIDTH")
-	os.Unsetenv("MAX_DEPTH")
+	_ = os.Unsetenv("BEAM_WIDTH")
+	_ = os.Unsetenv("MAX_DEPTH")
 	cfg := codegen.DefaultBeamConfig()
 	if cfg.Width != 4 || cfg.MaxDepth != 4 {
 		t.Errorf("defaults = (W=%d D=%d), want (4,4)", cfg.Width, cfg.MaxDepth)
@@ -222,7 +222,7 @@ func TestActionSpaceNonEmptyForReduce(t *testing.T) {
 
 func TestBeamApplyToItemsDefaultModeIdentity(t *testing.T) {
 	// Ensure search mode is off and disk cache is clean.
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 	codegen.BeamDiskCacheReset()
 	defer codegen.BeamDiskCacheReset()
 
@@ -248,7 +248,7 @@ func TestBeamApplyToItemsDefaultModeIdentity(t *testing.T) {
 }
 
 func TestBeamApplyToItemsIdentityHit(t *testing.T) {
-	os.Unsetenv("ANNEAL_BEAM")
+	_ = os.Unsetenv("ANNEAL_BEAM")
 	codegen.BeamDiskCacheReset()
 	defer codegen.BeamDiskCacheReset()
 

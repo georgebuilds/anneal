@@ -31,7 +31,9 @@ import (
 // 3-layer CNN matches the direct Tensor API graph element-for-element.
 //
 // Architecture: Conv(3→8, 3x3, pad=1) → Relu → GlobalAveragePool →
-//               Gemm(8→4)
+//
+//	Gemm(8→4)
+//
 // Input shape: [N=2, C=3, H=8, W=8]; output [N=2, num_classes=4].
 func TestE2E_TinyCNN_BitExact(t *testing.T) {
 	spec := tinyCNNSpec{
@@ -475,10 +477,8 @@ func floatToBits(f float32) uint32 {
 // Phase 1.B documented as out-of-scope. Each must fail with a clear error.
 func TestE2E_PuntList_LoudFailures(t *testing.T) {
 	type tc struct {
-		name      string
-		build     func(t *testing.T) *onnxpb.ModelProto
-		inputName string
-		inputSh   []int64
+		name  string
+		build func(t *testing.T) *onnxpb.ModelProto
 		// substrings the error message must contain (case-sensitive)
 		wantSubs []string
 	}

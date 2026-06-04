@@ -187,12 +187,12 @@ func TestWebDoctor_RendererWired(t *testing.T) {
 	srv := newWebServer(t)
 	_, body := get(t, srv, "/static/studio.js")
 	for _, needle := range []string{
-		"renderDoctorView",         // the renderer
-		"fillNativeCard",           // the native-card filler
-		"fillBrowserCard",          // the browser-card filler
-		"navigator.gpu",            // the browser-side probe
-		"requestAdapter",           // navigator.gpu.requestAdapter()
-		"/api/device",              // the native-side fetch
+		"renderDoctorView", // the renderer
+		"fillNativeCard",   // the native-card filler
+		"fillBrowserCard",  // the browser-card filler
+		"navigator.gpu",    // the browser-side probe
+		"requestAdapter",   // navigator.gpu.requestAdapter()
+		"/api/device",      // the native-side fetch
 	} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("studio.js missing %q (doctor wiring not landed)", needle)

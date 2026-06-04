@@ -152,7 +152,7 @@ func handleCast(ctx *HandlerCtx) ([]Value, error) {
 	to := onnxpb.TensorProto_DataType(ctx.Node.Attrs["to"].Int(int64(onnxpb.TensorProto_FLOAT)))
 	dt, _, _, ok := onnxDType(int32(to))
 	if !ok {
-		return nil, fmt.Errorf("Cast: unsupported `to` dtype %v", to)
+		return nil, fmt.Errorf("cast: unsupported `to` dtype %v", to)
 	}
 	return []Value{Device(x.Cast(dt))}, nil
 }

@@ -295,9 +295,10 @@ func (m Model) renderProgress(w int) string {
 	}
 
 	status := ""
-	if m.snap.Phase == PhaseDone {
+	switch m.snap.Phase {
+	case PhaseDone:
 		status = "  " + t.forward.Render("done")
-	} else if m.snap.Phase == PhaseError {
+	case PhaseError:
 		status = "  error"
 	}
 

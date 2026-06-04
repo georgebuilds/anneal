@@ -136,7 +136,7 @@ func TestHandleConv_GroupGT1Rejected(t *testing.T) {
 			makeFloatInitializerForTests("w", []int64{2, 1, 3, 3}, append(wVals, wVals...)),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "group", "not supported")
+	_ = runSingleNodeExpectError(t, b.build(t), nil, "group", "not supported")
 }
 
 func TestHandleConv_Value(t *testing.T) {
@@ -190,5 +190,5 @@ func TestHandleConv_AutoPadRejected(t *testing.T) {
 			makeFloatInitializerForTests("w", []int64{1, 1, 3, 3}, wVals),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "auto_pad")
+	_ = runSingleNodeExpectError(t, b.build(t), nil, "auto_pad")
 }

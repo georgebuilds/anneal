@@ -145,11 +145,11 @@ func TestWebWorkerScaffold(t *testing.T) {
 		t.Errorf("worker.js Content-Type %q, want application/javascript prefix", resp.Header.Get("Content-Type"))
 	}
 	for _, want := range []string{
-		"importScripts",       // loads wasm_exec.js
-		"wasm_exec.js",        // by name
-		"WebAssembly",         // boots the WASM module
-		"self.onmessage",      // RPC entry point
-		"self.postMessage",    // RPC response
+		"importScripts",    // loads wasm_exec.js
+		"wasm_exec.js",     // by name
+		"WebAssembly",      // boots the WASM module
+		"self.onmessage",   // RPC entry point
+		"self.postMessage", // RPC response
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("worker.js missing %q (RPC scaffold contract)", want)

@@ -484,7 +484,7 @@ func TestManifestKeyOrderingDeterministic(t *testing.T) {
 	posA := strings.Index(s, `"A":`)
 	posB := strings.Index(s, `"B":`)
 	posT := strings.Index(s, `"T":`)
-	if !(posA < posB && posB < posT) {
+	if posA >= posB || posB >= posT {
 		t.Errorf("sym_binds keys not in lexicographic order: A=%d B=%d T=%d", posA, posB, posT)
 	}
 }

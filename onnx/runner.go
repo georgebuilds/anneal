@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"google.golang.org/protobuf/proto"
+
 	onnxpb "github.com/georgebuilds/anneal/onnx/onnxpb"
 	"github.com/georgebuilds/anneal/shape"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
-	"google.golang.org/protobuf/proto"
 )
 
 // ValueInfo describes an ONNX graph input or output: its name, its anneal

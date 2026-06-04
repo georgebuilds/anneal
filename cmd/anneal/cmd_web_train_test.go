@@ -249,7 +249,7 @@ func TestSSETrain_ContentTypeAndHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/train: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", resp.StatusCode)
 	}
@@ -273,7 +273,7 @@ func TestSSETrain_SnapshotFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/train: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read until done. The framer is the bufio.Scanner with a custom split
 	// at blank lines; for simplicity we just slurp + parse.
@@ -315,7 +315,7 @@ func TestSSETrain_DoneEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/train: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)

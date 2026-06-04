@@ -65,7 +65,7 @@ func rawFromUint64s(vs []uint64) []byte {
 // ── FLOAT raw_data ────────────────────────────────────────────────────────────
 
 func TestTensorFromProto_FLOAT_RawData_RoundTrip(t *testing.T) {
-	vals := []float32{1.0, -2.5, 3.25, 0.0, -0.0, 4.5}
+	vals := []float32{1.0, -2.5, 3.25, 0.0, float32(math.Copysign(0, -1)), 4.5}
 	bits := make([]uint32, len(vals))
 	for i, v := range vals {
 		bits[i] = math.Float32bits(v)
@@ -504,9 +504,9 @@ func TestTensorFromProto_INT64_RawData_OverflowTrap(t *testing.T) {
 
 func TestTensorFromProto_INT64_Int64Data_OverflowTrap(t *testing.T) {
 	tp := &onnxpb.TensorProto{
-		Name:     "i64",
-		Dims:     []int64{1},
-		DataType: int32(onnxpb.TensorProto_INT64),
+		Name:      "i64",
+		Dims:      []int64{1},
+		DataType:  int32(onnxpb.TensorProto_INT64),
 		Int64Data: []int64{int64(math.MaxInt32) + 1},
 	}
 	arena := uop.NewArena(2)

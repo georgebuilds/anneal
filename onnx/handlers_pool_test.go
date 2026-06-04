@@ -41,7 +41,7 @@ func TestHandleMaxPool_CeilModeRejected(t *testing.T) {
 			makeFloatInitializerForTests("x", []int64{1, 1, 4, 4}, xVals),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "ceil_mode")
+	_ = runSingleNodeExpectError(t, b.build(t), nil, "ceil_mode")
 }
 
 func TestHandleMaxPool_AutoPadRejected(t *testing.T) {
@@ -58,7 +58,7 @@ func TestHandleMaxPool_AutoPadRejected(t *testing.T) {
 			makeFloatInitializerForTests("x", []int64{1, 1, 4, 4}, xVals),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "auto_pad")
+	_ = runSingleNodeExpectError(t, b.build(t), nil, "auto_pad")
 }
 
 func TestHandleMaxPool_Value(t *testing.T) {

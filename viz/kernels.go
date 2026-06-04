@@ -33,13 +33,13 @@ type KernelSet struct {
 // KernelData is one entry in KernelSet.Kernels. Field shape mirrors the
 // contract in anneal_web_spec §4 / §5.3 and is consumed by studio.js.
 type KernelData struct {
-	ID          string        `json:"id"`
-	OpCount     int           `json:"op_count"`
-	BuffersIn   int           `json:"buffers_in"`
-	BuffersOut  int           `json:"buffers_out"`
-	Shape       []int64       `json:"shape"`
-	WGSL        string        `json:"wgsl"`
-	FusionSpans []FusionSpan  `json:"fusion_spans"`
+	ID          string       `json:"id"`
+	OpCount     int          `json:"op_count"`
+	BuffersIn   int          `json:"buffers_in"`
+	BuffersOut  int          `json:"buffers_out"`
+	Shape       []int64      `json:"shape"`
+	WGSL        string       `json:"wgsl"`
+	FusionSpans []FusionSpan `json:"fusion_spans"`
 }
 
 // FusionSpan is one contiguous run of WGSL source lines attributed to a single
@@ -200,8 +200,8 @@ var letPattern = regexp.MustCompile(`\blet\s+t(\d+)\s*:`)
 //   - "fwd"   — line belongs to a forward-pass UOp
 //   - "bwd"   — line belongs to a backward-pass UOp
 //   - "fused" — line is structural (storage bindings, @compute header, loop
-//               control, the @binding declarations, etc.) AND no prior span
-//               has been seen yet.
+//     control, the @binding declarations, etc.) AND no prior span
+//     has been seen yet.
 //
 // A "fused" span covers the WGSL prologue (the boilerplate before the first
 // `let t<idx>`); the rest of the kernel is split by phase boundaries. If a

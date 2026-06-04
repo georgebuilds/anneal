@@ -172,7 +172,7 @@ func TestBuildNodeDetail_ParentsAndChildren(t *testing.T) {
 		childrenOf[e.From]++
 		parentsOf[e.To]++
 	}
-	var pickID uint32 = ^uint32(0)
+	pickID := ^uint32(0)
 	for _, n := range g.Nodes {
 		if parentsOf[n.ID] > 0 && childrenOf[n.ID] > 0 {
 			pickID = n.ID

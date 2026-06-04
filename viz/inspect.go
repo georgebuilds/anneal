@@ -26,9 +26,9 @@ const previewLen = 16
 // InspectResult is the top-level JSON payload returned by annealInspectTensor.
 // Mirrors the contract in notes/anneal_web_spec.md §5.1.
 type InspectResult struct {
-	Format  string       `json:"format"`           // "npy" | "npz" | "safetensors"
-	Tensors []TensorInfo `json:"tensors"`          // npz/safetensors have multiple; npy has one
-	Error   string       `json:"error,omitempty"`  // set on parse failure
+	Format  string       `json:"format"`          // "npy" | "npz" | "safetensors"
+	Tensors []TensorInfo `json:"tensors"`         // npz/safetensors have multiple; npy has one
+	Error   string       `json:"error,omitempty"` // set on parse failure
 }
 
 // TensorInfo is one entry in InspectResult.Tensors. Preview holds up to

@@ -27,4 +27,3 @@ func MulInt64Checked(a, b int64) (int64, bool) {
 	}
 	return p, true
 }
-

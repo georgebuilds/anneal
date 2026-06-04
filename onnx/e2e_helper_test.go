@@ -35,7 +35,8 @@ import (
 // tinyCNNSpec describes the TinyCNN architecture used by tests (a) and (d).
 //
 // Architecture: Conv(C_in→C_mid, 3×3, pad=1) → Relu → GlobalAveragePool →
-//               Gemm(C_mid→numClasses).
+//
+//	Gemm(C_mid→numClasses).
 type tinyCNNSpec struct {
 	N         int64
 	Cin       int64
@@ -49,12 +50,12 @@ type tinyCNNSpec struct {
 // tinyCNNMaxPoolSpec describes test (c): Conv → Relu → MaxPool(2x2,s=2) →
 // Conv → GlobalAveragePool → Gemm.
 type tinyCNNMaxPoolSpec struct {
-	N           int64
-	Cin         int64
-	H, W        int64
+	N            int64
+	Cin          int64
+	H, W         int64
 	Cmid1, Cmid2 int64
-	NumClass    int64
-	InputName   string
+	NumClass     int64
+	InputName    string
 }
 
 // tinyResNetSpec describes test (b): a small residual block followed by a

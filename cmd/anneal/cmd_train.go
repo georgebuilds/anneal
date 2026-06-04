@@ -96,7 +96,7 @@ func trainCmdW(args []string, w io.Writer) int {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "available models:")
 			for _, e := range examples.All() {
-				fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
+				_, _ = fmt.Fprintf(w, "  %-12s  %s\n", e.Name, e.Summary)
 			}
 			return 1
 		}
@@ -150,11 +150,11 @@ func trainCmdW(args []string, w io.Writer) int {
 	}
 
 	// Plain output path: used for --plain, NO_COLOR, non-TTY output, and tests.
-	fmt.Fprintf(w, "training %s — %s\n", ex.Name, ex.Summary)
-	fmt.Fprintf(w, "device: %s (%s)\n", backend, adapterName)
-	fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: %d\n", cfg.Steps, cfg.LR, cfg.Batch)
+	_, _ = fmt.Fprintf(w, "training %s — %s\n", ex.Name, ex.Summary)
+	_, _ = fmt.Fprintf(w, "device: %s (%s)\n", backend, adapterName)
+	_, _ = fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: %d\n", cfg.Steps, cfg.LR, cfg.Batch)
 	if bw != nil {
-		fmt.Fprintf(w, "bundle: %s\n", bw.Path())
+		_, _ = fmt.Fprintf(w, "bundle: %s\n", bw.Path())
 	}
 	fmt.Fprintln(w)
 
@@ -177,7 +177,7 @@ func trainCmdW(args []string, w io.Writer) int {
 		// Anything else the Snapshot carries (compiler stats, sample text)
 		// is invisible on the plain path by design — the CLI line format
 		// is pinned by spec §11.5.
-		fmt.Fprintf(w, "step %d: loss=%.6f\n", snap.Step, snap.Loss)
+		_, _ = fmt.Fprintf(w, "step %d: loss=%.6f\n", snap.Step, snap.Loss)
 		if bw != nil {
 			_ = bw.AppendLoss(bundle.LossRow{
 				Step:   snap.Step,
@@ -188,13 +188,13 @@ func trainCmdW(args []string, w io.Writer) int {
 	}
 	logFn := snapshotShimLogFn(&baseSnap, startWall, cfg.SnapshotFn)
 	if err := ex.Train(*device, cfg, logFn); err != nil {
-		fmt.Fprintf(w, "train error: %v\n", err)
+		_, _ = fmt.Fprintf(w, "train error: %v\n", err)
 		if bw != nil {
 			_ = bw.Finalize(time.Since(startWall).Milliseconds())
 		}
 		return 1
 	}
-	fmt.Fprintf(w, "\ndone — %d steps\n", cfg.Steps)
+	_, _ = fmt.Fprintf(w, "\ndone — %d steps\n", cfg.Steps)
 	if bw != nil {
 		_ = bw.Finalize(time.Since(startWall).Milliseconds())
 	}
@@ -237,19 +237,19 @@ func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, devi
 	}
 	root, err := bundle.EnvOrDefault()
 	if err != nil {
-		fmt.Fprintf(w, "bundle: skip (cannot resolve root): %v\n", err)
+		_, _ = fmt.Fprintf(w, "bundle: skip (cannot resolve root): %v\n", err)
 		return nil
 	}
 	bw, err := bundle.NewWriter(root, model, bundle.KindTrain)
 	if err != nil {
-		fmt.Fprintf(w, "bundle: skip (cannot create writer): %v\n", err)
+		_, _ = fmt.Fprintf(w, "bundle: skip (cannot create writer): %v\n", err)
 		return nil
 	}
 	// Provenance: version + adapter + backend. WGSL hash and git rev are
 	// left empty here — the trainer-side stats hook will fill them in a
 	// future W step once the headless snapshot channel exists.
 	if err := bw.SetProvenance(version, "", adapter, backendName, "", nil); err != nil {
-		fmt.Fprintf(w, "bundle: warn (set provenance): %v\n", err)
+		_, _ = fmt.Fprintf(w, "bundle: warn (set provenance): %v\n", err)
 	}
 	if err := bw.WriteConfig(bundle.Config{
 		Model:  model,
@@ -261,7 +261,7 @@ func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, devi
 			"batch":     cfg.Batch,
 		},
 	}); err != nil {
-		fmt.Fprintf(w, "bundle: warn (write config): %v\n", err)
+		_, _ = fmt.Fprintf(w, "bundle: warn (write config): %v\n", err)
 	}
 	return bw
 }
@@ -347,7 +347,7 @@ func trainWithTUI(
 
 	// Wait for user to press q (or TUI to exit for any reason).
 	if tuiErr := <-tuiDone; tuiErr != nil && trainErr == nil {
-		fmt.Fprintf(os.Stderr, "tui error: %v\n", tuiErr)
+		_, _ = fmt.Fprintf(os.Stderr, "tui error: %v\n", tuiErr)
 	}
 
 	if trainErr != nil {

@@ -62,19 +62,6 @@ func (w *xfmrWeights) fill(name string, shape []int64, vals []float32) {
 	w.shapes[name] = shape
 }
 
-// xfmrAddInits adds every registered weight as a FLOAT initializer on g.
-func xfmrAddInits(g *onnxpb.GraphProto, w *xfmrWeights) {
-	for name, vals := range w.values {
-		dims := w.shapes[name]
-		g.Initializer = append(g.Initializer, &onnxpb.TensorProto{
-			Name:      name,
-			Dims:      dims,
-			DataType:  int32(onnxpb.TensorProto_FLOAT),
-			FloatData: append([]float32{}, vals...),
-		})
-	}
-}
-
 // xfmrLeafParam constructs a Parameter on arena seeded with the registered
 // weight bytes (parallel to leafParam in e2e_helper_test.go).
 func xfmrLeafParam(arena *uop.Arena, w *xfmrWeights, name string) *nn.Parameter {

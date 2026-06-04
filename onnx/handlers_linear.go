@@ -10,10 +10,10 @@ import (
 // C is optional; defaults to 0. alpha/beta default 1.
 func handleGemm(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 2 {
-		return nil, fmt.Errorf("Gemm: expected ≥ 2 inputs")
+		return nil, fmt.Errorf("gemm: expected ≥ 2 inputs")
 	}
 	if !ctx.Inputs[0].IsDevice() || !ctx.Inputs[1].IsDevice() {
-		return nil, fmt.Errorf("Gemm: A and B must be device tensors")
+		return nil, fmt.Errorf("gemm: A and B must be device tensors")
 	}
 	a := ctx.Inputs[0].Tensor()
 	b := ctx.Inputs[1].Tensor()

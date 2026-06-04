@@ -242,12 +242,12 @@ const LossCSVHeader = "step,loss,wall_ms"
 // the absence of a reference (no oracle configured) is distinguishable
 // from a recorded "false" — JSON omits the field entirely when nil.
 type GenerationRow struct {
-	Step          int    `json:"step"`
-	TokenID       int    `json:"token_id"`
-	TokenText     string `json:"token_text"`
-	LogitArgmax   int    `json:"logit_argmax"`
-	LogitSummary  string `json:"logit_summary"`
-	RefMatch      *bool  `json:"ref_match,omitempty"`
+	Step         int    `json:"step"`
+	TokenID      int    `json:"token_id"`
+	TokenText    string `json:"token_text"`
+	LogitArgmax  int    `json:"logit_argmax"`
+	LogitSummary string `json:"logit_summary"`
+	RefMatch     *bool  `json:"ref_match,omitempty"`
 }
 
 // Event is one SSE event tee'd to events.ndjson. Payload is preserved as

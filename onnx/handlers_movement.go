@@ -10,15 +10,15 @@ import (
 
 func handleReshape(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 2 {
-		return nil, fmt.Errorf("Reshape: expected 2 inputs, got %d", len(ctx.Inputs))
+		return nil, fmt.Errorf("reshape: expected 2 inputs, got %d", len(ctx.Inputs))
 	}
 	if !ctx.Inputs[0].IsDevice() {
-		return nil, fmt.Errorf("Reshape: data input is not a device tensor")
+		return nil, fmt.Errorf("reshape: data input is not a device tensor")
 	}
 	x := ctx.Inputs[0].Tensor()
 	target, err := resolveShapeInput(ctx.Inputs[1])
 	if err != nil {
-		return nil, fmt.Errorf("Reshape: %w", err)
+		return nil, fmt.Errorf("reshape: %w", err)
 	}
 
 	allowzero := ctx.Node.Attrs["allowzero"].Int(0) != 0
@@ -33,12 +33,12 @@ func handleReshape(ctx *HandlerCtx) ([]Value, error) {
 		switch {
 		case ok && v == 0 && !allowzero:
 			if i >= len(xSh) {
-				return nil, fmt.Errorf("Reshape: 0 at axis %d but input rank is %d", i, len(xSh))
+				return nil, fmt.Errorf("reshape: 0 at axis %d but input rank is %d", i, len(xSh))
 			}
 			resolved[i] = xSh[i]
 		case ok && v == -1:
 			if negOneAt != -1 {
-				return nil, fmt.Errorf("Reshape: multiple -1 entries")
+				return nil, fmt.Errorf("reshape: multiple -1 entries")
 			}
 			negOneAt = i
 			resolved[i] = shape.Const(1) // placeholder; replaced below
@@ -63,13 +63,13 @@ func handleReshape(ctx *HandlerCtx) ([]Value, error) {
 		ivol, iok := inVol.ConstValue()
 		ovol, ook := otherVol.ConstValue()
 		if !iok || !ook {
-			return nil, fmt.Errorf("Reshape: cannot infer -1 from symbolic volume")
+			return nil, fmt.Errorf("reshape: cannot infer -1 from symbolic volume")
 		}
 		if ovol == 0 {
-			return nil, fmt.Errorf("Reshape: cannot infer -1 with zero-volume target")
+			return nil, fmt.Errorf("reshape: cannot infer -1 with zero-volume target")
 		}
 		if ivol%ovol != 0 {
-			return nil, fmt.Errorf("Reshape: input volume %d not divisible by product of other dims %d", ivol, ovol)
+			return nil, fmt.Errorf("reshape: input volume %d not divisible by product of other dims %d", ivol, ovol)
 		}
 		resolved[negOneAt] = shape.Const(ivol / ovol)
 	}
@@ -88,7 +88,7 @@ func handleFlatten(ctx *HandlerCtx) ([]Value, error) {
 		axis += len(sh)
 	}
 	if axis < 0 || axis > len(sh) {
-		return nil, fmt.Errorf("Flatten: axis %d out of range for rank %d", axis, len(sh))
+		return nil, fmt.Errorf("flatten: axis %d out of range for rank %d", axis, len(sh))
 	}
 	// Compute outer product (dims 0..axis-1) and inner (axis..end).
 	outer := shape.Const(1)
@@ -113,7 +113,7 @@ func handleSqueeze(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) >= 2 && ctx.Inputs[1].Kind != KindUnset {
 		vs, verr := asHostIntVec(ctx.Inputs[1])
 		if verr != nil {
-			return nil, fmt.Errorf("Squeeze: axes: %w", verr)
+			return nil, fmt.Errorf("squeeze: axes: %w", verr)
 		}
 		for _, a := range vs {
 			axes = append(axes, int(a))
@@ -132,7 +132,7 @@ func handleSqueeze(ctx *HandlerCtx) ([]Value, error) {
 			ax += rank
 		}
 		if ax < 0 || ax >= rank {
-			return nil, fmt.Errorf("Squeeze: axis %d out of range for rank %d", ax, rank)
+			return nil, fmt.Errorf("squeeze: axis %d out of range for rank %d", ax, rank)
 		}
 		normAxes[ax] = true
 	}
@@ -144,7 +144,7 @@ func handleSqueeze(ctx *HandlerCtx) ([]Value, error) {
 				// must be 1 — assert.
 				v, ok := s.ConstValue()
 				if !ok || v != 1 {
-					return nil, fmt.Errorf("Squeeze: axis %d is not 1", i)
+					return nil, fmt.Errorf("squeeze: axis %d is not 1", i)
 				}
 				continue
 			}
@@ -169,7 +169,7 @@ func handleUnsqueeze(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) >= 2 && ctx.Inputs[1].Kind != KindUnset {
 		vs, verr := asHostIntVec(ctx.Inputs[1])
 		if verr != nil {
-			return nil, fmt.Errorf("Unsqueeze: axes: %w", verr)
+			return nil, fmt.Errorf("unsqueeze: axes: %w", verr)
 		}
 		for _, a := range vs {
 			axes = append(axes, int(a))
@@ -190,7 +190,7 @@ func handleUnsqueeze(ctx *HandlerCtx) ([]Value, error) {
 			ax += outRank
 		}
 		if ax < 0 || ax >= outRank {
-			return nil, fmt.Errorf("Unsqueeze: axis %d out of range for output rank %d", ax, outRank)
+			return nil, fmt.Errorf("unsqueeze: axis %d out of range for output rank %d", ax, outRank)
 		}
 		posSet[ax] = true
 	}
@@ -223,7 +223,7 @@ func handleTranspose(ctx *HandlerCtx) ([]Value, error) {
 		}
 	} else {
 		if len(perm) != rank {
-			return nil, fmt.Errorf("Transpose: perm length %d != rank %d", len(perm), rank)
+			return nil, fmt.Errorf("transpose: perm length %d != rank %d", len(perm), rank)
 		}
 		order = make([]int, rank)
 		for i, p := range perm {
@@ -238,7 +238,7 @@ func handleConcat(ctx *HandlerCtx) ([]Value, error) {
 	ts := make([]*tensor.Tensor, len(ctx.Inputs))
 	for i, v := range ctx.Inputs {
 		if !v.IsDevice() {
-			return nil, fmt.Errorf("Concat: input %d is not a device tensor", i)
+			return nil, fmt.Errorf("concat: input %d is not a device tensor", i)
 		}
 		ts[i] = v.Tensor()
 	}
@@ -247,10 +247,10 @@ func handleConcat(ctx *HandlerCtx) ([]Value, error) {
 
 func handleGather(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 2 {
-		return nil, fmt.Errorf("Gather: expected 2 inputs")
+		return nil, fmt.Errorf("gather: expected 2 inputs")
 	}
 	if !ctx.Inputs[0].IsDevice() || !ctx.Inputs[1].IsDevice() {
-		return nil, fmt.Errorf("Gather: data and indices must be device tensors at this entry point")
+		return nil, fmt.Errorf("gather: data and indices must be device tensors at this entry point")
 	}
 	axis := int(ctx.Node.Attrs["axis"].Int(0))
 	return []Value{Device(ctx.Inputs[0].Tensor().Gather(axis, ctx.Inputs[1].Tensor()))}, nil
@@ -271,28 +271,28 @@ func handleGather(ctx *HandlerCtx) ([]Value, error) {
 // the result of one axis doesn't interfere with later axes' index math.
 func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 3 {
-		return nil, fmt.Errorf("Slice: expected ≥ 3 inputs (data, starts, ends), got %d", len(ctx.Inputs))
+		return nil, fmt.Errorf("slice: expected ≥ 3 inputs (data, starts, ends), got %d", len(ctx.Inputs))
 	}
 	if !ctx.Inputs[0].IsDevice() {
-		return nil, fmt.Errorf("Slice: data input is not a device tensor")
+		return nil, fmt.Errorf("slice: data input is not a device tensor")
 	}
 	x := ctx.Inputs[0].Tensor()
 	starts, err := asHostIntVec(ctx.Inputs[1])
 	if err != nil {
-		return nil, fmt.Errorf("Slice: starts: %w", err)
+		return nil, fmt.Errorf("slice: starts: %w", err)
 	}
 	ends, err := asHostIntVec(ctx.Inputs[2])
 	if err != nil {
-		return nil, fmt.Errorf("Slice: ends: %w", err)
+		return nil, fmt.Errorf("slice: ends: %w", err)
 	}
 	if len(starts) != len(ends) {
-		return nil, fmt.Errorf("Slice: starts (%d) and ends (%d) length mismatch", len(starts), len(ends))
+		return nil, fmt.Errorf("slice: starts (%d) and ends (%d) length mismatch", len(starts), len(ends))
 	}
 	var axes []int64
 	if len(ctx.Inputs) >= 4 && ctx.Inputs[3].Kind != KindUnset {
 		axes, err = asHostIntVec(ctx.Inputs[3])
 		if err != nil {
-			return nil, fmt.Errorf("Slice: axes: %w", err)
+			return nil, fmt.Errorf("slice: axes: %w", err)
 		}
 	} else {
 		axes = make([]int64, len(starts))
@@ -304,7 +304,7 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) >= 5 && ctx.Inputs[4].Kind != KindUnset {
 		steps, err = asHostIntVec(ctx.Inputs[4])
 		if err != nil {
-			return nil, fmt.Errorf("Slice: steps: %w", err)
+			return nil, fmt.Errorf("slice: steps: %w", err)
 		}
 	}
 
@@ -321,7 +321,7 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 			ax += rank
 		}
 		if ax < 0 || ax >= rank {
-			return nil, fmt.Errorf("Slice: axis %d out of range for rank %d", axes[i], rank)
+			return nil, fmt.Errorf("slice: axis %d out of range for rank %d", axes[i], rank)
 		}
 		dim := sh[ax]
 		e := ends[i]
@@ -397,7 +397,7 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 			loHi[ax] = [2]int64{newLo, newHi}
 			flipAxes[ax] = true
 		default:
-			return nil, fmt.Errorf("Slice: step %d not supported in v1 (only step=1 and step=-1; axis=%d)", st, ax)
+			return nil, fmt.Errorf("slice: step %d not supported in v1 (only step=1 and step=-1; axis=%d)", st, ax)
 		}
 	}
 	out := x
@@ -416,15 +416,15 @@ func handleSlice(ctx *HandlerCtx) ([]Value, error) {
 
 func handleExpand(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 2 {
-		return nil, fmt.Errorf("Expand: expected 2 inputs, got %d", len(ctx.Inputs))
+		return nil, fmt.Errorf("expand: expected 2 inputs, got %d", len(ctx.Inputs))
 	}
 	if !ctx.Inputs[0].IsDevice() {
-		return nil, fmt.Errorf("Expand: data input is not a device tensor")
+		return nil, fmt.Errorf("expand: data input is not a device tensor")
 	}
 	x := ctx.Inputs[0].Tensor()
 	target, err := resolveShapeInput(ctx.Inputs[1])
 	if err != nil {
-		return nil, fmt.Errorf("Expand: %w", err)
+		return nil, fmt.Errorf("expand: %w", err)
 	}
 	// ONNX Expand semantics: the output shape is the broadcast of
 	// input.shape and `target` (numpy-style: right-aligned, dim-1

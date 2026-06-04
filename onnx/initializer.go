@@ -133,11 +133,6 @@ func tensorFromProto(arena *uop.Arena, tp *onnxpb.TensorProto, device string) (*
 	for _, d := range shape {
 		elems *= d
 	}
-	if elems == 0 && len(shape) > 0 {
-		// Empty tensors with explicit shape are valid (rare); the rest of
-		// the pipeline can handle zero-element leaves.
-	}
-
 	data, err := decodeTensorData(tp, int(elems), srcWidth)
 	if err != nil {
 		return nil, fmt.Errorf("onnx: initializer %q: %w", tp.GetName(), err)
@@ -433,8 +428,8 @@ func float16Bits(h uint16) float32 {
 	exp := uint32(h>>10) & 0x1f
 	frac := uint32(h) & 0x3ff
 	var f uint32
-	switch {
-	case exp == 0:
+	switch exp {
+	case 0:
 		if frac == 0 {
 			f = sign << 31
 		} else {
@@ -447,7 +442,7 @@ func float16Bits(h uint16) float32 {
 			frac &= 0x3ff
 			f = (sign << 31) | (e << 23) | (frac << 13)
 		}
-	case exp == 0x1f:
+	case 0x1f:
 		// inf / NaN
 		if frac == 0 {
 			f = (sign << 31) | 0x7f800000

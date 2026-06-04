@@ -32,12 +32,12 @@ import (
 // added here MUST default to a JSON-friendly zero value so older studio
 // builds still parse the response.
 type DeviceInfo struct {
-	AdapterName               string `json:"adapter_name"`
-	Backend                   string `json:"backend"`
-	OS                        string `json:"os"`
-	Arch                      string `json:"arch"`
-	AnnealVersion             string `json:"anneal_version"`
-	ShaderF16                 bool   `json:"shader_f16"`
+	AdapterName                 string `json:"adapter_name"`
+	Backend                     string `json:"backend"`
+	OS                          string `json:"os"`
+	Arch                        string `json:"arch"`
+	AnnealVersion               string `json:"anneal_version"`
+	ShaderF16                   bool   `json:"shader_f16"`
 	MaxStorageBufferBindingSize uint64 `json:"max_storage_buffer_binding_size"`
 
 	// Error is populated when the native binary cannot reach a GPU adapter

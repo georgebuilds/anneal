@@ -81,18 +81,18 @@ func serveMux() *http.ServeMux {
 	// The standalone `anneal viz` command is unaffected; it still mounts
 	// viz/static at /. Spec: notes/anneal_web_spec.md §5.2.
 	mux.HandleFunc("/visualize/embed", serveVisualizeEmbed(staticFS))
-	mux.HandleFunc("/visualize/api/graph",    visualizeAPIHandler())
+	mux.HandleFunc("/visualize/api/graph", visualizeAPIHandler())
 	mux.HandleFunc("/visualize/api/timeline", visualizeAPIHandler())
 	if vizFS, err := viz.StaticFS(); err == nil {
 		mux.Handle("/visualize/static/", http.StripPrefix("/visualize/static/", staticFileServer(vizFS)))
 	}
 
-	mux.HandleFunc("/api/device",         handleAPIDevice)
-	mux.HandleFunc("/api/runs",           runsHandler())
-	mux.HandleFunc("/api/runs/",          runsHandler())
-	mux.HandleFunc("/api/compile/tuned",  stubJSON("native BEAM compile not yet implemented"))
-	mux.HandleFunc("/sse/train",          handleSSETrain)
-	mux.HandleFunc("/sse/generate",       handleSSEGenerate)
+	mux.HandleFunc("/api/device", handleAPIDevice)
+	mux.HandleFunc("/api/runs", runsHandler())
+	mux.HandleFunc("/api/runs/", runsHandler())
+	mux.HandleFunc("/api/compile/tuned", stubJSON("native BEAM compile not yet implemented"))
+	mux.HandleFunc("/sse/train", handleSSETrain)
+	mux.HandleFunc("/sse/generate", handleSSEGenerate)
 
 	return mux
 }

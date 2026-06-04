@@ -321,7 +321,7 @@ func TestSSEGenerate_ContentTypeAndHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/generate: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d, want 200", resp.StatusCode)
 	}
@@ -344,7 +344,7 @@ func TestSSEGenerate_TokenFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/generate: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
@@ -389,7 +389,7 @@ func TestSSEGenerate_DoneEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /sse/generate: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
@@ -610,7 +610,7 @@ func TestSSEGenerate_WarmingFrameOnFirstFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	re := regexp.MustCompile(`(?m)^data: (.+)$`)
 	matches := re.FindAllStringSubmatch(string(body), -1)

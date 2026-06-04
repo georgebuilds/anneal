@@ -28,11 +28,11 @@ func handleErf(ctx *HandlerCtx) ([]Value, error) {
 // non-zero is true). Broadcasts cond, x, y to a common shape.
 func handleWhere(ctx *HandlerCtx) ([]Value, error) {
 	if len(ctx.Inputs) < 3 {
-		return nil, fmt.Errorf("Where: expected 3 inputs (cond, x, y), got %d", len(ctx.Inputs))
+		return nil, fmt.Errorf("where: expected 3 inputs (cond, x, y), got %d", len(ctx.Inputs))
 	}
 	for i := 0; i < 3; i++ {
 		if !ctx.Inputs[i].IsDevice() {
-			return nil, fmt.Errorf("Where: input %d is not a device tensor", i)
+			return nil, fmt.Errorf("where: input %d is not a device tensor", i)
 		}
 	}
 	cond := ctx.Inputs[0].Tensor()
@@ -56,7 +56,7 @@ func handleReduceMin(ctx *HandlerCtx) ([]Value, error) {
 	}
 	axes, err := readReduceAxes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("ReduceMin: %w", err)
+		return nil, fmt.Errorf("reduceMin: %w", err)
 	}
 	keepdim := ctx.Node.Attrs["keepdims"].Int(1) != 0
 	out := reduceWithF32Accumulator(x, axes, keepdim,
@@ -93,7 +93,7 @@ func handleSoftmax(ctx *HandlerCtx) ([]Value, error) {
 	}
 	rank := x.Rank()
 	if rank == 0 {
-		return nil, fmt.Errorf("Softmax: input must have rank >= 1")
+		return nil, fmt.Errorf("softmax: input must have rank >= 1")
 	}
 
 	// Default axis depends on opset.
@@ -107,7 +107,7 @@ func handleSoftmax(ctx *HandlerCtx) ([]Value, error) {
 		axis += rank
 	}
 	if axis < 0 || axis >= rank {
-		return nil, fmt.Errorf("Softmax: axis %d out of range for rank %d", axisAttr, rank)
+		return nil, fmt.Errorf("softmax: axis %d out of range for rank %d", axisAttr, rank)
 	}
 
 	if ctx.Opset > 0 && ctx.Opset < 13 {

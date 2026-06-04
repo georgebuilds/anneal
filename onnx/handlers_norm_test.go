@@ -87,5 +87,5 @@ func TestHandleBatchNormalization_TrainingModeRejected(t *testing.T) {
 			makeFloatInitializerForTests("var", []int64{2}, []float32{1, 1}),
 		},
 	}
-	runSingleNodeExpectError(t, b.build(t), nil, "training_mode")
+	_ = runSingleNodeExpectError(t, b.build(t), nil, "training_mode")
 }

@@ -24,10 +24,11 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	onnxpb "github.com/georgebuilds/anneal/onnx/onnxpb"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/uop"
-	"google.golang.org/protobuf/proto"
 )
 
 // conformanceTol is the per-case max-abs-diff allowed against the

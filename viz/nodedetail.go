@@ -31,11 +31,11 @@ type NodeDetail struct {
 	NodeID     string        `json:"node_id"`
 	Op         string        `json:"op"`
 	DType      string        `json:"dtype"`
-	Shape      []string      `json:"shape"`            // serialized shape.Sint values
-	Phase      string        `json:"phase"`            // forward / backward / fused
-	Parents    []ParentChild `json:"parents"`          // upstream nodes
-	Children   []ParentChild `json:"children"`         // downstream nodes
-	Arg        string        `json:"arg,omitempty"`    // const value, axis, var name, etc.
+	Shape      []string      `json:"shape"`         // serialized shape.Sint values
+	Phase      string        `json:"phase"`         // forward / backward / fused
+	Parents    []ParentChild `json:"parents"`       // upstream nodes
+	Children   []ParentChild `json:"children"`      // downstream nodes
+	Arg        string        `json:"arg,omitempty"` // const value, axis, var name, etc.
 	SourceFile string        `json:"source_file,omitempty"`
 	SourceLine int           `json:"source_line,omitempty"`
 }

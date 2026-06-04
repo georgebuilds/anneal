@@ -187,11 +187,11 @@ func TestWebInspect_RendererWired(t *testing.T) {
 	srv := newWebServer(t)
 	_, body := get(t, srv, "/static/studio.js")
 	for _, needle := range []string{
-		"annealInspectTensor",   // the WASM bridge call
-		"detectInspectFormat",   // format dispatch from filename
-		"renderStudioView",      // the home-view renderer (calls dropzone init)
-		"initInspectDropzone",   // the dropzone wiring function
-		"inspectFile",           // the per-file dispatch path
+		"annealInspectTensor", // the WASM bridge call
+		"detectInspectFormat", // format dispatch from filename
+		"renderStudioView",    // the home-view renderer (calls dropzone init)
+		"initInspectDropzone", // the dropzone wiring function
+		"inspectFile",         // the per-file dispatch path
 	} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("studio.js missing %q (inspector wiring not landed)", needle)
