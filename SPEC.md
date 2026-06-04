@@ -32,7 +32,7 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 
 **Still deferred / dropped:**
 - Multi-device / sharding / `ALLREDUCE`. Dropped for v1; `OpCopy`'s hard-boundary role is conditionally dormant and rejoins when this lands (§7.3 note).
-- `ImageDType` and image-specific codegen paths. Dropped.
+- `ImageDType` and image-specific codegen paths. Shipped: see the Image dtype row in §2 for the as-built surface and the carried output-stride constraint.
 - Backends beyond the first. v1 targets one backend (§7).
 - Opt relaxations for symbolic kernels — LOCAL/TILE/UPCAST/VECTORIZE currently blanket-bail on a symbolic axis. The blocker is structural, not a guard tweak: the lowerer forces every range of a sym kernel into `dim 0` (`targetDim=0` collapse in `codegen/lower.go`) and the executor mirrors with `wc[0]=ceil(outElems/L), Y=Z=1`, so peeling out an `AxisLocal` / `AxisWorkgroup` / `AxisUpcast` / `AxisVectorize` range from `level=0` breaks the level-0 stride composition for the remaining axes. The unlock is dropping the 1D-flatten and giving sym kernels static-style per-axis dim assignment — a separate slice. Optional perf, not correctness. (TILE has an additional WGSL ceiling: non-const `var<workgroup>` sizes aren't supported; non-matmul UPCAST/VECTORIZE have a pre-existing latent unrelated to symbolic, tracked separately.)
 
@@ -53,7 +53,7 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 | Schedule cache | ✅ Memoized on structural key (§7.6) |
 | Migration I/O | ✅ `.npy`/`.npz` load; `.safetensors` save/load |
 | Dtypes | `float32`, `int32`, `bool` runtime-verified; f16 ✅ via `shader-f16` (fail-closed if unavailable); bf16 ✅ storage-only (f32 compute); fp8 ⛔ Deferred. |
-| Image dtype | ⛔ Not supported |
+| Image dtype | ✅ `ImageFloat32` ships as a storage-layout sibling of `Float32`. The buffer binding is `array<vec4<f32>>` (one vec4 holds four logical f32 elements); compute stays scalar f32, gradients and autodiff are unchanged. Selected via the standard `Vec`/promotion lattice (`LeastUpperDType(Image, Float32) == Float32`). Carried constraint: matmul bit-exact only when the output row stride is a multiple of 4 (per-component WGSL stores into a shared vec4 slot race under naga); the kernel produces correct results under that constraint and the value oracle is scoped accordingly. |
 | Epilogue fusion (Pass 5) | ✅ Reduce-output BUFFERIZE elided into single elementwise consumer (§7.6) |
 | BEAM autotuning | ✅ Env-gated; ANNEAL_BEAM=1 to search, disk-cached (§7.7b–c) |
 | ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~100 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone (§1.3) |

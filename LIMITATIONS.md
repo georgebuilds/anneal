@@ -62,7 +62,7 @@ Deferred regardless of backend. Even when CUDA lands, the v1 cut is copy-op-only
 
 ### Image dtypes
 
-Deferred. anneal's dtype set is `float32`, `int32`, `bool`, `f16` (via the `shader-f16` WGSL extension), and `bf16` (storage-only with f32 compute). Image dtypes (the tinygrad concept of `imagef32` and related) are not in v1.
+Shipped as a storage-layout sibling. `Dtypes.ImageFloat32` packs four logical f32 elements into one WGSL `vec4<f32>` storage slot (binding type `array<vec4<f32>>`); compute stays scalar f32, gradients and autodiff are unchanged, and the promotion lattice treats image as a storage-only variant of `Float32` (`LeastUpperDType(ImageFloat32, Float32) == Float32`). Carried constraint: matmul is bit-exact only when the OUTPUT row stride is a multiple of 4. With non-aligned strides (e.g. N=30, vec4 lane span 4) adjacent rows share a vec4 slot and the per-component WGSL store path races under naga's Metal lowering; the kernel produces correct results under the aligned constraint and the value oracle is scoped accordingly. A vec4-tiled dispatch (one thread per slot, four outputs per thread) is the future slice that removes the constraint.
 
 ### fp8
 
