@@ -911,68 +911,59 @@ func (l *lowerer) lowerSink() []Instr {
 	return l.instrs
 }
 
-// hoistCrossScopeShared pre-emits ALU/index UOps that are reachable from both
-// inside an OpReduce's elem-subtree AND from outside that subtree (i.e. would
-// otherwise be emitted as an `InstrLet` inside the reduce loop scope but also
-// referenced from the post-reduce scope where the let is no longer visible).
+// hoistCrossScopeShared pre-emits ALU/index UOps whose let-binding would
+// otherwise be emitted inside a reduce-loop scope but also referenced from a
+// different scope where that identifier is not visible.
 //
 // Hash-consing in the UOp arena interns identical sub-expressions to a single
-// node, so a loop-invariant index expression that appears in both the reduce
-// body and the post-reduce store body resolves to the same arena UOp. The
-// default emitExpr walk caches the in-loop emission keyed by arena index, and
-// the second reference (outside the loop) hits the cache without re-emitting,
-// producing WGSL that references an out-of-scope identifier.
+// node, so a loop-invariant ALU/index UOp that appears in multiple scopes
+// resolves to the same arena UOp. The default emitExpr walk caches the first
+// emission keyed by arena index; a later emitExpr from a different scope hits
+// the cache and reuses the identifier — producing WGSL that references an
+// out-of-scope `t<N>` (Naga rejects with "unresolved identifier").
 //
-// The fix walks `body` twice:
-//   - innerReachable: from each OpReduce's elemNode (Src(0)), recursively
-//     collect all reachable ALU/Index UOps.
-//   - outerReachable: from `body`, recursively collect all reachable UOps,
-//     treating OpReduce as a barrier (don't descend into its elemNode).
+// The pre-pass partitions the body into scope "colors":
 //
-// The intersection is the set of cross-scope-shared UOps. For each, we walk
-// its subgraph in topological order and call emitExpr — that emits the InstrLet
+//   - Color 0: the outer (kernel-top + post-reduce) scope — `body` walked with
+//     each OpReduce treated as a barrier (don't descend into its elemNode).
+//   - One additional color per top-level OpReduce reachable from body: the
+//     elemNode subtree of that reduce. "Top-level" means reachable from body
+//     without descending through another OpReduce's elemNode — nested reduces
+//     are NOT colored separately because their let-bindings live INSIDE the
+//     outer reduce's loop, where hoisting to kernel-top would lift them out of
+//     scope of an enclosing reduce-local Range.
+//
+// A UOp is hoist-shared iff it is reached by 2+ distinct colors. We then walk
+// the body topo, filtered to that set, and call emitExpr — emitting InstrLet
 // at the current emit depth (kernel-top, before any reduce loop opens) and
-// populates l.exprOf so the subsequent emitExpr(body) walk hits the cache from
-// both inside and outside reduce bodies.
+// populating l.exprOf so every subsequent emitExpr call (from any scope) hits
+// the cached identifier.
+//
+// Two manifestations covered:
+//
+//  1. Outer ↔ reduce: shared between outer scope and a reduce body.
+//     Originally fixed for the Block-backward / LayerNorm-shaped graph in the
+//     L0'-fix slice (see block_crossscope_regression_test.go). Color count
+//     {outer, reduce_k} = 2 → hoist.
+//
+//  2. Reduce ↔ reduce: shared between two sibling top-level reduces. Surfaces
+//     on ResNet-9 backward where conv-grad fuses many sibling reduces over
+//     the same input-index expression. The pre-Slice fix missed this because
+//     it only considered (inner ∩ outer); sibling-only shares are in inner
+//     but never in outer. Color count {reduce_a, reduce_b} = 2 → hoist.
 //
 // We do NOT hoist Range / Const / DefineVar / Param / Buffer / DefineLocal /
-// Barrier nodes (those either have no Let or have scope-specific naming that
-// emitExpr handles correctly).
+// Barrier / Reduce / End / Store / Sink / After nodes (those either have no
+// Let or have scope-specific naming that emitExpr handles correctly).
 func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
-	innerReachable := make(map[uint32]bool)
-	var walkInner func(u uop.UOp)
-	walkInner = func(u uop.UOp) {
-		if innerReachable[u.Index()] {
-			return
-		}
-		innerReachable[u.Index()] = true
-		for i := 0; i < u.NSrc(); i++ {
-			walkInner(u.Src(i))
-		}
-	}
-
-	// Find every OpReduce reachable from body (including nested reduces) and
-	// mark its elemNode subtree as "inside-reduce-reachable".
-	var findReduces func(u uop.UOp, seen map[uint32]bool)
-	findReduces = func(u uop.UOp, seen map[uint32]bool) {
-		if seen[u.Index()] {
-			return
-		}
-		seen[u.Index()] = true
-		if u.Op() == uop.OpReduce && u.NSrc() >= 1 {
-			walkInner(u.Src(0))
-		}
-		for i := 0; i < u.NSrc(); i++ {
-			findReduces(u.Src(i), seen)
-		}
-	}
-	findReduces(body, make(map[uint32]bool))
-	if len(innerReachable) == 0 {
-		return
-	}
-
-	// Walk body but treat OpReduce as a barrier (skip its elemNode).
+	// Color 0: outer scope — walk body, treat OpReduce as a barrier (skip its
+	// elemNode but still visit its range sources at the outer level).
 	outerReachable := make(map[uint32]bool)
+	// topLevelReduces collected during the same walk: any OpReduce visited at
+	// the outer level is a "top-level" reduce (its elemNode hasn't been entered
+	// through another reduce's elemNode).
+	var topLevelReduces []uop.UOp
+	seenReduce := make(map[uint32]bool)
 	var walkOuter func(u uop.UOp)
 	walkOuter = func(u uop.UOp) {
 		if outerReachable[u.Index()] {
@@ -980,6 +971,10 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 		}
 		outerReachable[u.Index()] = true
 		if u.Op() == uop.OpReduce {
+			if !seenReduce[u.Index()] {
+				seenReduce[u.Index()] = true
+				topLevelReduces = append(topLevelReduces, u)
+			}
 			// Skip Src(0) (elemNode), but still visit the range sources so
 			// their UOps are seen at the outer level.
 			for i := 1; i < u.NSrc(); i++ {
@@ -992,16 +987,94 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 		}
 	}
 	walkOuter(body)
+	if len(topLevelReduces) == 0 {
+		return
+	}
 
-	// Intersection: shared across scopes.
+	// Color count per UOp index. Each color increments the counter for every
+	// UOp it reaches (once per color). UOps with count >= 2 are cross-scope-
+	// shared and must be hoisted.
+	colorCount := make(map[uint32]int, len(outerReachable))
+	for idx := range outerReachable {
+		colorCount[idx] = 1
+	}
+
+	// Color k (>=1): each top-level reduce's elemNode subtree. We walk WITHOUT
+	// treating nested OpReduce as a barrier — a UOp inside a nested reduce IS
+	// inside its enclosing top-level reduce's color. (Hoisting nested-reduce-
+	// local nodes is suppressed by hoistEligible/Range-dependency: an ALU that
+	// depends on a nested reduce's Range cannot be hoisted to kernel-top, but
+	// such a node only appears in ONE top-level color and never in color 0, so
+	// it never gets count >= 2 anyway.)
+	mark := func(u uop.UOp) {
+		visited := make(map[uint32]bool)
+		var walk func(v uop.UOp)
+		walk = func(v uop.UOp) {
+			if visited[v.Index()] {
+				return
+			}
+			visited[v.Index()] = true
+			colorCount[v.Index()]++
+			for i := 0; i < v.NSrc(); i++ {
+				walk(v.Src(i))
+			}
+		}
+		walk(u)
+	}
+	for _, r := range topLevelReduces {
+		if r.NSrc() < 1 {
+			continue
+		}
+		mark(r.Src(0))
+	}
+
+	// Build the shared set. A UOp shared by 2+ colors needs hoisting.
 	shared := make(map[uint32]bool)
-	for idx := range innerReachable {
-		if outerReachable[idx] {
+	for idx, n := range colorCount {
+		if n >= 2 {
 			shared[idx] = true
 		}
 	}
 	if len(shared) == 0 {
 		return
+	}
+
+	// Safety filter: never hoist a UOp that transitively depends on an OpRange
+	// owned by any reduce (i.e. a reduce-loop-local range). Such a node, if
+	// emitted at kernel-top, would reference an undefined `r<N>`. In practice
+	// the color logic above already excludes these (a reduce-local-range
+	// dependent only ever has color N for that single reduce, never color 0
+	// or another reduce), but we belt-and-suspenders here in case a future
+	// scheduler hoists a Range to a shared position.
+	reduceRangeIdxs := make(map[uint32]bool)
+	for _, r := range topLevelReduces {
+		for i := 1; i < r.NSrc(); i++ {
+			rng := r.Src(i)
+			if rng.Op() == uop.OpRange {
+				reduceRangeIdxs[rng.Index()] = true
+			}
+		}
+	}
+	// dependsOnReduceRange caches whether a UOp transitively uses a reduce-
+	// local range. Memoized by arena index.
+	depCache := make(map[uint32]bool)
+	var dependsOnReduceRange func(u uop.UOp) bool
+	dependsOnReduceRange = func(u uop.UOp) bool {
+		if v, ok := depCache[u.Index()]; ok {
+			return v
+		}
+		if u.Op() == uop.OpRange && reduceRangeIdxs[u.Index()] {
+			depCache[u.Index()] = true
+			return true
+		}
+		for i := 0; i < u.NSrc(); i++ {
+			if dependsOnReduceRange(u.Src(i)) {
+				depCache[u.Index()] = true
+				return true
+			}
+		}
+		depCache[u.Index()] = false
+		return false
 	}
 
 	// Topologically order the shared UOps so we emit producers before consumers.
@@ -1012,6 +1085,9 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 			continue
 		}
 		if !hoistEligible(u) {
+			continue
+		}
+		if dependsOnReduceRange(u) {
 			continue
 		}
 		// Trigger emission of u (and any unmemoized deps it references).

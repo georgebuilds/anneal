@@ -131,19 +131,18 @@ func TestResNet9Forward(t *testing.T) {
 
 // ── 3. One full training step (forward → loss → grads → PostStep) ────────────
 
-// TestResNet9TrainStep currently exposes a WGSL codegen scaling bug on the
-// full backward graph: under residual blocks + BN + 8 conv stages, the
-// scheduler fuses the backward into a single giant kernel that exceeds the
-// WGSL renderer's happy path and emits an "unresolved identifier" error
-// during shader compilation. The forward path works fine (see TestResNet9Forward);
-// this is a codegen issue, not an architecture issue. Tracked separately in
-// notes/resnet9_progress.md; gating for R7 (train to 90%).
+// TestResNet9TrainStep exercises one full training step (forward → loss →
+// backward → grads → PostStep) end-to-end. The smaller channel scale
+// {4,8,16,32} keeps the schedule lightweight enough for the test budget while
+// still exercising every Conv/BN/Pool/residual edge.
 //
-// Until the codegen fix lands the test is skipped — keeping it in the file
-// preserves intent and makes the re-enable a one-line change.
+// Conv weights are randomly initialised before Load. The default Conv2d
+// constructor leaves Weight.Value zero, which makes every BN's input
+// identically zero and the batch mean trivially zero — the EMA update
+// (1-m)*0 + m*0 = 0 would then produce no observable RunningMean change,
+// causing this test's "unchanged after PostStep" assertion to fail even
+// though PostStep is correct. Mirrors initResNet9Small in examples/resnet9.go.
 func TestResNet9TrainStep(t *testing.T) {
-	t.Skip("BLOCKED: ResNet-9 backward graph triggers WGSL codegen unresolved-identifier; see notes/resnet9_progress.md")
-
 	requireGPU(t)
 	if testing.Short() {
 		t.Skip("ResNet-9 training step is heavy; skipped under -short")
@@ -152,6 +151,20 @@ func TestResNet9TrainStep(t *testing.T) {
 	const B = int64(1)
 	a := uop.NewArena(1 << 25) // 32 MiB
 	m := nn.NewResNet9Scaled(a, [4]int64{4, 8, 16, 32}, 10, uop.Dtypes.Float32, "webgpu")
+
+	// Non-trivial init so the network actually transports signal: zero Conv
+	// weights would make every BN see all-zero inputs and the RunningMean EMA
+	// update would degenerate to 0 (see test doc above).
+	initRng := rand.New(rand.NewSource(42))
+	for _, c := range m.Convs() {
+		for i := range c.Weight.Value {
+			c.Weight.Value[i] = float32(initRng.NormFloat64()) * 0.1
+		}
+	}
+	for i := range m.Head.Weight.Value {
+		m.Head.Weight.Value[i] = float32(initRng.NormFloat64()) * 0.1
+	}
+
 	m.Load(a)
 	m.Train()
 

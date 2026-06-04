@@ -6,7 +6,6 @@
 
 **A tensor compiler in Go. Autodiff is a graph rewrite, kernels fuse across the forward/backward seam, ONNX import is zero-CGO, and `anneal web` is a local browser studio.**
 
-[![status](https://img.shields.io/badge/status-v1-14b8a6)](#status)
 [![backend](https://img.shields.io/badge/backend-WebGPU-0d9488)](#backend)
 [![go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![model](https://img.shields.io/badge/it's%20a-compiler-f59e0b)](#what-anneal-is)
