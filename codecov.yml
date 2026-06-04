@@ -1,0 +1,3 @@
+ignore:
+  - "onnx/onnxpb/**"   # generated protobuf descriptors
+  - "rewrite/gen/**"   # generated rewrite-rule matchers
