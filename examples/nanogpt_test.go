@@ -157,6 +157,9 @@ func TestNanoGPTDataPipeline(t *testing.T) {
 // intentionally tiny (n_layer=1, n_head=2, n_embd=16, block_size=8,
 // batch=2) so the test finishes in a few seconds even on software GPU.
 func TestNanoGPTConvergence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: 50 Adam steps are too slow on software GPU (lavapipe)")
+	}
 	requireGPUTest(t)
 
 	ds := newCharDatasetFromString(fixtureCorpus())
@@ -216,6 +219,9 @@ func TestNanoGPTConvergence(t *testing.T) {
 // every character is in the dataset vocabulary. Length is checked against
 // the prompt + nGen tokens contract.
 func TestNanoGPTGeneration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: depends on a training burst that is too slow on software GPU")
+	}
 	requireGPUTest(t)
 
 	ds := newCharDatasetFromString(fixtureCorpus())
