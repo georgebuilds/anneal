@@ -493,7 +493,7 @@ func TestDDPMLossDecreasesOverSteps(t *testing.T) {
 
 	loss0 := runStep(true)
 	t.Logf("step %4d: loss=%.6f", 1, loss0)
-	var lossLast float32 = loss0
+	lossLast := loss0
 	for step := 2; step <= nIter; step++ {
 		l := runStep(true)
 		lossLast = l

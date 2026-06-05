@@ -8,7 +8,6 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-
 // ── SiLU activation ───────────────────────────────────────────────────────────
 
 // SiLU returns x * sigmoid(x), aka Swish. One-liner used by DDPM/U-Net stacks.
