@@ -168,7 +168,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Capability | Status |
 |---|---|
 | Reverse-mode autodiff | ✅ Full, via graph rewrite |
-| Backend | ✅ WebGPU (native + WASM); CPU pure-Go interpreter (slice 1, ships in-binary, no GPU required) |
+| Backend | ✅ WebGPU (native + WASM); CPU pure-Go interpreter (slice 2: movement ops, gather/scatter, non-contiguous reductions, f16/bf16/fp8 storage; ships in-binary, no GPU required) |
 | Shapes — static | ✅ |
 | Shapes — dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
 | Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch | ✅ Shipped |
@@ -188,7 +188,7 @@ For the specific shape of each deferral and the platform ceilings behind them (8
 
 ### Hardware compatibility
 
-`anneal train`, `anneal gpt2`, and the `anneal web` train/generate/doctor views all default to **native WebGPU** (Metal on macOS, Vulkan on Linux, D3D12 or Vulkan on Windows). `anneal doctor` reports adapter capabilities and whether `shader-f16` is available. A pure-Go CPU interpreter is also available as `anneal train <model> --device=cpu`; it ships inside the binary with no native runtime requirement and is the value oracle for the WebGPU path (`backend/cpu/`, slice 1 op coverage).
+`anneal train`, `anneal gpt2`, and the `anneal web` train/generate/doctor views all default to **native WebGPU** (Metal on macOS, Vulkan on Linux, D3D12 or Vulkan on Windows). `anneal doctor` reports adapter capabilities and whether `shader-f16` is available. A pure-Go CPU interpreter is also available as `anneal train <model> --device=cpu`; it ships inside the binary with no native runtime requirement and is the value oracle for the WebGPU path (`backend/cpu/`, slice 2 op coverage: the MLP/conv core plus pad/shrink/permute/expand, gather + scatter-add backward, non-contiguous-axis reductions, and f16/bf16/fp8 quantized storage; symbolic kernels and ops outside that surface fail loud).
 
 The visualize, kernels, explain, history, and ONNX dropzone views compile to WASM and work in **any modern browser**: importing a model and inspecting its UOp graph + scheduled WGSL needs no GPU at all. The doctor view shows the native side and the browser's `navigator.gpu` probe side by side so the gap is visible.
 
