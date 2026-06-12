@@ -176,7 +176,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | JIT | ✅ Capture/replay (`tensor.JIT`) |
 | Schedule cache | ✅ Memoized on structural key |
 | Devices | Single device |
-| Dtypes | f16 ✅ (RTNE, requires shader-f16); bf16 ✅ storage + RTNE narrowing, f32 compute, any adapter; fp8 ⛔ Deferred |
+| Dtypes | f16 ✅ (RTNE, requires shader-f16); bf16 ✅ storage + RTNE narrowing, f32 compute, any adapter; fp8 ✅ e4m3fn + e5m2, storage-only, f32 compute, any adapter (bit-exact vs host oracle) |
 | Multi-device | ⛔ Deferred |
 | Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; bit-exact when the output row stride is a multiple of 4, otherwise the documented vec4-lane store race applies) |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |

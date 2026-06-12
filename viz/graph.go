@@ -285,6 +285,12 @@ func dtypeStr(dt *uop.DType) string {
 		return "f32"
 	case uop.Dtypes.Float16:
 		return "f16"
+	case uop.Dtypes.BFloat16:
+		return "bf16"
+	case uop.Dtypes.FP8E4M3:
+		return "e4m3"
+	case uop.Dtypes.FP8E5M2:
+		return "e5m2"
 	case uop.Dtypes.Float64:
 		return "f64"
 	case uop.Dtypes.Int32:

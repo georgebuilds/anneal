@@ -66,11 +66,11 @@ Shipped as a storage-layout sibling. `Dtypes.ImageFloat32` packs four logical f3
 
 ### fp8
 
-Deferred. f16 and bf16 are the smallest dtypes in v1.
+Shipped as storage-only dtypes with f32 compute, on the bf16 decoded-storage scheme. `Dtypes.FP8E4M3` (OCP e4m3fn: bias 7, no infinities, max finite ±448) and `Dtypes.FP8E5M2` (IEEE-style: bias 15, ±Inf/NaN, max finite ±57344) store the fp8-quantized value's full f32 bit pattern per u32 slot, so loads are a free `bitcast<f32>`, reduce accumulators stay f32, and the RTNE narrowing happens once at the store boundary (`_fp8e4m3_rtne_bits` / `_fp8e5m2_rtne_bits`, mirroring `uop.Float32ToFP8E4M3/E5M2` bit for bit — GPU-vs-host storage comparisons are exact, not tolerance-based). e4m3fn conversion uses the CUDA satfinite convention (finite overflow and ±Inf saturate to ±448); e5m2 overflow rounds to ±Inf. No device feature is required; fp8 runs on any WebGPU adapter. Carried scope limits: 4 bytes/elem storage (precision semantics, not memory savings — a packed 4-per-u32 layout would hit the WGSL read-modify-write store race, the same class as the image-dtype stride constraint above); mid-kernel `Cast` to fp8 computes in f32 without re-quantizing (quantization is a storage-boundary property, same as bf16); ONNX FLOAT8 wire decode stays on the v1.1 punt list; fp8 compute / scaled-matmul recipes (loss scaling, amax tracking) are out of scope.
 
 ### f16 requires device support and fails closed
 
-f16 requires the WebGPU `shader-f16` device feature. If a device does not advertise it, anneal fails before any GPU allocation rather than silently falling back to f32. `anneal doctor` reports which features your device supports. bf16 has no such requirement (storage is `array<u32>`, compute runs in f32) and runs on any WebGPU adapter.
+f16 requires the WebGPU `shader-f16` device feature. If a device does not advertise it, anneal fails before any GPU allocation rather than silently falling back to f32. `anneal doctor` reports which features your device supports. bf16 and fp8 have no such requirement (storage is `array<u32>`, compute runs in f32) and run on any WebGPU adapter.
 
 ### JIT and schedule cache are single-arena
 
