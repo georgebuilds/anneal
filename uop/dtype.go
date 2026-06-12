@@ -322,8 +322,9 @@ var Dtypes = struct {
 	Int64  *DType
 	UInt64 *DType
 
-	// FP8 variants — present in the dtype system and promotion lattice;
-	// runtime lowering is deferred (SPEC §1.3).
+	// FP8 variants (OCP FP8: e4m3fn and e5m2) — storage-only dtypes with f32
+	// compute, on the bf16 decoded-storage scheme. Conversion helpers below;
+	// WGSL store narrowing in codegen/wgsl.go (SPEC §11.3).
 	FP8E4M3 *DType
 	FP8E5M2 *DType
 
@@ -564,10 +565,140 @@ func Float16ToFloat32(h uint16) float32 {
 	return math.Float32frombits(bits)
 }
 
+// float32ToFP8 narrows a float32 to an 8-bit floating-point code with manBits
+// mantissa bits and bias-biased exponent, using round-to-nearest-even (RTNE).
+// It is the shared core of Float32ToFP8E4M3 and Float32ToFP8E5M2; the two
+// formats differ only in their constants and overflow behaviour, which the
+// callers apply via maxCode / overflowCode / nanCode:
+//
+//   - e4m3fn (OCP FP8): no infinities; finite overflow and ±Inf inputs both
+//     saturate to ±448 (CUDA satfinite / Transformer Engine convention).
+//   - e5m2 (IEEE-style): overflow rounds to ±Inf.
+//
+// The structure deliberately mirrors Float32ToFloat16 so the three narrowing
+// paths stay reviewable side by side; the WGSL store helpers in codegen/wgsl.go
+// mirror this algorithm instruction for instruction, which is what makes the
+// GPU-vs-host storage comparison bit-exact rather than tolerance-based.
+func float32ToFP8(f float32, manBits uint32, bias int32, maxCode, overflowCode, nanCode uint8) uint8 {
+	bits := math.Float32bits(f)
+	sign := uint8(bits>>31) << 7
+	exp := int32((bits>>23)&0xFF) - 127
+	frac := bits & 0x7FFFFF
+	shift := 23 - manBits
+	minExp := 1 - bias // smallest normal exponent
+
+	switch {
+	case exp == 128:
+		if frac != 0 {
+			return nanCode // NaN: canonical quiet NaN, sign dropped (matches Float32ToBFloat16)
+		}
+		return sign | overflowCode // ±Inf → format's overflow value (Inf for e5m2, NaN for e4m3fn)
+	case exp < minExp:
+		// Subnormal target. Total right shift grows as the exponent drops below
+		// the normal range; past 24 the value is under half the smallest
+		// subnormal and RTNE rounds to (signed) zero.
+		t := shift + uint32(minExp-exp)
+		if t > 24 {
+			return sign
+		}
+		m := frac | 0x800000
+		mRound := m >> (t - 1)
+		if (mRound&1 != 0) && (mRound&2 != 0 || (m&((1<<(t-1))-1) != 0)) {
+			mRound += 2
+		}
+		// A round-up past the subnormal range carries naturally into the
+		// exponent field (min normal), same as the f16 subnormal path.
+		return sign | uint8(mRound>>1)
+	default:
+		// Normal target. Round with RTNE; mantissa carry bumps the exponent.
+		mRound := frac >> (shift - 1)
+		if (mRound&1 != 0) && (mRound&2 != 0 || (frac&((1<<(shift-1))-1) != 0)) {
+			mRound += 2
+		}
+		man := mRound >> 1
+		eF := exp + bias
+		if man&(1<<manBits) != 0 {
+			man = 0
+			eF++
+		}
+		code := eF<<manBits | int32(man)
+		if code > int32(maxCode) {
+			return sign | overflowCode
+		}
+		return sign | uint8(code)
+	}
+}
+
+// Float32ToFP8E4M3 narrows a float32 to its nearest fp8 e4m3fn bit pattern
+// (OCP FP8: bias 7, 3 mantissa bits, no infinities, NaN = S.1111.111, max
+// finite ±448) using round-to-nearest-even. Finite overflow and ±Inf both
+// saturate to ±448 — CUDA's satfinite conversion mode, which is what
+// Transformer Engine and production fp8 training stacks use. (PyTorch's CPU
+// converter instead maps overflow to NaN; saturation was chosen here as the
+// deliberate, documented behaviour — see notes/fp8_preflight.md.)
+func Float32ToFP8E4M3(f float32) uint8 {
+	// maxCode 0x7E = 448; overflowCode 0x7E saturates; nanCode 0x7F canonical.
+	return float32ToFP8(f, 3, 7, 0x7E, 0x7E, 0x7F)
+}
+
+// Float32ToFP8E5M2 narrows a float32 to its nearest fp8 e5m2 bit pattern
+// (IEEE-style: bias 15, 2 mantissa bits, ±Inf and NaN, max finite ±57344)
+// using round-to-nearest-even. Overflow rounds to ±Inf (0x7C), the IEEE
+// behaviour for a format that represents infinity.
+func Float32ToFP8E5M2(f float32) uint8 {
+	// maxCode 0x7B = 57344; overflowCode 0x7C = Inf; nanCode 0x7E canonical.
+	return float32ToFP8(f, 2, 15, 0x7B, 0x7C, 0x7E)
+}
+
+// FP8E4M3ToFloat32 widens an fp8 e4m3fn bit pattern to float32. Every e4m3fn
+// value is exactly representable in float32, so this direction is lossless.
+func FP8E4M3ToFloat32(b uint8) float32 {
+	eF := int32(b>>3) & 0xF
+	man := int32(b & 7)
+	if eF == 0xF && man == 7 {
+		return float32(math.NaN())
+	}
+	var v float64
+	if eF == 0 {
+		v = math.Ldexp(float64(man), -9) // subnormal: man * 2^(1-7-3)
+	} else {
+		v = math.Ldexp(1+float64(man)/8, int(eF-7))
+	}
+	if b&0x80 != 0 {
+		v = -v
+	}
+	return float32(v)
+}
+
+// FP8E5M2ToFloat32 widens an fp8 e5m2 bit pattern to float32. Every e5m2
+// value is exactly representable in float32, so this direction is lossless.
+func FP8E5M2ToFloat32(b uint8) float32 {
+	eF := int32(b>>2) & 0x1F
+	man := int32(b & 3)
+	sign := float64(1)
+	if b&0x80 != 0 {
+		sign = -1
+	}
+	if eF == 0x1F {
+		if man == 0 {
+			return float32(sign * math.Inf(1))
+		}
+		return float32(math.NaN())
+	}
+	var v float64
+	if eF == 0 {
+		v = math.Ldexp(float64(man), -16) // subnormal: man * 2^(1-15-2)
+	} else {
+		v = math.Ldexp(1+float64(man)/4, int(eF-15))
+	}
+	return float32(sign * v)
+}
+
 // Quantize returns v rounded to the nearest value representable in d.
-// Only Float16 and BFloat16 perform quantization; all other dtypes return v
-// unchanged. Both use round-to-nearest-even (RTNE) to match PyTorch and the
-// rest of the ML ecosystem; storage and compute paths share these helpers.
+// Float16, BFloat16, and the fp8 formats perform quantization; all other
+// dtypes return v unchanged. All use round-to-nearest-even (RTNE) to match
+// PyTorch and the rest of the ML ecosystem; storage and compute paths share
+// these helpers.
 func (d *DType) Quantize(v float32) float32 {
 	s := d.Scalar()
 	if s == Dtypes.Float16 {
@@ -575,6 +706,12 @@ func (d *DType) Quantize(v float32) float32 {
 	}
 	if s == Dtypes.BFloat16 {
 		return BFloat16ToFloat32(Float32ToBFloat16(v))
+	}
+	if s == Dtypes.FP8E4M3 {
+		return FP8E4M3ToFloat32(Float32ToFP8E4M3(v))
+	}
+	if s == Dtypes.FP8E5M2 {
+		return FP8E5M2ToFloat32(Float32ToFP8E5M2(v))
 	}
 	return v
 }
