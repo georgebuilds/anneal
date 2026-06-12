@@ -28,6 +28,7 @@ func WGSLTypeInfoFor(d *uop.DType) WGSLTypeInfo {
 	scalar := d.Scalar()
 
 	bf16Storage := scalar == uop.Dtypes.BFloat16
+	fp8Storage := scalar == uop.Dtypes.FP8E4M3 || scalar == uop.Dtypes.FP8E5M2
 	imageStorage := d.IsImage()
 
 	var wgslName string
@@ -38,6 +39,13 @@ func WGSLTypeInfoFor(d *uop.DType) WGSLTypeInfo {
 	case uop.Dtypes.Float16:
 		wgslName = "f16"
 		sizeBytes = 2
+	case uop.Dtypes.FP8E4M3, uop.Dtypes.FP8E5M2:
+		// fp8 is storage-only: the quantized value's full f32 bit pattern
+		// lives in a u32 slot (decoded storage, same scheme as bf16), so
+		// compute is f32 and the per-element size stays 4 bytes. The
+		// narrowing to the fp8 grid happens at the store boundary via the
+		// _fp8_*_store_bits helpers in wgsl.go.
+		wgslName = "f32"
 	case uop.Dtypes.Int32:
 		wgslName = "i32"
 	case uop.Dtypes.UInt32:
@@ -67,7 +75,7 @@ func WGSLTypeInfoFor(d *uop.DType) WGSLTypeInfo {
 	}
 
 	buf := wgslName
-	if bf16Storage || buf == "bool" {
+	if bf16Storage || fp8Storage || buf == "bool" {
 		buf = "u32"
 	}
 	if imageStorage {

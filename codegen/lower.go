@@ -214,7 +214,7 @@ func (l *lowerer) computeDType(u uop.UOp) *uop.DType {
 		return d
 	}
 	s := d.Scalar()
-	if s == uop.Dtypes.BFloat16 {
+	if s == uop.Dtypes.BFloat16 || s == uop.Dtypes.FP8E4M3 || s == uop.Dtypes.FP8E5M2 {
 		return uop.Dtypes.Float32
 	}
 	if l.widenF16 && s == uop.Dtypes.Float16 {
@@ -1254,7 +1254,9 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	emitDType := u.DType()
 	if emitDType != nil {
 		s := emitDType.Scalar()
-		if s == uop.Dtypes.BFloat16 {
+		if s == uop.Dtypes.BFloat16 || s == uop.Dtypes.FP8E4M3 || s == uop.Dtypes.FP8E5M2 {
+			// bf16 and fp8 share the decoded-storage scheme: the u32 word is
+			// the quantized value's f32 bit pattern, so a load is a bitcast.
 			rhs = fmt.Sprintf("bitcast<f32>(%s)", rhs)
 			emitDType = uop.Dtypes.Float32
 		} else if l.widenF16 && s == uop.Dtypes.Float16 {
@@ -1305,8 +1307,10 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 	outDType := u.DType()
 	isF16Reduce := outDType != nil && outDType.Scalar() == uop.Dtypes.Float16
 	isBF16Reduce := outDType != nil && outDType.Scalar() == uop.Dtypes.BFloat16
+	isFP8Reduce := outDType != nil &&
+		(outDType.Scalar() == uop.Dtypes.FP8E4M3 || outDType.Scalar() == uop.Dtypes.FP8E5M2)
 	var wt, id string
-	if isF16Reduce || isBF16Reduce {
+	if isF16Reduce || isBF16Reduce || isFP8Reduce {
 		wt = "f32"
 		id = reduceIdentity(accOp, uop.Dtypes.Float32)
 	} else {

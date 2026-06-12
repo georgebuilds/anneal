@@ -26,15 +26,15 @@ func kernelUsesF16(item schedule.ExecItem) bool {
 	return false
 }
 
-// kernelStoresBF16 reports whether the kernel writes a bf16 output. Only
-// data0 (item.Bufs[0]) is written by InstrStore, so checking the output
-// buffer is sufficient. Gates the _bf16_rtne_bits prelude emission so
-// kernels that do not store bf16 stay slim.
-func kernelStoresBF16(item schedule.ExecItem) bool {
+// outputStoreScalar returns the scalar dtype of the kernel's written buffer
+// (data0), or nil. Only data0 is written by InstrStore, so the output buffer
+// alone determines which narrowing prelude (bf16 / fp8) the kernel needs;
+// gating on it keeps kernels that don't store a narrow dtype slim.
+func outputStoreScalar(item schedule.ExecItem) *uop.DType {
 	if len(item.Bufs) == 0 || item.Bufs[0].DType == nil {
-		return false
+		return nil
 	}
-	return item.Bufs[0].DType.Scalar() == uop.Dtypes.BFloat16
+	return item.Bufs[0].DType.Scalar()
 }
 
 // bf16RTNEPrelude is the WGSL helper that narrows an f32 to bf16 storage bits
@@ -48,6 +48,86 @@ const bf16RTNEPrelude = `fn _bf16_rtne_bits(x: f32) -> u32 {
   let u = bitcast<u32>(x);
   let bias = ((u >> 16u) & 1u) + 0x7FFFu;
   return (u + bias) & 0xFFFF0000u;
+}
+`
+
+// fp8E4M3RTNEPrelude narrows an f32 to the fp8 e4m3fn grid and returns the
+// quantized value's full f32 bit pattern (decoded storage, the fp8 analogue
+// of bf16's upper-16-bits scheme: the storage word is bitcast<f32>-loadable).
+// Mirrors uop.Float32ToFP8E4M3 instruction for instruction — RTNE rounding,
+// finite overflow and ±Inf saturate to ±448 (CUDA satfinite convention),
+// NaN canonicalizes to f32 qNaN. _fp8e4m3_val_bits reconstructs the f32 bits
+// of an unsigned 8-bit magnitude code (mirrors uop.FP8E4M3ToFloat32).
+const fp8E4M3RTNEPrelude = `fn _fp8e4m3_val_bits(code: u32) -> u32 {
+  let ef = (code >> 3u) & 0xFu;
+  let man = code & 7u;
+  if (ef == 0u) {
+    if (man == 0u) { return 0u; }
+    return bitcast<u32>(ldexp(f32(man), -9));
+  }
+  return ((ef + 120u) << 23u) | (man << 20u);
+}
+fn _fp8e4m3_rtne_bits(x: f32) -> u32 {
+  if (x != x) { return 0x7FC00000u; }
+  let u = bitcast<u32>(x);
+  let sign = u & 0x80000000u;
+  let e = i32((u >> 23u) & 0xFFu) - 127;
+  let frac = u & 0x7FFFFFu;
+  if (e == 128) { return sign | 0x43E00000u; }
+  if (e < -6) {
+    let t = u32(20 + (-6 - e));
+    if (t > 24u) { return sign; }
+    let m = frac | 0x800000u;
+    var mr = m >> (t - 1u);
+    if ((mr & 1u) != 0u && ((mr & 2u) != 0u || (m & ((1u << (t - 1u)) - 1u)) != 0u)) { mr = mr + 2u; }
+    return sign | _fp8e4m3_val_bits(mr >> 1u);
+  }
+  var mr = frac >> 19u;
+  if ((mr & 1u) != 0u && ((mr & 2u) != 0u || (frac & 0x7FFFFu) != 0u)) { mr = mr + 2u; }
+  var man = mr >> 1u;
+  var ef = e + 7;
+  if ((man & 8u) != 0u) { man = 0u; ef = ef + 1; }
+  let code = (u32(ef) << 3u) | man;
+  if (code > 0x7Eu) { return sign | 0x43E00000u; }
+  return sign | _fp8e4m3_val_bits(code);
+}
+`
+
+// fp8E5M2RTNEPrelude is the e5m2 sibling of fp8E4M3RTNEPrelude. Mirrors
+// uop.Float32ToFP8E5M2: RTNE rounding, overflow and ±Inf round to ±Inf
+// (e5m2 represents infinity), NaN canonicalizes to f32 qNaN.
+const fp8E5M2RTNEPrelude = `fn _fp8e5m2_val_bits(code: u32) -> u32 {
+  let ef = (code >> 2u) & 0x1Fu;
+  let man = code & 3u;
+  if (ef == 0u) {
+    if (man == 0u) { return 0u; }
+    return bitcast<u32>(ldexp(f32(man), -16));
+  }
+  return ((ef + 112u) << 23u) | (man << 21u);
+}
+fn _fp8e5m2_rtne_bits(x: f32) -> u32 {
+  if (x != x) { return 0x7FC00000u; }
+  let u = bitcast<u32>(x);
+  let sign = u & 0x80000000u;
+  let e = i32((u >> 23u) & 0xFFu) - 127;
+  let frac = u & 0x7FFFFFu;
+  if (e == 128) { return sign | 0x7F800000u; }
+  if (e < -14) {
+    let t = u32(21 + (-14 - e));
+    if (t > 24u) { return sign; }
+    let m = frac | 0x800000u;
+    var mr = m >> (t - 1u);
+    if ((mr & 1u) != 0u && ((mr & 2u) != 0u || (m & ((1u << (t - 1u)) - 1u)) != 0u)) { mr = mr + 2u; }
+    return sign | _fp8e5m2_val_bits(mr >> 1u);
+  }
+  var mr = frac >> 20u;
+  if ((mr & 1u) != 0u && ((mr & 2u) != 0u || (frac & 0xFFFFFu) != 0u)) { mr = mr + 2u; }
+  var man = mr >> 1u;
+  var ef = e + 15;
+  if ((man & 4u) != 0u) { man = 0u; ef = ef + 1; }
+  let code = (u32(ef) << 2u) | man;
+  if (code > 0x7Bu) { return sign | 0x7F800000u; }
+  return sign | _fp8e5m2_val_bits(code);
 }
 `
 
@@ -150,8 +230,13 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 	// Emit module-scope helper functions before the @compute annotation so
 	// the annotation lands on fn main rather than the helper.
-	if kernelStoresBF16(item) {
+	switch outputStoreScalar(item) {
+	case uop.Dtypes.BFloat16:
 		b.WriteString(bf16RTNEPrelude)
+	case uop.Dtypes.FP8E4M3:
+		b.WriteString(fp8E4M3RTNEPrelude)
+	case uop.Dtypes.FP8E5M2:
+		b.WriteString(fp8E5M2RTNEPrelude)
 	}
 	if kernelUsesErf(instrs) {
 		b.WriteString(erfPrelude)
@@ -359,6 +444,10 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 				fmt.Fprintf(&b, "%s}\n", ind)
 			case ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.BFloat16:
 				fmt.Fprintf(&b, "%sdata0[%s] = _bf16_rtne_bits(%s);\n", indent(), idxExpr, ins.Expr)
+			case ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.FP8E4M3:
+				fmt.Fprintf(&b, "%sdata0[%s] = _fp8e4m3_rtne_bits(%s);\n", indent(), idxExpr, ins.Expr)
+			case ins.DType != nil && ins.DType.Scalar() == uop.Dtypes.FP8E5M2:
+				fmt.Fprintf(&b, "%sdata0[%s] = _fp8e5m2_rtne_bits(%s);\n", indent(), idxExpr, ins.Expr)
 			default:
 				fmt.Fprintf(&b, "%sdata0[%s] = %s;\n", indent(), idxExpr, ins.Expr)
 			}
