@@ -165,6 +165,13 @@ func interpret(item schedule.ExecItem, bufs map[uint32]*Buffer) error {
 		if verr != nil {
 			return verr
 		}
+		// Narrow-dtype outputs quantize at the store boundary, mirroring the
+		// GPU's RTNE store helpers (f16 narrowing, _bf16_rtne_bits,
+		// _fp8*_rtne_bits). Quantize is the identity for f32/i32, so this
+		// gate keeps the hot path branch-cheap without a dtype switch.
+		if dt := outDesc.DType; dt != nil && dt.IsFloat() && dt.Scalar() != uop.Dtypes.Float32 && !dt.IsImage() {
+			val = dt.Quantize(val)
+		}
 
 		dst := outBuf.asF32()
 		if dst == nil {
@@ -206,6 +213,31 @@ type state struct {
 
 // evalFloat evaluates u as a scalar float32. Handles Index loads, ALU,
 // constants, ranges (rare — usually wrapped in Cast), and OpReduce.
+// bothIntOperands reports whether both srcs of a binary node carry an
+// integer (or index) dtype, in which case comparisons must run in int64
+// rather than float32 (exact only below 2^24).
+func bothIntOperands(u uop.UOp) bool {
+	for i := 0; i < 2; i++ {
+		d := u.Src(i).DType()
+		if d == nil || !d.IsInt() {
+			return false
+		}
+	}
+	return true
+}
+
+// intCmpHolds applies an integer comparison op to a pair of int64 values.
+func intCmpHolds(op uop.Op, a, b int64) bool {
+	switch op {
+	case uop.OpCmpLt:
+		return a < b
+	case uop.OpCmpNe:
+		return a != b
+	default: // OpCmpEq
+		return a == b
+	}
+}
+
 func (st *state) evalFloat(u uop.UOp) (float32, error) {
 	switch u.Op() {
 	case uop.OpConst:
@@ -340,7 +372,25 @@ func (st *state) evalFloat(u uop.UOp) (float32, error) {
 			return a, nil
 		}
 		return b, nil
-	case uop.OpCmpLt:
+	case uop.OpCmpLt, uop.OpCmpNe, uop.OpCmpEq:
+		// Integer-typed comparisons (pad validity masks over loop indices,
+		// scatter-add's CmpEq over sorted idx values) route through evalInt:
+		// float32 is exact only below 2^24, so comparing index arithmetic in
+		// float would silently break on large axes.
+		if bothIntOperands(u) {
+			a, err := st.evalInt(u.Src(0))
+			if err != nil {
+				return 0, err
+			}
+			b, err := st.evalInt(u.Src(1))
+			if err != nil {
+				return 0, err
+			}
+			if intCmpHolds(u.Op(), a, b) {
+				return 1, nil
+			}
+			return 0, nil
+		}
 		a, err := st.evalFloat(u.Src(0))
 		if err != nil {
 			return 0, err
@@ -349,11 +399,22 @@ func (st *state) evalFloat(u uop.UOp) (float32, error) {
 		if err != nil {
 			return 0, err
 		}
-		if a < b {
+		var holds bool
+		switch u.Op() {
+		case uop.OpCmpLt:
+			holds = a < b
+		case uop.OpCmpNe:
+			holds = a != b
+		default:
+			holds = a == b
+		}
+		if holds {
 			return 1, nil
 		}
 		return 0, nil
-	case uop.OpCmpNe:
+	case uop.OpAnd:
+		// Boolean conjunction — the pad validity mask is a chain of OpAnd
+		// over Bool (schedule/index.go), evaluated here as 0/1 floats.
 		a, err := st.evalFloat(u.Src(0))
 		if err != nil {
 			return 0, err
@@ -362,20 +423,7 @@ func (st *state) evalFloat(u uop.UOp) (float32, error) {
 		if err != nil {
 			return 0, err
 		}
-		if a != b {
-			return 1, nil
-		}
-		return 0, nil
-	case uop.OpCmpEq:
-		a, err := st.evalFloat(u.Src(0))
-		if err != nil {
-			return 0, err
-		}
-		b, err := st.evalFloat(u.Src(1))
-		if err != nil {
-			return 0, err
-		}
-		if a == b {
+		if a != 0 && b != 0 {
 			return 1, nil
 		}
 		return 0, nil
@@ -726,7 +774,7 @@ func (st *state) evalInt(u uop.UOp) (int64, error) {
 			return a, nil
 		}
 		return b, nil
-	case uop.OpCmpLt:
+	case uop.OpCmpLt, uop.OpCmpNe, uop.OpCmpEq:
 		a, err := st.evalInt(u.Src(0))
 		if err != nil {
 			return 0, err
@@ -735,7 +783,22 @@ func (st *state) evalInt(u uop.UOp) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		if a < b {
+		if intCmpHolds(u.Op(), a, b) {
+			return 1, nil
+		}
+		return 0, nil
+	case uop.OpAnd:
+		// Boolean conjunction over 0/1 values (pad validity masks reached
+		// through index-side OpWhere conditions).
+		a, err := st.evalInt(u.Src(0))
+		if err != nil {
+			return 0, err
+		}
+		b, err := st.evalInt(u.Src(1))
+		if err != nil {
+			return 0, err
+		}
+		if a != 0 && b != 0 {
 			return 1, nil
 		}
 		return 0, nil
@@ -748,6 +811,12 @@ func (st *state) evalInt(u uop.UOp) (int64, error) {
 			return st.evalInt(u.Src(1))
 		}
 		return st.evalInt(u.Src(2))
+	case uop.OpGatherIdx:
+		// Indirect-index node: Src(0) is a complete OpIndex over the index
+		// buffer; the positional carriers in Src(1:) only mark schedule-level
+		// position dependence. Mirrors codegen/lower.go emitGatherIdx, which
+		// likewise delegates to the inner load.
+		return st.evalInt(u.Src(0))
 	case uop.OpIndex:
 		// Gather idx loads are int-typed indirect loads; rare in MLP but
 		// supported for completeness with the float-side path.
