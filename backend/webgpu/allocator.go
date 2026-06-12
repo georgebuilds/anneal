@@ -111,9 +111,11 @@ func (a *allocator) Reset() {
 // representation for the destination dtype's GPU layout: f16 narrows to
 // IEEE 754 half, bf16 narrows (round-to-nearest-even) and lands in the upper
 // 16 bits of each u32 slot (codegen/wgsl.go _bf16_rtne_bits expects this
-// layout), image dtypes pad the tail to a full vec4 slot (ceil(n/4)*4 f32
-// lanes; tail bytes are zero-filled), and everything else passes through as
-// little-endian f32 bits.
+// layout), fp8 quantizes to the e4m3fn / e5m2 grid and stores the quantized
+// value's full f32 bit pattern per u32 slot (decoded storage; the
+// _fp8*_rtne_bits store helpers produce the same layout), image dtypes pad
+// the tail to a full vec4 slot (ceil(n/4)*4 f32 lanes; tail bytes are
+// zero-filled), and everything else passes through as little-endian f32 bits.
 //
 // Used by the orchestrator when uploading leaf input data through the
 // inputs map[uint32][]float32 contract of Executor/SymbolicExecutor.
@@ -123,6 +125,8 @@ func EncodeFloat32Input(data []float32, dt *uop.DType) []byte {
 		return float32sToF16Bytes(data)
 	case dt != nil && dt.Scalar() == uop.Dtypes.BFloat16:
 		return float32sToBF16U32Bytes(data)
+	case dt != nil && (dt.Scalar() == uop.Dtypes.FP8E4M3 || dt.Scalar() == uop.Dtypes.FP8E5M2):
+		return float32sToFP8F32Bytes(data, dt)
 	case dt != nil && dt.IsImage():
 		return float32sToImageBytes(data)
 	default:
@@ -176,6 +180,21 @@ func float32sToBF16U32Bytes(data []float32) []byte {
 	for i, v := range data {
 		bf16u32 := uint32(uop.Float32ToBFloat16(v)) << 16
 		binary.LittleEndian.PutUint32(b[i*4:], bf16u32)
+	}
+	return b
+}
+
+// float32sToFP8F32Bytes encodes float32 values as fp8-quantized f32 bit
+// patterns, one per u32 slot (decoded storage). Quantization is RTNE via
+// uop.DType.Quantize (e4m3fn saturating / e5m2 round-to-Inf), matching the
+// GPU store path (codegen/wgsl.go _fp8e4m3_rtne_bits / _fp8e5m2_rtne_bits)
+// bit for bit, so GPU-vs-host storage comparisons are exact. The stored word
+// is a valid f32 encoding, which is what makes the GPU's bitcast<f32> load
+// and the orchestrator's default f32 readback decode both work unchanged.
+func float32sToFP8F32Bytes(data []float32, dt *uop.DType) []byte {
+	b := make([]byte, len(data)*4)
+	for i, v := range data {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(dt.Quantize(v)))
 	}
 	return b
 }

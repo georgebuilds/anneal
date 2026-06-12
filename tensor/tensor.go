@@ -53,11 +53,12 @@ func (t *Tensor) Data() []float32 { return t.data }
 // This is the mechanism for providing input values to the GPU pipeline.
 // The slice is owned by the caller; Realize() reads but does not mutate it.
 //
-// For f16 and bf16 tensors, SetData creates a quantized copy of the input
+// For f16, bf16, and fp8 tensors, SetData creates a quantized copy of the input
 // data so that host-side inspection (via Data()) matches device-side precision.
 func (t *Tensor) SetData(d []float32) {
 	t.data = d
-	if s := t.dtype.Scalar(); s == uop.Dtypes.Float16 || s == uop.Dtypes.BFloat16 {
+	if s := t.dtype.Scalar(); s == uop.Dtypes.Float16 || s == uop.Dtypes.BFloat16 ||
+		s == uop.Dtypes.FP8E4M3 || s == uop.Dtypes.FP8E5M2 {
 		quantized := make([]float32, len(d))
 		for i, v := range d {
 			quantized[i] = t.dtype.Quantize(v)
