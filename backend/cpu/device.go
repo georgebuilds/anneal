@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/schedule"
@@ -54,20 +55,53 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 		if dt == nil {
 			dt = uop.Dtypes.Float32
 		}
-		// Image-storage dtypes share their scalar peer's compute identity;
-		// CPU holds them as a flat f32 slice (vec4 packing is a GPU concept).
-		if dt.Scalar() != uop.Dtypes.Float32 && !dt.IsImage() {
-			return nil, fmt.Errorf("cpu: leaf %d has dtype %s but only f32 host inputs are supported in slice 1", uopIdx, dt)
+		switch {
+		case dt.Scalar() == uop.Dtypes.Int32 || dt.Scalar() == uop.Dtypes.UInt32:
+			// Int leaves arrive bits-in-f32 (the tensor layer's SetData
+			// contract for Int32 data, mirroring the GPU's byte-level
+			// passthrough in EncodeFloat32Input); reinterpret per element.
+			dst := buf.asI32()
+			if dst == nil {
+				return nil, fmt.Errorf("cpu: leaf %d has no i32 storage", uopIdx)
+			}
+			n := int64(len(data))
+			if n > int64(len(dst)) {
+				n = int64(len(dst))
+			}
+			for i := int64(0); i < n; i++ {
+				dst[i] = int32(math.Float32bits(data[i]))
+			}
+		case dt.Scalar() == uop.Dtypes.Float32 || dt.IsImage():
+			// Image-storage dtypes share their scalar peer's compute identity;
+			// CPU holds them as a flat f32 slice (vec4 packing is a GPU concept).
+			dst := buf.asF32()
+			if dst == nil {
+				return nil, fmt.Errorf("cpu: leaf %d has no f32 storage", uopIdx)
+			}
+			n := int64(len(data))
+			if n > int64(len(dst)) {
+				n = int64(len(dst))
+			}
+			copy(dst[:n], data[:n])
+		case dt.IsFloat():
+			// Narrow float dtypes (f16/bf16/fp8): quantize on upload so the
+			// buffer holds on-grid values, matching the GPU's
+			// EncodeFloat32Input narrowing. Idempotent when the tensor layer
+			// already quantized at SetData.
+			dst := buf.asF32()
+			if dst == nil {
+				return nil, fmt.Errorf("cpu: leaf %d has no f32 storage", uopIdx)
+			}
+			n := int64(len(data))
+			if n > int64(len(dst)) {
+				n = int64(len(dst))
+			}
+			for i := int64(0); i < n; i++ {
+				dst[i] = dt.Quantize(data[i])
+			}
+		default:
+			return nil, fmt.Errorf("cpu: leaf %d has unsupported input dtype %s", uopIdx, dt)
 		}
-		dst := buf.asF32()
-		if dst == nil {
-			return nil, fmt.Errorf("cpu: leaf %d has no f32 storage", uopIdx)
-		}
-		n := int64(len(data))
-		if n > int64(len(dst)) {
-			n = int64(len(dst))
-		}
-		copy(dst[:n], data[:n])
 	}
 
 	// Execute kernels in schedule order.
@@ -97,20 +131,33 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 		if buf == nil {
 			continue
 		}
-		if buf.asF32() != nil {
-			cp := make([]float32, out.Size)
-			copy(cp, buf.asF32()[:out.Size])
-			outputs[out.UOpIdx] = cp
-		} else if buf.asI32() != nil {
-			cp := make([]float32, out.Size)
-			src := buf.asI32()
-			for i := int64(0); i < out.Size; i++ {
-				cp[i] = float32(src[i])
-			}
+		if cp := outputAsF32(buf, out.Size); cp != nil {
 			outputs[out.UOpIdx] = cp
 		}
 	}
 	return outputs, nil
+}
+
+// outputAsF32 converts a kernel-output buffer to the orchestrator's
+// []float32 contract: f32 storage copies verbatim; i32 storage
+// bit-reinterprets per element — the GPU readback path
+// (webgpu.DecodeBytesToFloat32) returns i32 outputs as bit patterns inside
+// f32, matching the tensor layer's bits-in-f32 contract for Int32 data, and
+// the CPU must mirror it exactly. Returns nil for a storage-less buffer.
+func outputAsF32(buf *Buffer, size int64) []float32 {
+	if f := buf.asF32(); f != nil {
+		cp := make([]float32, size)
+		copy(cp, f[:size])
+		return cp
+	}
+	if src := buf.asI32(); src != nil {
+		cp := make([]float32, size)
+		for i := int64(0); i < size; i++ {
+			cp[i] = math.Float32frombits(uint32(src[i]))
+		}
+		return cp
+	}
+	return nil
 }
 
 // allocateBuffers mirrors the WebGPU three-phase allocation pattern:

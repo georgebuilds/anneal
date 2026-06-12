@@ -79,10 +79,18 @@ func newBuffer(elems int64, dt *uop.DType) (*Buffer, error) {
 		// without the vec4 stride. (Currently only ImageFloat32 exists; its
 		// scalar peer is Float32.)
 		b.f32 = make([]float32, elems)
+	case dt.Scalar() == uop.Dtypes.Float16, dt.Scalar() == uop.Dtypes.BFloat16,
+		dt.Scalar() == uop.Dtypes.FP8E4M3, dt.Scalar() == uop.Dtypes.FP8E5M2:
+		// Narrow float dtypes are quantized-f32 storage on the CPU: the slice
+		// holds values already rounded onto the dtype's grid (uploads quantize
+		// on entry, kernel stores quantize at the boundary via DType.Quantize).
+		// The semantic twin of the GPU's decoded storage, where the u32 word
+		// is the quantized value's f32 bit pattern.
+		b.f32 = make([]float32, elems)
 	case dt.Scalar() == uop.Dtypes.Int32, dt.Scalar() == uop.Dtypes.UInt32:
 		b.i32 = make([]int32, elems)
 	default:
-		return nil, fmt.Errorf("cpu.allocator: unsupported dtype %s for CPU backend (slice 1 supports f32 and i32 only)", dt)
+		return nil, fmt.Errorf("cpu.allocator: unsupported dtype %s for CPU backend (f32/i32, f16/bf16/fp8 quantized-f32, and image dtypes)", dt)
 	}
 	return b, nil
 }
