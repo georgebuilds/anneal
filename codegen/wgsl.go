@@ -419,19 +419,56 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 		case InstrAssign:
 			fmt.Fprintf(&b, "%s%s = %s;\n", indent(), ins.IndexExpr, ins.Expr)
 
+		case InstrImgLaneBegin:
+			// Image slot dispatch: this thread owns one whole vec4 output slot
+			// (gid_x) and is its only writer, which removes the per-lane store
+			// race by construction. Tail lanes (flat logical index >= numel)
+			// are masked by the _img_flat guard: the body — and every load in
+			// it — is skipped and the component keeps its 0.0 initialization;
+			// the allocator pads image buffers to whole slots (BufferByteSize),
+			// so the full-slot store in InstrImgLaneEnd stays in bounds.
+			numSlots := (ins.TotalN + 3) / 4
+			fmt.Fprintf(&b, "%sif (gid_x >= %du) { return; }\n", indent(), numSlots)
+			fmt.Fprintf(&b, "%svar _img_out: vec4<f32> = vec4<f32>(0.0);\n", indent())
+			fmt.Fprintf(&b, "%sfor (var _img_lane: u32 = 0u; _img_lane < 4u; _img_lane++) {\n", indent())
+			depth++
+			fmt.Fprintf(&b, "%slet _img_flat = gid_x * 4u + _img_lane;\n", indent())
+			fmt.Fprintf(&b, "%sif (_img_flat < %du) {\n", indent(), ins.TotalN)
+			depth++
+
+		case InstrImgLaneStore:
+			// Static-swizzle cascade into the thread-private accumulator;
+			// dynamic component indexing (_img_out[_img_lane]) is avoided for
+			// the same naga WGSL→MSL portability reason as the storage path.
+			ind := indent()
+			fmt.Fprintf(&b, "%slet _img_val = %s;\n", ind, ins.Expr)
+			fmt.Fprintf(&b, "%sif (_img_lane == 0u) { _img_out.x = _img_val; }\n", ind)
+			fmt.Fprintf(&b, "%selse if (_img_lane == 1u) { _img_out.y = _img_val; }\n", ind)
+			fmt.Fprintf(&b, "%selse if (_img_lane == 2u) { _img_out.z = _img_val; }\n", ind)
+			fmt.Fprintf(&b, "%selse { _img_out.w = _img_val; }\n", ind)
+
+		case InstrImgLaneEnd:
+			depth--
+			fmt.Fprintf(&b, "%s}\n", indent())
+			depth--
+			fmt.Fprintf(&b, "%s}\n", indent())
+			fmt.Fprintf(&b, "%sdata0[gid_x] = _img_out;\n", indent())
+
 		case InstrStore:
 			idxExpr := ins.IndexExpr
 			switch {
 			case ins.DType != nil && ins.DType.IsImage():
-				// Image storage: buffer is bound as array<vec4<f32>>; logical
+				// Image storage, legacy per-lane path — reached only by
+				// SYMBOLIC image kernels (static ones take the vec4 slot
+				// dispatch via InstrImgLane*; lower.go keys on the output
+				// dtype). Buffer is bound as array<vec4<f32>>; logical
 				// element idx lives at data0[idx / 4u].{x,y,z,w}. We avoid
 				// runtime-indexed component writes (data0[slot][lane] = expr)
 				// because the naga WGSL→MSL pipeline silently degrades them
-				// to writing only static lane 0. A four-arm if-cascade over
-				// the static swizzles is portable: per WGSL spec, the
-				// assignment `data0[slot].x = expr` writes a single
-				// component without touching siblings, so sibling threads
-				// targeting different lanes of the same slot do not race.
+				// to writing only static lane 0. Carried constraint on this
+				// path only: output row stride must be a multiple of 4, or
+				// sibling threads race on the slot under naga's Metal
+				// lowering (LIMITATIONS.md).
 				ind := indent()
 				fmt.Fprintf(&b, "%s{\n", ind)
 				fmt.Fprintf(&b, "%s  let _img_slot = u32(%s) / 4u;\n", ind, idxExpr)

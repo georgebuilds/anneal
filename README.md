@@ -178,7 +178,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Devices | Single device |
 | Dtypes | f16 ✅ (RTNE, requires shader-f16); bf16 ✅ storage + RTNE narrowing, f32 compute, any adapter; fp8 ✅ e4m3fn + e5m2, storage-only, f32 compute, any adapter (bit-exact vs host oracle) |
 | Multi-device | ⛔ Deferred |
-| Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; bit-exact when the output row stride is a multiple of 4, otherwise the documented vec4-lane store race applies) |
+| Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; vec4 slot dispatch — one thread per output slot — makes any output row stride bit-exact; symbolic image kernels keep the legacy aligned-stride constraint) |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
 | ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~100 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone |
 | `anneal web` (local studio) | ✅ Single binary, 8 deep-linkable views, WASM/native split, zero telemetry, WCAG 2.x AA |

@@ -51,6 +51,15 @@ var (
 // (i.e. ApplyOpt created new nodes rather than returning sink unchanged).
 // Call on the live (possibly already-optimised) sink at each search depth.
 func ActionSpace(sink uop.UOp) []Opt {
+	// Image-output kernels are pinned to the lowerer's deterministic vec4
+	// slot dispatch (lower.go lowerImageSlot): every Opt reshapes the range
+	// structure away from the form that path requires, and the legacy
+	// fallback reintroduces the unaligned-row-stride store race the slot
+	// dispatch eliminates. Correctness must not depend on opt selection, so
+	// the action space for image kernels is empty.
+	if sinkOutputIsImage(sink) {
+		return nil
+	}
 	var actions []Opt
 	// OptUpcast and OptVectorize applied to a kernel without an OptTile-tagged
 	// OpReduce panic at apply time (silent-lane-drop guards). Skip the probe
@@ -77,6 +86,30 @@ func ActionSpace(sink uop.UOp) []Opt {
 	tryKind(OptUpcast, beamUpcastArgs)
 	tryKind(OptVectorize, beamVectorizeArgs)
 	return actions
+}
+
+// sinkOutputIsImage reports whether the kernel's output buffer (the OpStore
+// destination, data0 after param substitution) has image-storage dtype.
+// Walks SINK → END → STORE → INDEX → PARAM/BUFFER; any structural mismatch
+// reports false (non-kernel sinks get the normal action space).
+func sinkOutputIsImage(sink uop.UOp) bool {
+	if sink.Op() != uop.OpSink || sink.NSrc() < 1 {
+		return false
+	}
+	end := sink.Src(0)
+	if end.Op() != uop.OpEnd || end.NSrc() < 1 {
+		return false
+	}
+	store := end.Src(0)
+	if store.Op() != uop.OpStore || store.NSrc() < 1 {
+		return false
+	}
+	dst := store.Src(0)
+	if dst.Op() == uop.OpIndex && dst.NSrc() >= 1 {
+		dst = dst.Src(0)
+	}
+	d := dst.DType()
+	return d != nil && d.IsImage()
 }
 
 // KernelSK returns the structural key of the SINK-rooted kernel AST in item.

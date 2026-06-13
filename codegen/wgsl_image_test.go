@@ -52,11 +52,13 @@ func TestWGSL_ImageDType_BufferBinding(t *testing.T) {
 }
 
 // TestWGSL_ImageDType_LoadStoreEmit pins the per-element addressing form:
-// every load from an image-typed buffer must emit
-// `data{i}[(idx) / 4u][(idx) % 4u]` and every store must do the same for
-// data0 (the output binding). If these patterns regress to bare
-// `data{i}[idx]` the kernel would index vec4 slots as if they were
-// individual scalars, producing 4x out-of-range loads and wrong stores.
+// every load from an image-typed buffer must emit the vec4-packed
+// `data{i}[u32(idx) / 4u].{x,y,z,w}` select chain, and the output side must
+// address vec4 slots (the slot-dispatch store writes data0[gid_x] where
+// gid_x is the slot index; the per-lane flat index carries the * 4u/% 4u
+// packing). If these patterns regress to bare `data{i}[idx]` the kernel
+// would index vec4 slots as if they were individual scalars, producing 4x
+// out-of-range loads and wrong stores.
 func TestWGSL_ImageDType_LoadStoreEmit(t *testing.T) {
 	item, _ := buildImageElementwiseSchedule(t)
 	wgsl := codegen.RenderWGSL(item).WGSL

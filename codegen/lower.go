@@ -44,6 +44,17 @@ const (
 	InstrEndIf
 	// InstrAssign emits: IndexExpr = Expr;
 	InstrAssign
+	// InstrImgLaneBegin opens the image slot-dispatch lane pass: guards the
+	// thread to one vec4 output slot (gid_x), declares the thread-private
+	// vec4 accumulator, and opens the 4-lane loop with the tail mask
+	// `if (_img_flat < TotalN)`. TotalN is the logical element count.
+	InstrImgLaneBegin
+	// InstrImgLaneStore assigns Expr to the _img_out component selected by
+	// the current _img_lane (static-swizzle cascade on a private var).
+	InstrImgLaneStore
+	// InstrImgLaneEnd closes the tail mask and lane loop, then writes the
+	// whole vec4 slot once: data0[gid_x] = _img_out;
+	InstrImgLaneEnd
 )
 
 // Instr is one linearized instruction in the kernel. Fields are interpreted
@@ -531,6 +542,32 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 	}
 
+	// Image-output kernels: deterministic vec4 slot dispatch — one thread per
+	// vec4 output slot, four logical outputs per thread, whole slot written by
+	// its single owner. Keyed on the output buffer dtype (always on, not an
+	// Opt) so correctness never depends on opt selection; removes the
+	// unaligned-row-stride store race of the legacy per-lane cascade.
+	// Two excluded shapes:
+	//   - symbolic kernels keep the legacy cascade: the per-lane flat
+	//     decomposition needs concrete strides, and unaligned image strides
+	//     were never supported symbolically (LIMITATIONS.md);
+	//   - opt-transformed kernels (Workgroup/Local/Upcast/Vectorize ranges or
+	//     tile-tagged reduces) fail loud — ActionSpace (beam.go) filters
+	//     image-output kernels so BEAM never produces them; reaching here
+	//     means a hand-applied opt that would reintroduce the store race.
+	if l.paramIsImage(0) && !hasSymRange {
+		opted := len(upcastPairs) > 0 || len(vectorizePairs) > 0 || KernelHasTiledReduce(sink)
+		for _, r := range loopRanges {
+			if r.Op() == uop.OpRange && r.Arg().(uop.RangeArg).Type != uop.AxisLoop {
+				opted = true
+			}
+		}
+		if opted {
+			panic("codegen: image-output kernel has opt-transformed ranges — vec4 slot dispatch requires the unopted form (image kernels are excluded from the BEAM action space; do not hand-apply opts)")
+		}
+		return l.lowerImageSlot(body, loopRanges, globalStrides, totalOut)
+	}
+
 	// Group ranges into Axes.
 	// We assign ranges to Dimensions starting from the INMOST (last) range to X.
 	// Matmul: [Row, Col] -> Col is X, Row is Y.
@@ -780,16 +817,7 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 	}
 
-	if l.workgroupCount[0] > 65535 && l.workgroupCount[1] == 1 && l.workgroupCount[2] == 1 {
-		totalWGs := int64(l.workgroupCount[0])
-		l.workgroupCount[0] = 65535
-		l.workgroupCount[1] = int((totalWGs + 65534) / 65535)
-		if l.workgroupCount[1] > 65535 {
-			totalY := int64(l.workgroupCount[1])
-			l.workgroupCount[1] = 65535
-			l.workgroupCount[2] = int((totalY + 65534) / 65535)
-		}
-	}
+	l.spreadWorkgroupCount()
 
 	var indexTerms []string
 	for i, r := range loopRanges {
@@ -908,6 +936,81 @@ func (l *lowerer) lowerSink() []Instr {
 		l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr, IndexExpr: indexExpr, DType: outBufDType})
 	}
 
+	return l.instrs
+}
+
+// spreadWorkgroupCount folds an X workgroup count above the WebGPU per-dim
+// 65535 limit into Y (and Z if needed). Applies only when Y and Z are unused,
+// i.e. the 1D-flatten dispatch layouts; the renderer's flat_gid_x/gid_x
+// linearization undoes the spread inside the shader.
+func (l *lowerer) spreadWorkgroupCount() {
+	if l.workgroupCount[0] > 65535 && l.workgroupCount[1] == 1 && l.workgroupCount[2] == 1 {
+		totalWGs := int64(l.workgroupCount[0])
+		l.workgroupCount[0] = 65535
+		l.workgroupCount[1] = int((totalWGs + 65534) / 65535)
+		if l.workgroupCount[1] > 65535 {
+			totalY := int64(l.workgroupCount[1])
+			l.workgroupCount[1] = 65535
+			l.workgroupCount[2] = int((totalY + 65534) / 65535)
+		}
+	}
+}
+
+// lowerImageSlot lowers an image-output kernel as one thread per vec4 output
+// slot: the thread computes the four logical elements flat = slot*4 + lane
+// (lane 0..3) in a lane loop and writes the whole vec4 slot once. Single-
+// thread slot ownership eliminates, by construction, the store race the
+// legacy per-lane cascade has when the output row stride is not a multiple
+// of 4 — a slot that straddles a dim boundary still has exactly one writer.
+//
+// loopRanges/globalStrides are the structures the static path derives; all
+// strides are concrete here (the caller excludes symbolic kernels). Range
+// indices are re-derived per lane from the flat logical index _img_flat via
+// the same (flat / stride) % size decomposition the static InstrGIDVar path
+// uses, so the kernel body lowers unchanged. Tail lanes (flat >= totalOut)
+// are masked by the InstrImgLaneBegin guard: the body — and therefore every
+// load — is skipped and the slot component keeps its 0.0 initialization; the
+// allocator pads image buffers to whole slots (BufferByteSize), so the full-
+// slot store stays in bounds.
+func (l *lowerer) lowerImageSlot(body uop.UOp, loopRanges []uop.UOp, globalStrides []strideAcc, totalOut int64) []Instr {
+	// totalOut >= 1 by construction (product of range sizes; the caller
+	// excludes symbolic kernels whose sentinel is 0), so numSlots >= 1.
+	numSlots := (totalOut + 3) / 4
+
+	// Dispatch one thread per slot: 64-wide workgroups in X (the static-path
+	// default), spread into Y/Z above the per-dim 65535 limit.
+	l.workgroupSize = [3]int{64, 1, 1}
+	l.workgroupCount = [3]int{int((numSlots + 63) / 64), 1, 1}
+	l.symDispatch = [3]schedule.DimDispatch{{Const: numSlots}, {Const: 1}, {Const: 1}}
+	l.spreadWorkgroupCount()
+
+	l.emit(Instr{Kind: InstrImgLaneBegin, TotalN: totalOut})
+
+	// Per-lane range index derivation, mirroring the static InstrGIDVar
+	// arithmetic with _img_flat as the base instead of gid_x.
+	for i, r := range loopRanges {
+		if r.Op() == uop.OpConst {
+			l.exprOf[r.Index()] = "0u"
+			continue
+		}
+		ra := r.Arg().(uop.RangeArg)
+		stride := globalStrides[i]
+		if !stride.isConcrete() || stride.constPart == 0 {
+			panic(fmt.Sprintf("codegen: lowerImageSlot: non-concrete or zero stride for RangeID=%d — symbolic kernels must not reach the image slot path", ra.ID))
+		}
+		var expr string
+		if stride.constPart == 1 {
+			expr = fmt.Sprintf("i32(_img_flat %% %du)", uop.RangeSize(r))
+		} else {
+			expr = fmt.Sprintf("i32((_img_flat / %du) %% %du)", stride.constPart, uop.RangeSize(r))
+		}
+		l.emit(Instr{Kind: InstrLet, Name: fmt.Sprintf("r%d", ra.ID), WGSLType: "i32", Expr: expr})
+		l.exprOf[r.Index()] = fmt.Sprintf("r%d", ra.ID)
+	}
+
+	l.hoistCrossScopeShared(body)
+	l.emit(Instr{Kind: InstrImgLaneStore, Expr: l.emitExpr(body)})
+	l.emit(Instr{Kind: InstrImgLaneEnd})
 	return l.instrs
 }
 
