@@ -44,3 +44,5 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 )
+
+replace github.com/gogpu/naga => ./third_party/naga
