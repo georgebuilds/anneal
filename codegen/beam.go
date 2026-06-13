@@ -50,7 +50,14 @@ var (
 // "Non-trivial" means the returned UOp has a different arena index than sink
 // (i.e. ApplyOpt created new nodes rather than returning sink unchanged).
 // Call on the live (possibly already-optimised) sink at each search depth.
-func ActionSpace(sink uop.UOp) []Opt {
+//
+// Without a buffer table, shape-gated opts (OptVec4Load) are never proposed;
+// BeamSearch uses ActionSpaceBufs with the item's Bufs.
+func ActionSpace(sink uop.UOp) []Opt { return ActionSpaceBufs(sink, nil) }
+
+// ActionSpaceBufs is ActionSpace with the kernel's buffer table, enabling
+// opts whose eligibility depends on buffer shapes/dtypes (OptVec4Load).
+func ActionSpaceBufs(sink uop.UOp, bufs []schedule.Buffer) []Opt {
 	// Image-output kernels are pinned to the lowerer's deterministic vec4
 	// slot dispatch (lower.go lowerImageSlot): every Opt reshapes the range
 	// structure away from the form that path requires, and the legacy
@@ -96,6 +103,18 @@ func ActionSpace(sink uop.UOp) []Opt {
 	tryKind(OptTile, beamTileArgs)
 	tryKind(OptUpcast, beamUpcastArgs)
 	tryKind(OptVectorize, beamVectorizeArgs)
+	// OptVec4Load: one per-kernel action (Axis/Arg unused). The apply-time
+	// eligibility gate inside applyVec4Load doubles as the BEAM prefilter
+	// (localSplitDivides pattern): an ineligible kernel — non-tilable, not
+	// yet tiled, symbolic, non-4-aligned extents, non-f32/image params, or
+	// missing buffer info — refuses (returns sink unchanged) and is excluded
+	// by the no-op filter. applyVec4Load never panics, so probing is safe.
+	if len(bufs) > 0 {
+		opt := Opt{Kind: OptVec4Load}
+		if res := ApplyOptBufs(sink, opt, bufs); res.Index() != sink.Index() {
+			actions = append(actions, opt)
+		}
+	}
 	return actions
 }
 
@@ -381,8 +400,8 @@ func BeamSearch(
 		var next []beamCandidate
 
 		for _, cand := range current {
-			for _, action := range ActionSpace(cand.sink) {
-				newSink := ApplyOpt(cand.sink, action)
+			for _, action := range ActionSpaceBufs(cand.sink, item.Bufs) {
+				newSink := ApplyOptBufs(cand.sink, action, item.Bufs)
 
 				candItem := item
 				candItem.SetAst(newSink)

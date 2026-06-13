@@ -187,6 +187,12 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 	// ── storage buffer bindings ────────────────────────────────────────────
 	ki := item.Ast.Arg().(uop.KernelInfo)
+	// OptVec4Load: params converted by the ":vec4" reduce tag bind as
+	// array<vec4<f32>> so tile loads become genuine 128-bit loads.
+	// Vec4LoadParams (opt.go) is the single derivation point; the dtype-level
+	// element type (WGSLTypeInfoFor, image precedent) stays untouched — this
+	// is a per-param opt-driven override at the binding-emission seam.
+	vec4Params := Vec4LoadParams(item.Ast)
 	for i := 0; i < ki.NumParams; i++ {
 		access := "read"
 		if i == 0 {
@@ -195,6 +201,9 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 		elemType := "f32"
 		if i < len(item.Bufs) && item.Bufs[i].DType != nil {
 			elemType = wgslBufferElemType(item.Bufs[i].DType)
+		}
+		if vec4Params[i] {
+			elemType = "vec4<f32>"
 		}
 		fmt.Fprintf(&b, "@group(0) @binding(%d) var<storage, %s> data%d: array<%s>;\n",
 			i, access, i, elemType)

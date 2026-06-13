@@ -1420,12 +1420,8 @@ func (l *lowerer) emitGatherIdx(u uop.UOp) string {
 
 func (l *lowerer) emitReduce(u uop.UOp) string {
 	if tag := u.Tag(); tag != nil {
-		if s, ok := tag.(string); ok && strings.HasPrefix(s, "tile:") {
-			var ts int
-			if _, err := fmt.Sscanf(s, "tile:%d", &ts); err != nil {
-				panic(fmt.Sprintf("lower: malformed tile tag %q: %v", s, err))
-			}
-			return l.emitTiledReduce(u, ts)
+		if ts, vec4, ok := tileTagParse(tag); ok {
+			return l.emitTiledReduce(u, ts, vec4)
 		}
 	}
 
@@ -1491,7 +1487,100 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 	return name
 }
 
-func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
+// emitVec4TileFill emits one whole-vec4 global tile load plus the four scalar
+// scatters into the smem tile, shared by all three emitTiledReduce fill paths
+// under OptVec4Load:
+//
+//	let <name>: vec4<f32> = select(vec4<f32>(0.0), data<param>[<row>*<rowSlotStride> + <colSlot>], <cond>);
+//	<sm>[<smIdx(0..3)>] = <name>.x .. .w;
+//
+// cond is the slot-granular real-extent mask (row < rowBound && colBase <
+// colBound). OptVec4Load eligibility guarantees colBound ≡ 0 (mod 4) and
+// every colBase ≡ 0 (mod 4), so a slot is never partially in range — one
+// select per vec4 replaces the scalar path's per-element masks with no loss
+// of masking power. When cond is false the (clamped, naga-bounds-checked)
+// load result is discarded — the same contract the scalar masked loads
+// already rely on for padded rows/columns. name is a static stripe-indexed
+// identifier (vA, vB_2, …), deliberately NOT arena-derived, so the
+// normalizeWGSL identifier-stability contract (beam.go) holds without
+// extending the t/r/sm regex.
+func (l *lowerer) emitVec4TileFill(
+	name string, param int,
+	row string, rowBound int64, rowSlotStride int64,
+	colBase string, colBound int64, colSlot string,
+	sm string, smIdx func(v int) string,
+) {
+	cond := fmt.Sprintf("(%s < %du) && (%s < %du)", row, rowBound, colBase, colBound)
+	slot := fmt.Sprintf("%s * %du + %s", row, rowSlotStride, colSlot)
+	l.emit(Instr{Kind: InstrLet, Name: name, WGSLType: "vec4<f32>",
+		Expr: fmt.Sprintf("select(vec4<f32>(0.0), data%d[%s], %s)", param, slot, cond)})
+	comps := [4]string{"x", "y", "z", "w"}
+	for v := 0; v < 4; v++ {
+		l.emit(Instr{Kind: InstrAssign,
+			IndexExpr: fmt.Sprintf("%s[%s]", sm, smIdx(v)),
+			Expr:      name + "." + comps[v]})
+	}
+}
+
+// emitVec4FillPrelude emits the loop-invariant flat-thread → vec4-slot
+// decomposition for the distributed tile fills (B2/B3 paths), before the
+// outer-K loop opens:
+//
+//	let vflat: u32 = lid.y * TSu + lid.x;       // flat thread id in the TS×TS workgroup
+//	let vmr:   u32 = vflat / (TS*TS/4)u;        // stripe index   (withStripe only)
+//	let vrem:  u32 = vflat % (TS*TS/4)u;        //                (withStripe only)
+//	let vrow:  u32 = vrem / (TS/4)u;            // row within the TS×TS tile
+//	let vcol:  u32 = vrem % (TS/4)u;            // vec4-slot column within the tile row
+//
+// Consecutive vflat → consecutive (vrow, vcol) slots, so the fills walk the
+// operands in fully coalesced 128-bit loads with whole simdgroups active.
+// All names are static (normalizeWGSL contract — see emitVec4TileFill).
+func (l *lowerer) emitVec4FillPrelude(TS int, withStripe bool) {
+	l.emit(Instr{Kind: InstrLet, Name: "vflat", WGSLType: "u32", Expr: fmt.Sprintf("lid.y * %du + lid.x", TS)})
+	rem := "vflat"
+	if withStripe {
+		l.emit(Instr{Kind: InstrLet, Name: "vmr", WGSLType: "u32", Expr: fmt.Sprintf("vflat / %du", TS*TS/4)})
+		l.emit(Instr{Kind: InstrLet, Name: "vrem", WGSLType: "u32", Expr: fmt.Sprintf("vflat %% %du", TS*TS/4)})
+		rem = "vrem"
+	}
+	l.emit(Instr{Kind: InstrLet, Name: "vrow", WGSLType: "u32", Expr: fmt.Sprintf("%s / %du", rem, TS/4)})
+	l.emit(Instr{Kind: InstrLet, Name: "vcol", WGSLType: "u32", Expr: fmt.Sprintf("%s %% %du", rem, TS/4)})
+}
+
+// emitVec4DistributedFill guards one operand's distributed vec4 tile fill by
+// the operand's slot count: the fill is owned by the first `slots` threads in
+// vflat order. slots == threads (e.g. MR=4, TS=16 → 256 loads across 256
+// threads) needs no guard; slots > threads would leave smem cells unfilled —
+// a composition the eligibility gate never produces (upcast factors are ≤ 4),
+// so fail loud.
+func (l *lowerer) emitVec4DistributedFill(
+	name string, param int, slots, threads int,
+	row string, rowBound int64, rowSlotStride int64,
+	colBase string, colBound int64, colSlot string,
+	sm string, smIdx func(v int) string,
+) {
+	if slots > threads {
+		panic(fmt.Sprintf(
+			"codegen: OptVec4Load distributed fill needs %d slot loads but the workgroup has %d threads (upcast factor > 4?)",
+			slots, threads))
+	}
+	guarded := slots < threads
+	if guarded {
+		l.emit(Instr{Kind: InstrIf, Expr: fmt.Sprintf("vflat < %du", slots)})
+	}
+	l.emitVec4TileFill(name, param, row, rowBound, rowSlotStride, colBase, colBound, colSlot, sm, smIdx)
+	if guarded {
+		l.emit(Instr{Kind: InstrEndIf})
+	}
+}
+
+// emitTiledReduce lowers an OptTile-tagged reduce. vec4Load (the ":vec4" tag
+// suffix set by OptVec4Load) switches the global→smem tile fills in every
+// path (B2 tile-only, B3 upcast, B3.7 vectorize) to whole-vec4 loads from the
+// input params' array<vec4<f32>> bindings; the inner-K compute loops and the
+// final stores are untouched, so the per-output accumulation order — and
+// therefore the bit-exact value bar vs the identity kernel — is unchanged.
+func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 	accOp := u.Arg().(uop.Op)
 	elemNode := u.Src(0)
 	rk_outer := u.Src(1)
@@ -1588,6 +1677,17 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	zeroA := reduceIdentity(uop.OpAdd, idxA.DType())
 	zeroB := reduceIdentity(uop.OpAdd, idxB.DType())
 
+	// vec4Load alignment contract (fail-loud): applyVec4Load only sets the
+	// ":vec4" tag when TS and both stride-1 extents are multiples of 4 (which
+	// also keeps the operand row strides 4-aligned). Reaching here otherwise
+	// means a hand-built tag bypassed the eligibility gate; the slot
+	// arithmetic below would emit fractional strides, so refuse loudly.
+	if vec4Load && (TS%4 != 0 || K_real%4 != 0 || N_real%4 != 0) {
+		panic(fmt.Sprintf(
+			"codegen: vec4-load tiled reduce with unaligned extents (TS=%d K=%d N=%d) — OptVec4Load eligibility was bypassed",
+			TS, K_real, N_real))
+	}
+
 	if !upcast {
 		// ── Original B2 tiled-reduce path (single accumulator per thread) ──
 		accIdx := l.accCnt
@@ -1615,11 +1715,36 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, row_A, M_stride_A, col_A, K_stride_A)
 		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, row_B, K_stride_B, col_B, N_stride_B)
 
+		if vec4Load {
+			l.emitVec4FillPrelude(TS, false)
+		}
 		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
-		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smA, flat_store),
-			Expr: fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
-		l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smB, flat_store),
-			Expr: fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
+		if vec4Load {
+			// 128-bit distributed tile fill: threads are remapped flat →
+			// (vrow, vcol) so the tile's TS*TS/4 vec4 slots land on the
+			// FIRST TS*TS/4 threads in flat order — consecutive lanes load
+			// consecutive vec4 slots (coalesced) and whole simdgroups stay
+			// active instead of 4-of-TS lane slivers (the v1 lid.x < TS/4
+			// guard measured 183 vs 217 GFLOP/s at 1024³ against the scalar
+			// fill; see notes/optvec4load_progress.md). All threads
+			// reconverge before the barrier. The k-loop below is untouched —
+			// accumulation order identical to the scalar fill.
+			rowA4 := fmt.Sprintf("(u32(r%d) * %du + vrow)", mWgID, TS)
+			colA4 := fmt.Sprintf("(u32(r%d) * %du + vcol * 4u)", raOuter.ID, TS)
+			colASlot := fmt.Sprintf("u32(r%d) * %du + vcol", raOuter.ID, TS/4)
+			l.emitVec4DistributedFill("vA", paramA, TS*TS/4, TS*TS, rowA4, M_real, M_stride_A/4, colA4, K_real, colASlot, smA,
+				func(v int) string { return fmt.Sprintf("(vrow * %du + vcol * 4u + %du)", TS, v) })
+			rowB4 := fmt.Sprintf("(u32(r%d) * %du + vrow)", raOuter.ID, TS)
+			colB4 := fmt.Sprintf("(u32(r%d) * %du + vcol * 4u)", nWgID, TS)
+			colBSlot := fmt.Sprintf("u32(r%d) * %du + vcol", nWgID, TS/4)
+			l.emitVec4DistributedFill("vB", paramB, TS*TS/4, TS*TS, rowB4, K_real, K_stride_B/4, colB4, N_real, colBSlot, smB,
+				func(v int) string { return fmt.Sprintf("(vrow * %du + vcol * 4u + %du)", TS, v) })
+		} else {
+			l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smA, flat_store),
+				Expr: fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+			l.emit(Instr{Kind: InstrAssign, IndexExpr: fmt.Sprintf("%s[%s]", smB, flat_store),
+				Expr: fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
+		}
 		l.emit(Instr{Kind: InstrBarrier})
 		for i := 0; i < TS; i++ {
 			termA := fmt.Sprintf("%s[lid.y * %du + %du]", smA, TS, i)
@@ -1686,50 +1811,77 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 
 		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 
-		// A tile load — MR stripes. workgroup_size.x is TS/W here (not TS as
-		// in the scalar B3 path), so each thread must fill W consecutive K
-		// columns per stripe: colA = kOuter*TS + lid.x*W + v. A bare lid.x
-		// would fill only columns 0..TS/W-1 and leave the rest of the tile
-		// zero — every output would silently lose (W-1)/W of each K tile.
-		for mr := 0; mr < MR; mr++ {
-			rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
-			colABase := fmt.Sprintf("(u32(r%d) * %du + lid.x * %du)", raOuter.ID, TS, W)
-			for v := 0; v < W; v++ {
-				var colAv string
-				if v == 0 {
-					colAv = colABase
-				} else {
-					colAv = fmt.Sprintf("(%s + %du)", colABase, v)
+		if vec4Load {
+			// OptVec4Load on the B3.7 path: workgroup_size.x is already TS/W
+			// and each thread already owns W=4 consecutive columns per
+			// stripe, so the W scalar loads collapse into exactly ONE
+			// whole-vec4 load per stripe — no participation guard needed.
+			// W is pinned to the vec4 width; anything else means a lowerer
+			// extension landed without updating this path.
+			if W != 4 {
+				panic(fmt.Sprintf("codegen: OptVec4Load requires OptVectorize width 4, got W=%d", W))
+			}
+			for mr := 0; mr < MR; mr++ {
+				rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
+				colABase := fmt.Sprintf("(u32(r%d) * %du + lid.x * 4u)", raOuter.ID, TS)
+				colASlot := fmt.Sprintf("u32(r%d) * %du + lid.x", raOuter.ID, TS/4)
+				smBase := mr * TS * TS
+				l.emitVec4TileFill(fmt.Sprintf("vA_%d", mr), paramA, rowA, M_real, M_stride_A/4, colABase, K_real, colASlot, smA,
+					func(v int) string { return fmt.Sprintf("(%du + lid.y * %du + lid.x * 4u + %du)", smBase, TS, v) })
+			}
+			for nr := 0; nr < NR; nr++ {
+				rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+				colBBase := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x * 4u)", nWgID, NR*TS, nr*TS)
+				colBSlot := fmt.Sprintf("u32(r%d) * %du + %du + lid.x", nWgID, NR*TS/4, nr*TS/4)
+				smBase := nr * TS * TS
+				l.emitVec4TileFill(fmt.Sprintf("vB_%d", nr), paramB, rowB, K_real, K_stride_B/4, colBBase, N_real, colBSlot, smB,
+					func(v int) string { return fmt.Sprintf("(%du + lid.y * %du + lid.x * 4u + %du)", smBase, TS, v) })
+			}
+		} else {
+			// A tile load — MR stripes. workgroup_size.x is TS/W here (not TS as
+			// in the scalar B3 path), so each thread must fill W consecutive K
+			// columns per stripe: colA = kOuter*TS + lid.x*W + v. A bare lid.x
+			// would fill only columns 0..TS/W-1 and leave the rest of the tile
+			// zero — every output would silently lose (W-1)/W of each K tile.
+			for mr := 0; mr < MR; mr++ {
+				rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
+				colABase := fmt.Sprintf("(u32(r%d) * %du + lid.x * %du)", raOuter.ID, TS, W)
+				for v := 0; v < W; v++ {
+					var colAv string
+					if v == 0 {
+						colAv = colABase
+					} else {
+						colAv = fmt.Sprintf("(%s + %du)", colABase, v)
+					}
+					condAv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colAv, K_real)
+					loadAv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colAv, K_stride_A)
+					smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", mr*TS*TS, TS, W, v)
+					l.emit(Instr{Kind: InstrAssign,
+						IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdxv),
+						Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadAv, condAv)})
 				}
-				condAv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colAv, K_real)
-				loadAv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colAv, K_stride_A)
-				smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", mr*TS*TS, TS, W, v)
-				l.emit(Instr{Kind: InstrAssign,
-					IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdxv),
-					Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadAv, condAv)})
+			}
+			// B tile load — NR stripes, each thread loads W consecutive N values.
+			// colB_base = nWgID*NR*TS + nr*TS + lid.x*W  (contiguous in N for fixed row)
+			for nr := 0; nr < NR; nr++ {
+				rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+				colBBase := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x * %du)", nWgID, NR*TS, nr*TS, W)
+				for v := 0; v < W; v++ {
+					var colBv string
+					if v == 0 {
+						colBv = colBBase
+					} else {
+						colBv = fmt.Sprintf("(%s + %du)", colBBase, v)
+					}
+					condBv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colBv, N_real)
+					loadBv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colBv, N_stride_B)
+					smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", nr*TS*TS, TS, W, v)
+					l.emit(Instr{Kind: InstrAssign,
+						IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdxv),
+						Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadBv, condBv)})
+				}
 			}
 		}
-		// B tile load — NR stripes, each thread loads W consecutive N values.
-		// colB_base = nWgID*NR*TS + nr*TS + lid.x*W  (contiguous in N for fixed row)
-		for nr := 0; nr < NR; nr++ {
-			rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
-			colBBase := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x * %du)", nWgID, NR*TS, nr*TS, W)
-			for v := 0; v < W; v++ {
-				var colBv string
-				if v == 0 {
-					colBv = colBBase
-				} else {
-					colBv = fmt.Sprintf("(%s + %du)", colBBase, v)
-				}
-				condBv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colBv, N_real)
-				loadBv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colBv, N_stride_B)
-				smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", nr*TS*TS, TS, W, v)
-				l.emit(Instr{Kind: InstrAssign,
-					IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdxv),
-					Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadBv, condBv)})
-			}
-		}
-
 		l.emit(Instr{Kind: InstrBarrier})
 
 		// Unrolled inner-K loop. Each k step:
@@ -1801,31 +1953,51 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(MR*TS*TS), nil))
 	smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(NR*TS*TS), nil))
 
+	if vec4Load {
+		l.emitVec4FillPrelude(TS, true)
+	}
 	l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 
-	// A tile load — MR stripes, each thread loads one element per stripe.
-	for mr := 0; mr < MR; mr++ {
-		rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
-		colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
-		condA := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colA, K_real)
-		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colA, K_stride_A)
-		smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", mr*TS*TS, TS)
-		l.emit(Instr{Kind: InstrAssign,
-			IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
-			Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+	if vec4Load {
+		// OptVec4Load on the B3 scalar-upcast path: the same distributed
+		// flat → (vmr, vrow, vcol) remap as the B2 path, with the stripe
+		// index vmr folded in. For MR=NR=4 every one of the TS×TS threads
+		// loads exactly one vec4 per operand per K tile (zero idle lanes,
+		// consecutive lanes → consecutive slots).
+		rowA4 := fmt.Sprintf("(u32(r%d) * %du + vmr * %du + vrow)", mWgID, MR*TS, TS)
+		colA4 := fmt.Sprintf("(u32(r%d) * %du + vcol * 4u)", raOuter.ID, TS)
+		colASlot := fmt.Sprintf("u32(r%d) * %du + vcol", raOuter.ID, TS/4)
+		l.emitVec4DistributedFill("vA", paramA, MR*TS*TS/4, TS*TS, rowA4, M_real, M_stride_A/4, colA4, K_real, colASlot, smA,
+			func(v int) string { return fmt.Sprintf("(vmr * %du + vrow * %du + vcol * 4u + %du)", TS*TS, TS, v) })
+		rowB4 := fmt.Sprintf("(u32(r%d) * %du + vrow)", raOuter.ID, TS)
+		colB4 := fmt.Sprintf("(u32(r%d) * %du + vmr * %du + vcol * 4u)", nWgID, NR*TS, TS)
+		colBSlot := fmt.Sprintf("u32(r%d) * %du + vmr * %du + vcol", nWgID, NR*TS/4, TS/4)
+		l.emitVec4DistributedFill("vB", paramB, NR*TS*TS/4, TS*TS, rowB4, K_real, K_stride_B/4, colB4, N_real, colBSlot, smB,
+			func(v int) string { return fmt.Sprintf("(vmr * %du + vrow * %du + vcol * 4u + %du)", TS*TS, TS, v) })
+	} else {
+		// A tile load — MR stripes, each thread loads one element per stripe.
+		for mr := 0; mr < MR; mr++ {
+			rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
+			colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
+			condA := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colA, K_real)
+			loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colA, K_stride_A)
+			smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", mr*TS*TS, TS)
+			l.emit(Instr{Kind: InstrAssign,
+				IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
+				Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+		}
+		// B tile load — NR stripes.
+		for nr := 0; nr < NR; nr++ {
+			rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
+			colB := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x)", nWgID, NR*TS, nr*TS)
+			condB := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colB, N_real)
+			loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colB, N_stride_B)
+			smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", nr*TS*TS, TS)
+			l.emit(Instr{Kind: InstrAssign,
+				IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdx),
+				Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
+		}
 	}
-	// B tile load — NR stripes.
-	for nr := 0; nr < NR; nr++ {
-		rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
-		colB := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x)", nWgID, NR*TS, nr*TS)
-		condB := fmt.Sprintf("(%s < %du) && (%s < %du)", rowB, K_real, colB, N_real)
-		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, rowB, K_stride_B, colB, N_stride_B)
-		smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", nr*TS*TS, TS)
-		l.emit(Instr{Kind: InstrAssign,
-			IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdx),
-			Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
-	}
-
 	l.emit(Instr{Kind: InstrBarrier})
 
 	// Unrolled inner-K loop. Each k step pre-loads MR rA + NR rB registers

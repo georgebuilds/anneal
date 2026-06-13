@@ -21,6 +21,7 @@ package codegen
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/georgebuilds/anneal/schedule"
@@ -70,6 +71,15 @@ const (
 	// Rejects AxisReduce and Symbolic axes. Only width=4 has a working lowerer.
 	// Compose after OptTile+OptUpcast for the B3.7 register-blocking+vec4 pipeline.
 	OptVectorize
+	// OptVec4Load rebinds BOTH input params of an OptTile-tagged tilable-matmul
+	// kernel as array<vec4<f32>> storage buffers and rewrites the shared-memory
+	// tile fills in emitTiledReduce to whole-vec4 global loads (4 elements per
+	// load — a genuine 128-bit `device float4*` load under the naga MSL
+	// lowering, unlike OptVectorize's compute-only vec4 packaging). Axis and
+	// Arg are unused. Compose after OptTile (any of the tile-only / +OptUpcast
+	// / +OptVectorize stacks). Eligibility needs the kernel's buffer shapes, so
+	// apply through ApplyOptBufs / ApplyOpts; bare ApplyOpt refuses.
+	OptVec4Load
 )
 
 // Opt captures one kernel optimization: an op kind, an axis index, and an int arg.
@@ -80,7 +90,20 @@ type Opt struct {
 }
 
 // ApplyOpt applies an optimization to a kernel SINK-rooted AST.
+//
+// OptVec4Load is the one kind whose eligibility depends on buffer shapes
+// (the real K/N extents are not recoverable from a post-OptTile AST, which
+// only carries ceil(K/TS) and TS); without that information this entry point
+// refuses it (returns sink unchanged). Use ApplyOptBufs or ApplyOpts.
 func ApplyOpt(sink uop.UOp, opt Opt) uop.UOp {
+	return ApplyOptBufs(sink, opt, nil)
+}
+
+// ApplyOptBufs applies an optimization to a kernel SINK-rooted AST, with the
+// kernel's buffer table available for opts whose eligibility depends on
+// buffer shapes/dtypes (OptVec4Load). For every other kind it behaves exactly
+// like ApplyOpt.
+func ApplyOptBufs(sink uop.UOp, opt Opt, bufs []schedule.Buffer) uop.UOp {
 	switch opt.Kind {
 	case OptIdentity:
 		return sink
@@ -92,6 +115,8 @@ func ApplyOpt(sink uop.UOp, opt Opt) uop.UOp {
 		return applyUpcast(sink, opt.Axis, opt.Arg)
 	case OptVectorize:
 		return applyVectorize(sink, opt.Axis, opt.Arg)
+	case OptVec4Load:
+		return applyVec4Load(sink, bufs)
 	default:
 		return sink
 	}
@@ -146,6 +171,169 @@ func tilableMatmulReduce(sink uop.UOp) (uop.UOp, bool) {
 		return uop.UOp{}, false
 	}
 	return reduce, true
+}
+
+// tileTagParse parses an OpReduce lowering tag of the form "tile:<TS>" or
+// "tile:<TS>:vec4" (the latter set by OptVec4Load on top of OptTile's tag).
+// Returns ok=false when tag is not a tile tag at all; panics on a malformed
+// tile tag (a "tile:" prefix that doesn't parse) so a corrupted tag surfaces
+// loudly instead of silently skipping the tiled lowering path.
+func tileTagParse(tag any) (ts int, vec4 bool, ok bool) {
+	s, isStr := tag.(string)
+	if !isStr || !strings.HasPrefix(s, "tile:") {
+		return 0, false, false
+	}
+	rest := strings.TrimPrefix(s, "tile:")
+	if v, found := strings.CutSuffix(rest, vec4LoadTagSuffix); found {
+		rest = v
+		vec4 = true
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil {
+		panic(fmt.Sprintf("codegen: malformed tile tag %q: %v", s, err))
+	}
+	return n, vec4, true
+}
+
+// vec4LoadTagSuffix marks an OptTile-tagged reduce whose input params are
+// vec4-bound (OptVec4Load applied). Appended to the "tile:<TS>" tag so
+// KernelHasTiledReduce's "tile:" prefix check — and therefore OptUpcast /
+// OptVectorize composability — is unaffected.
+const vec4LoadTagSuffix = ":vec4"
+
+// applyVec4Load implements OptVec4Load: re-tags the kernel's tiled reduce as
+// "tile:<TS>:vec4" so the lowerer emits whole-vec4 tile fills and the
+// renderer binds both input params as array<vec4<f32>>.
+//
+// Eligibility (ALL must hold; anything else refuses by returning sink
+// unchanged — the applyTile inapplicability convention, which ActionSpace's
+// no-op filter and spray-mode callers treat as "skip this kernel"):
+//
+//  1. tilableMatmulReduce shape (terminal Mul(Index, Index) reduce, no
+//     indirect reads).
+//  2. OptTile already applied (the reduce carries a "tile:<TS>" tag) and
+//     OptVec4Load not already applied (no ":vec4" suffix — idempotent).
+//  3. TS % 4 == 0 — vec4 column bases inside a tile stay 4-aligned.
+//  4. No symbolic ranges in END or the reduce, and no symbolic dims in either
+//     input param's shape (Shape[i] == 0 sentinel).
+//  5. Both input params pass vec4LoadParamEligible (f32 non-image 2-D with
+//     4-aligned stride-1 extent). BOTH-or-nothing for v1: a kernel where only
+//     one operand is 4-aligned (e.g. K=17, N=64) refuses entirely.
+//
+// Alignment consequence the lowerer relies on: with the stride-1 extent E ≡ 0
+// (mod 4) and every loaded column base ≡ 0 (mod 4), a vec4 slot is either
+// fully in-range or fully out-of-range in the column dimension — one
+// slot-granular select per load fully replaces the scalar path's per-element
+// masks (no partial slots can exist).
+//
+// Tag-only rebuild correctness: the uop arena interns the tag (hashNode mixes
+// node.tag), so the re-tagged reduce is a NEW node and the rebuilt sink's
+// index differs from the input's — the ActionSpace no-op filter sees a real
+// transform.
+func applyVec4Load(sink uop.UOp, bufs []schedule.Buffer) uop.UOp {
+	reduce, ok := tilableMatmulReduce(sink)
+	if !ok {
+		return sink
+	}
+	ts, vec4, isTile := tileTagParse(reduce.Tag())
+	if !isTile || vec4 || ts%4 != 0 {
+		return sink
+	}
+	end := sink.Src(0)
+	for i := 1; i < end.NSrc(); i++ {
+		r := end.Src(i)
+		if r.Op() == uop.OpRange && uop.RangeIsSymbolic(r) {
+			return sink
+		}
+	}
+	for i := 1; i < reduce.NSrc(); i++ {
+		r := reduce.Src(i)
+		if r.Op() == uop.OpRange && uop.RangeIsSymbolic(r) {
+			return sink
+		}
+	}
+	body := reduce.Src(0)
+	for _, idx := range []uop.UOp{body.Src(0), body.Src(1)} {
+		paramIdx := int(idx.Src(0).Arg().(int64))
+		if !vec4LoadParamEligible(paramIdx, bufs) {
+			return sink
+		}
+	}
+
+	arena := sink.Arena()
+	srcs := make([]uop.UOp, reduce.NSrc())
+	for i := range srcs {
+		srcs[i] = reduce.Src(i)
+	}
+	newReduce := arena.New(uop.OpReduce, reduce.DType(), srcs, reduce.Arg(),
+		fmt.Sprintf("tile:%d%s", ts, vec4LoadTagSuffix))
+	store := end.Src(0)
+	newStore := arena.New(uop.OpStore, store.DType(), []uop.UOp{store.Src(0), newReduce}, store.Arg(), store.Tag())
+	newEndSrcs := make([]uop.UOp, end.NSrc())
+	newEndSrcs[0] = newStore
+	for i := 1; i < end.NSrc(); i++ {
+		newEndSrcs[i] = end.Src(i)
+	}
+	newEnd := arena.New(uop.OpEnd, end.DType(), newEndSrcs, end.Arg(), end.Tag())
+	return arena.New(uop.OpSink, sink.DType(), []uop.UOp{newEnd}, sink.Arg(), sink.Tag())
+}
+
+// vec4LoadParamEligible reports whether the paramIdx-th kernel buffer can be
+// bound as array<vec4<f32>>:
+//
+//   - an input (paramIdx >= 1 — the output store stays scalar in v1);
+//   - dtype scalar Float32, not image storage (image dtypes already bind
+//     vec4 with their own lane-select load path), not symbolic;
+//   - 2-D shape (the tiled-reduce lowerer's operand layout) with the
+//     stride-1 extent Shape[1] ≡ 0 (mod 4);
+//   - total element count ≡ 0 (mod 4), so the f32 buffer's byte size is a
+//     multiple of 16 and the array<vec4<f32>> binding view is exactly
+//     Size/4 slots. (Implied by Shape[1] % 4 == 0 for a 2-D buffer, but
+//     checked explicitly — it is the binding-validity invariant. Probed
+//     empirically: gogpu/wgpu's Metal HAL does NOT reject a vec4 binding
+//     over a non-multiple-of-16 buffer, naga's clamped bounds checks are
+//     the only guard — so eligibility, not the runtime, is what keeps reads
+//     inside floor(n/4) slots.)
+func vec4LoadParamEligible(paramIdx int, bufs []schedule.Buffer) bool {
+	if paramIdx < 1 || paramIdx >= len(bufs) {
+		return false
+	}
+	buf := bufs[paramIdx]
+	if buf.DType == nil || buf.DType.IsImage() || buf.DType.Scalar() != uop.Dtypes.Float32 {
+		return false
+	}
+	if len(buf.Shape) != 2 {
+		return false
+	}
+	for _, s := range buf.Shape {
+		if s <= 0 { // 0 is the symbolic-dim sentinel
+			return false
+		}
+	}
+	return buf.Shape[1]%4 == 0 && buf.Size%4 == 0
+}
+
+// Vec4LoadParams returns the set of param indices that must bind as
+// array<vec4<f32>> because OptVec4Load tagged the kernel's tiled reduce.
+// Returns nil for any kernel without a ":vec4"-tagged tilable reduce. This is
+// the single derivation point shared by the renderer (binding emission in
+// wgsl.go) and tests; the lowerer reads the same tag via tileTagParse.
+func Vec4LoadParams(sink uop.UOp) map[int]bool {
+	if !sink.Valid() {
+		return nil
+	}
+	reduce, ok := tilableMatmulReduce(sink)
+	if !ok {
+		return nil
+	}
+	if _, vec4, isTile := tileTagParse(reduce.Tag()); !isTile || !vec4 {
+		return nil
+	}
+	body := reduce.Src(0)
+	return map[int]bool{
+		int(body.Src(0).Src(0).Arg().(int64)): true,
+		int(body.Src(1).Src(0).Arg().(int64)): true,
+	}
 }
 
 // localSplitDivides reports whether OptLocal(axisIdx, localSize) on sink
@@ -756,7 +944,7 @@ func ApplyOpts(item schedule.ExecItem, opts []Opt) schedule.ExecItem {
 	}
 	ast := item.Ast
 	for _, opt := range opts {
-		ast = ApplyOpt(ast, opt)
+		ast = ApplyOptBufs(ast, opt, item.Bufs)
 	}
 	item.SetAst(ast)
 	return item
