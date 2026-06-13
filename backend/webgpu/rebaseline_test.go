@@ -74,32 +74,20 @@ func TestRebaseline_LargeMatmul(t *testing.T) {
 		results[si][0] = bench(base)
 
 		// (b) OptLocal 16×16
-		{
-			item := base
-			item.Ast = codegen.ApplyOpts(base, []codegen.Opt{
-				{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
-				{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
-			}).Ast
-			results[si][1] = bench(item)
-		}
+		results[si][1] = bench(codegen.ApplyOpts(base, []codegen.Opt{
+			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
+			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
+		}))
 
 		// (c) OptTile only (TS=16)
-		{
-			item := base
-			item.Ast = codegen.ApplyOpts(base, []codegen.Opt{
-				{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
-				{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
-				{Kind: codegen.OptTile, Axis: 0, Arg: TS},
-			}).Ast
-			results[si][2] = bench(item)
-		}
+		results[si][2] = bench(codegen.ApplyOpts(base, []codegen.Opt{
+			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
+			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
+			{Kind: codegen.OptTile, Axis: 0, Arg: TS},
+		}))
 
 		// (d) OptTile + OptUpcast TS=16 MR=NR=4
-		{
-			item := base
-			item.Ast = codegen.ApplyOpts(base, b3Opts(TS, MR, NR)).Ast
-			results[si][3] = bench(item)
-		}
+		results[si][3] = bench(codegen.ApplyOpts(base, b3Opts(TS, MR, NR)))
 	}
 
 	// Print table

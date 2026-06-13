@@ -52,11 +52,12 @@ func TestB3_ValueOracle_UpcastMatmul(t *testing.T) {
 			B.SetData(uniformData(int(tc.K*tc.N), 2))
 			out := A.Matmul(B)
 			itemsDef := schedule.CreateSchedule(makeSink(a, out), "webgpu")
-			resDef, err := dev.Run(itemsDef, nil)
+			resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB3))
 			if err != nil {
 				t.Fatalf("Default run failed: %v", err)
 			}
-			gotDef := resDef[out.Node().Index()]
+			gotDef := firstFinalOutput(t, itemsDef, resDef)
+			requireNonDegenerate(t, "default output", gotDef)
 
 			a2 := uop.NewArena(65536)
 			A2 := tensor.NewLeaf(a2, []int64{tc.M, tc.K}, uop.Dtypes.Float32, "webgpu")
@@ -66,13 +67,13 @@ func TestB3_ValueOracle_UpcastMatmul(t *testing.T) {
 			out2 := A2.Matmul(B2)
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
-				itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], b3Opts(tc.TS, tc.MR, tc.NR)).Ast
+				itemsOpt[i] = codegen.ApplyOpts(itemsOpt[i], b3Opts(tc.TS, tc.MR, tc.NR))
 			}
-			resOpt, err := dev.Run(itemsOpt, nil)
+			resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB3))
 			if err != nil {
 				t.Fatalf("Opt run failed: %v", err)
 			}
-			gotOpt := resOpt[out2.Node().Index()]
+			gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 			if len(gotOpt) != len(gotDef) {
 				t.Fatalf("length mismatch: def=%d opt=%d", len(gotDef), len(gotOpt))
@@ -123,24 +124,26 @@ func TestB3_ValueOracle_UpcastMLPBackward(t *testing.T) {
 		return gx, gw, items
 	}
 
-	gxDef, gwDef, itemsDef := build()
-	resDef, err := dev.Run(itemsDef, nil)
+	_, _, itemsDef := build()
+	resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB31))
 	if err != nil {
 		t.Fatalf("Default run: %v", err)
 	}
-	gxD := resDef[gxDef.Node().Index()]
-	gwD := resDef[gwDef.Node().Index()]
+	foDef := finalOutputs(t, itemsDef, resDef)
+	gxD, gwD := foDef[0], foDef[1]
+	requireNonDegenerate(t, "default gx", gxD)
+	requireNonDegenerate(t, "default gw", gwD)
 
-	gxOpt, gwOpt, itemsOpt := build()
+	_, _, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
+		itemsOpt[i] = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
 	}
-	resOpt, err := dev.Run(itemsOpt, nil)
+	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB31))
 	if err != nil {
 		t.Fatalf("Opt run: %v", err)
 	}
-	gxO := resOpt[gxOpt.Node().Index()]
-	gwO := resOpt[gwOpt.Node().Index()]
+	foOpt := finalOutputs(t, itemsOpt, resOpt)
+	gxO, gwO := foOpt[0], foOpt[1]
 
 	if !approxEq(gxO, gxD, 0) {
 		t.Errorf("gx mismatch (first 4): def=%v opt=%v", firstN(gxD, 4), firstN(gxO, 4))
@@ -153,8 +156,12 @@ func TestB3_ValueOracle_UpcastMLPBackward(t *testing.T) {
 // TestB3_ValueOracle_UpcastConv checks that conv2d output is bit-exact under
 // b3Opts. Conv kernels do not match the matmul OptTile pattern (their Reduce
 // element node is not a plain Mul of two 2-arg Index nodes), so OptTile returns
-// the sink unchanged; OptLocal and OptUpcast also no-op when they can't find
-// eligible ranges. The point: the schedule must remain correct end-to-end.
+// the sink unchanged; OptLocal REFUSES the non-divisible L=16 split on the
+// conv kernels' small axes (the static store path has no tail mask for the
+// padded dispatch space — applying it scattered 20-28/36 output elements
+// before the divisibility gate landed; see codegen/opt_local_divisibility_test.go);
+// OptUpcast is skipped by the spray helper on untiled kernels. The point:
+// the schedule must remain correct end-to-end with refused opts as no-ops.
 func TestB3_ValueOracle_UpcastConv(t *testing.T) {
 	dev := requireDevice(t)
 
@@ -170,22 +177,23 @@ func TestB3_ValueOracle_UpcastConv(t *testing.T) {
 		return out, items
 	}
 
-	outDef, itemsDef := build()
-	resDef, err := dev.Run(itemsDef, nil)
+	_, itemsDef := build()
+	resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB32))
 	if err != nil {
 		t.Fatalf("Default run: %v", err)
 	}
-	gotDef := resDef[outDef.Node().Index()]
+	gotDef := firstFinalOutput(t, itemsDef, resDef)
+	requireNonDegenerate(t, "default conv output", gotDef)
 
-	outOpt, itemsOpt := build()
+	_, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
+		itemsOpt[i] = applyMatmulOptsBestEffort(itemsOpt[i], b3Opts(16, 4, 4))
 	}
-	resOpt, err := dev.Run(itemsOpt, nil)
+	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB32))
 	if err != nil {
 		t.Fatalf("Opt run: %v", err)
 	}
-	gotOpt := resOpt[outOpt.Node().Index()]
+	gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 	if !approxEq(gotOpt, gotDef, 0) {
 		t.Errorf("conv mismatch (first 4): def=%v opt=%v", firstN(gotDef, 4), firstN(gotOpt, 4))
@@ -209,8 +217,7 @@ func TestB3_ScheduleCache_HitCorrect(t *testing.T) {
 	}
 
 	build := func() string {
-		item := mk()
-		item.Ast = codegen.ApplyOpts(item, b3Opts(16, 4, 4)).Ast
+		item := codegen.ApplyOpts(mk(), b3Opts(16, 4, 4))
 		return codegen.RenderWGSL(item).WGSL
 	}
 
@@ -242,8 +249,7 @@ func TestB3_Timing_Matmul_Upcast(t *testing.T) {
 		fmt.Printf("Matmul %d³ (Default 1D): Min=%0.2fµs (%0.2f GFLOP/s)\n",
 			N, resDef.MinMicros, gflopsDef)
 
-		itemOpt := item
-		itemOpt.Ast = codegen.ApplyOpts(item, b3Opts(16, 4, 4)).Ast
+		itemOpt := codegen.ApplyOpts(item, b3Opts(16, 4, 4))
 		resOpt, err := dev.Benchmark(itemOpt, 2, 5)
 		if err != nil {
 			t.Fatalf("opt benchmark: %v", err)

@@ -53,11 +53,10 @@ func TestDiag_WorkgroupSweep(t *testing.T) {
 		resBase.MinMicros, gBase)
 
 	for _, TS := range []int{4, 8, 16, 32} {
-		item := diagItem()
-		item.Ast = codegen.ApplyOpts(item, []codegen.Opt{
+		item := codegen.ApplyOpts(diagItem(), []codegen.Opt{
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
-		}).Ast
+		})
 		res, err := dev.Benchmark(item, 2, 5)
 		if err != nil {
 			t.Fatalf("TS=%d: %v", TS, err)
@@ -142,12 +141,11 @@ func TestDiag_TileNoUpcast(t *testing.T) {
 		resBase.MinMicros, gBase)
 
 	for _, TS := range []int{8, 16, 32} {
-		item := diagItem()
-		item.Ast = codegen.ApplyOpts(item, []codegen.Opt{
+		item := codegen.ApplyOpts(diagItem(), []codegen.Opt{
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptTile, Axis: 0, Arg: TS},
-		}).Ast
+		})
 		res, err := dev.Benchmark(item, 2, 5)
 		if err != nil {
 			t.Fatalf("TS=%d: %v", TS, err)
@@ -177,12 +175,11 @@ func TestDiag_UpcastFactorSweep(t *testing.T) {
 	)
 
 	// MR=NR=1 → B2 (no upcast)
-	b2item := diagItem()
-	b2item.Ast = codegen.ApplyOpts(b2item, []codegen.Opt{
+	b2item := codegen.ApplyOpts(diagItem(), []codegen.Opt{
 		{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 		{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 		{Kind: codegen.OptTile, Axis: 0, Arg: TS},
-	}).Ast
+	})
 	resB2, err := dev.Benchmark(b2item, 2, 5)
 	if err != nil {
 		t.Fatalf("B2 baseline: %v", err)
@@ -193,14 +190,13 @@ func TestDiag_UpcastFactorSweep(t *testing.T) {
 		resB2.MinMicros, gB2, wgsB2)
 
 	for _, F := range []int{2, 4} {
-		item := diagItem()
-		item.Ast = codegen.ApplyOpts(item, []codegen.Opt{
+		item := codegen.ApplyOpts(diagItem(), []codegen.Opt{
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptTile, Axis: 0, Arg: TS},
 			{Kind: codegen.OptUpcast, Axis: 0, Arg: F}, // M_wg
 			{Kind: codegen.OptUpcast, Axis: 1, Arg: F}, // N_wg
-		}).Ast
+		})
 		res, err := dev.Benchmark(item, 2, 5)
 		if err != nil {
 			t.Fatalf("MR=NR=%d: %v", F, err)

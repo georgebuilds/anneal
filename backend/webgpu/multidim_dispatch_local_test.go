@@ -43,7 +43,7 @@ func TestOptLocalMultiDimSym(t *testing.T) {
 		item := buildC1Kernel(a, "mn", "mm")
 
 		// Apply LOCAL on the inner axis (axisIdx=1 = rM = "mm").
-		item.Ast = codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: L})
+		item.SetAst(codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: L}))
 
 		handle, err := dev.CompileSymKernel(item)
 		if err != nil {
@@ -90,7 +90,7 @@ func TestOptLocalMultiDimSym(t *testing.T) {
 func TestOptLocalMultiDimSymWGSL(t *testing.T) {
 	a := uop.NewArena(128)
 	item := buildC1Kernel(a, "mn", "mm")
-	item.Ast = codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: 8})
+	item.SetAst(codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: 8}))
 
 	wgsl := codegen.RenderWGSL(item).WGSL
 
@@ -131,7 +131,7 @@ func TestPerfMultiDimSymLocal(t *testing.T) {
 		a := uop.NewArena(256)
 		item := buildC1Kernel(a, "pn", "pm")
 		if applyLocal {
-			item.Ast = codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: L})
+			item.SetAst(codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 1, Arg: L}))
 		}
 		handle, err := dev.CompileSymKernel(item)
 		if err != nil {

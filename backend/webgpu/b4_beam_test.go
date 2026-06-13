@@ -147,27 +147,27 @@ func TestB4_BeamSearch_Matmul1024(t *testing.T) {
 		return inputs
 	}
 
-	outDef, itemsDef := buildWithData()
+	_, itemsDef := buildWithData()
 	inputsDef := buildInputs(itemsDef)
 	resDef, err := dev.Run(itemsDef, inputsDef)
 	if err != nil {
 		t.Fatalf("default matmul run: %v", err)
 	}
-	gotDef := resDef[outDef.Node().Index()]
+	gotDef := firstFinalOutput(t, itemsDef, resDef)
+	requireNonDegenerate(t, "default output", gotDef)
 
-	outOpt, itemsOpt := buildWithData()
+	_, itemsOpt := buildWithData()
 	inputsOpt := buildInputs(itemsOpt)
 	if len(r1.Opts) > 0 {
 		for i := range itemsOpt {
-			itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], r1.Opts).Ast
-			itemsOpt[i].WGSL = ""
+			itemsOpt[i] = codegen.ApplyOpts(itemsOpt[i], r1.Opts)
 		}
 	}
 	resOpt, err := dev.Run(itemsOpt, inputsOpt)
 	if err != nil {
 		t.Fatalf("opt matmul run: %v", err)
 	}
-	gotOpt := resOpt[outOpt.Node().Index()]
+	gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 	if !approxEq(gotOpt, gotDef, 0) {
 		t.Errorf("matmul_1024³: value mismatch — beam winner not bit-exact vs identity")
@@ -205,14 +205,17 @@ func TestB4_BeamSearch_MLPForwardBackward(t *testing.T) {
 		return mlpBuild{gx: gx, gw: gw, items: items}
 	}
 
-	// Default run (nil inputs = zero-initialised GPU buffers; consistent between both runs).
+	// Default run with deterministic nonzero leaf data (nil inputs would leave
+	// leaf buffers zero-filled and make the def-vs-opt comparison vacuous).
 	defB := buildMLP()
-	resDef, err := dev.Run(defB.items, nil)
+	resDef, err := dev.Run(defB.items, seededLeafInputs(defB.items, 0xB4))
 	if err != nil {
 		t.Fatalf("default MLP run: %v", err)
 	}
-	gxDefault := resDef[defB.gx.Node().Index()]
-	gwDefault := resDef[defB.gw.Node().Index()]
+	foDef := finalOutputs(t, defB.items, resDef)
+	gxDefault, gwDefault := foDef[0], foDef[1]
+	requireNonDegenerate(t, "default gx", gxDefault)
+	requireNonDegenerate(t, "default gw", gwDefault)
 
 	// Beam-search each kernel and apply winning opts.
 	optB := buildMLP()
@@ -223,17 +226,16 @@ func TestB4_BeamSearch_MLPForwardBackward(t *testing.T) {
 		r := codegen.BeamSearch(dev, dev, optB.items[i], cfg)
 		reportBeam(fmt.Sprintf("MLP_bwd kernel[%d]", i), r)
 		if len(r.Opts) > 0 {
-			optB.items[i].Ast = codegen.ApplyOpts(optB.items[i], r.Opts).Ast
-			optB.items[i].WGSL = ""
+			optB.items[i] = codegen.ApplyOpts(optB.items[i], r.Opts)
 		}
 	}
-	resOpt, err := dev.Run(optB.items, nil)
+	resOpt, err := dev.Run(optB.items, seededLeafInputs(optB.items, 0xB4))
 	if err != nil {
 		t.Fatalf("opt MLP run: %v", err)
 	}
 
-	gxOpt := resOpt[optB.gx.Node().Index()]
-	gwOpt := resOpt[optB.gw.Node().Index()]
+	foOpt := finalOutputs(t, optB.items, resOpt)
+	gxOpt, gwOpt := foOpt[0], foOpt[1]
 
 	if !approxEq(gxOpt, gxDefault, 0) {
 		t.Errorf("MLP gx value mismatch under beam opts")
@@ -262,14 +264,15 @@ func TestB4_BeamSearch_Conv(t *testing.T) {
 		return out, schedule.CreateSchedule(makeSink(a, out), "webgpu")
 	}
 
-	outDef, itemsDef := buildConv()
-	resDef, err := dev.Run(itemsDef, nil)
+	_, itemsDef := buildConv()
+	resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB41))
 	if err != nil {
 		t.Fatalf("default conv run: %v", err)
 	}
-	gotDef := resDef[outDef.Node().Index()]
+	gotDef := firstFinalOutput(t, itemsDef, resDef)
+	requireNonDegenerate(t, "default conv output", gotDef)
 
-	outOpt, itemsOpt := buildConv()
+	_, itemsOpt := buildConv()
 	for i := range itemsOpt {
 		if !itemsOpt[i].Ast.Valid() {
 			continue
@@ -277,15 +280,14 @@ func TestB4_BeamSearch_Conv(t *testing.T) {
 		r := codegen.BeamSearch(dev, dev, itemsOpt[i], cfg)
 		reportBeam(fmt.Sprintf("conv kernel[%d]", i), r)
 		if len(r.Opts) > 0 {
-			itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], r.Opts).Ast
-			itemsOpt[i].WGSL = ""
+			itemsOpt[i] = codegen.ApplyOpts(itemsOpt[i], r.Opts)
 		}
 	}
-	resOpt, err := dev.Run(itemsOpt, nil)
+	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB41))
 	if err != nil {
 		t.Fatalf("opt conv run: %v", err)
 	}
-	gotOpt := resOpt[outOpt.Node().Index()]
+	gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 	if !approxEq(gotOpt, gotDef, 0) {
 		t.Errorf("conv value mismatch under beam opts")
@@ -365,7 +367,7 @@ func TestB4_Cache_HitCorrect(t *testing.T) {
 	renderOpts := func(opts []codegen.Opt) string {
 		item := mk()
 		if len(opts) > 0 {
-			item.Ast = codegen.ApplyOpts(item, opts).Ast
+			item = codegen.ApplyOpts(item, opts)
 		}
 		return codegen.RenderWGSL(item).WGSL
 	}

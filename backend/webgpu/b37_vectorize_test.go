@@ -56,11 +56,12 @@ func TestB37_ValueOracle_VectorizeMatmul(t *testing.T) {
 			B.SetData(uniformData(int(tc.K*tc.N), 2))
 			out := A.Matmul(B)
 			itemsDef := schedule.CreateSchedule(makeSink(a, out), "webgpu")
-			resDef, err := dev.Run(itemsDef, nil)
+			resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB37))
 			if err != nil {
 				t.Fatalf("Default run failed: %v", err)
 			}
-			gotDef := resDef[out.Node().Index()]
+			gotDef := firstFinalOutput(t, itemsDef, resDef)
+			requireNonDegenerate(t, "default output", gotDef)
 
 			a2 := uop.NewArena(65536)
 			A2 := tensor.NewLeaf(a2, []int64{tc.M, tc.K}, uop.Dtypes.Float32, "webgpu")
@@ -70,13 +71,13 @@ func TestB37_ValueOracle_VectorizeMatmul(t *testing.T) {
 			out2 := A2.Matmul(B2)
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
-				itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(tc.TS, tc.MR, tc.NR, tc.W))
+				itemsOpt[i] = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(tc.TS, tc.MR, tc.NR, tc.W))
 			}
-			resOpt, err := dev.Run(itemsOpt, nil)
+			resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB37))
 			if err != nil {
 				t.Fatalf("Opt run failed: %v", err)
 			}
-			gotOpt := resOpt[out2.Node().Index()]
+			gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 			if len(gotOpt) != len(gotDef) {
 				t.Fatalf("length mismatch: def=%d opt=%d", len(gotDef), len(gotOpt))
@@ -125,24 +126,26 @@ func TestB37_ValueOracle_VectorizeMLPBackward(t *testing.T) {
 		return gx, gw, items
 	}
 
-	gxDef, gwDef, itemsDef := build()
-	resDef, err := dev.Run(itemsDef, nil)
+	_, _, itemsDef := build()
+	resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB371))
 	if err != nil {
 		t.Fatalf("Default run: %v", err)
 	}
-	gxD := resDef[gxDef.Node().Index()]
-	gwD := resDef[gwDef.Node().Index()]
+	foDef := finalOutputs(t, itemsDef, resDef)
+	gxD, gwD := foDef[0], foDef[1]
+	requireNonDegenerate(t, "default gx", gxD)
+	requireNonDegenerate(t, "default gw", gwD)
 
-	gxOpt, gwOpt, itemsOpt := build()
+	_, _, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
+		itemsOpt[i] = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
 	}
-	resOpt, err := dev.Run(itemsOpt, nil)
+	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB371))
 	if err != nil {
 		t.Fatalf("Opt run: %v", err)
 	}
-	gxO := resOpt[gxOpt.Node().Index()]
-	gwO := resOpt[gwOpt.Node().Index()]
+	foOpt := finalOutputs(t, itemsOpt, resOpt)
+	gxO, gwO := foOpt[0], foOpt[1]
 
 	if !approxEq(gxO, gxD, 0) {
 		t.Errorf("gx mismatch (first 4): def=%v opt=%v", firstN(gxD, 4), firstN(gxO, 4))
@@ -153,7 +156,10 @@ func TestB37_ValueOracle_VectorizeMLPBackward(t *testing.T) {
 }
 
 // TestB37_ValueOracle_VectorizeConv checks conv2d output is unchanged under b37Opts.
-// Conv kernels don't match the tiled-matmul pattern; ApplyOpts no-ops them.
+// Conv kernels don't match the tiled-matmul pattern: OptTile refuses (no
+// Mul(Index, Index) reduce), OptLocal refuses its non-divisible L=16 split on
+// the conv kernels' small axes (divisibility gate in applyLocal), and the
+// spray helper skips OptUpcast/OptVectorize on untiled kernels.
 func TestB37_ValueOracle_VectorizeConv(t *testing.T) {
 	dev := requireDevice(t)
 
@@ -169,22 +175,23 @@ func TestB37_ValueOracle_VectorizeConv(t *testing.T) {
 		return out, items
 	}
 
-	outDef, itemsDef := build()
-	resDef, err := dev.Run(itemsDef, nil)
+	_, itemsDef := build()
+	resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB372))
 	if err != nil {
 		t.Fatalf("Default run: %v", err)
 	}
-	gotDef := resDef[outDef.Node().Index()]
+	gotDef := firstFinalOutput(t, itemsDef, resDef)
+	requireNonDegenerate(t, "default conv output", gotDef)
 
-	outOpt, itemsOpt := build()
+	_, itemsOpt := build()
 	for i := range itemsOpt {
-		itemsOpt[i].Ast = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
+		itemsOpt[i] = applyMatmulOptsBestEffort(itemsOpt[i], b37Opts(16, 4, 4, 4))
 	}
-	resOpt, err := dev.Run(itemsOpt, nil)
+	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB372))
 	if err != nil {
 		t.Fatalf("Opt run: %v", err)
 	}
-	gotOpt := resOpt[outOpt.Node().Index()]
+	gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 	if !approxEq(gotOpt, gotDef, 0) {
 		t.Errorf("conv mismatch (first 4): def=%v opt=%v", firstN(gotDef, 4), firstN(gotOpt, 4))
@@ -206,8 +213,7 @@ func TestB37_ScheduleCache_HitCorrect(t *testing.T) {
 	}
 
 	build := func() string {
-		item := mk()
-		item.Ast = codegen.ApplyOpts(item, b37Opts(16, 4, 4, 4)).Ast
+		item := codegen.ApplyOpts(mk(), b37Opts(16, 4, 4, 4))
 		return codegen.RenderWGSL(item).WGSL
 	}
 
@@ -249,8 +255,7 @@ func TestB37_Timing_Matmul_Vectorize(t *testing.T) {
 		fmt.Printf("Matmul %d³ (Default):                   Min=%8.2fµs  %7.2f GFLOP/s\n",
 			N, resDef.MinMicros, gflopsDef)
 
-		itemVec := base
-		itemVec.Ast = codegen.ApplyOpts(base, b37Opts(TS, MR, NR, W)).Ast
+		itemVec := codegen.ApplyOpts(base, b37Opts(TS, MR, NR, W))
 		resVec, err := dev.Benchmark(itemVec, warmup, iters)
 		if err != nil {
 			t.Fatalf("vectorize benchmark N=%d: %v", N, err)

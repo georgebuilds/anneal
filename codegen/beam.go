@@ -73,6 +73,17 @@ func ActionSpace(sink uop.UOp) []Opt {
 		}
 		for axis := 0; axis < beamMaxAxis; axis++ {
 			for _, arg := range args {
+				// OptLocal pre-filter: only divisible splits. applyLocal
+				// refuses non-divisible L on non-tilable kernels (no-op,
+				// caught below), but ALLOWS it on tilable-matmul kernels
+				// because the OptLocal→OptTile composition masks the
+				// padding. BEAM cannot guarantee OptTile lands in a later
+				// ply, and the un-tiled padded kernel writes a wrong layout
+				// through the unmasked static store, so the search never
+				// proposes the padding split.
+				if kind == OptLocal && !localSplitDivides(sink, axis, arg) {
+					continue
+				}
 				opt := Opt{Kind: kind, Axis: axis, Arg: arg}
 				res := ApplyOpt(sink, opt)
 				if res.Index() != sink.Index() {
@@ -324,7 +335,7 @@ func BeamSearch(
 		winItem := item
 		winItem.WGSL = ""
 		if len(cached) > 0 {
-			winItem.Ast = ApplyOpts(item, cached).Ast
+			winItem = ApplyOpts(item, cached) // SetAst inside clears the pre-render
 		}
 		winRes, winErr := bench.Benchmark(winItem, cfg.Warmup, cfg.Iters)
 		baseRes, _ := bench.Benchmark(item, cfg.Warmup, cfg.Iters)
@@ -374,8 +385,7 @@ func BeamSearch(
 				newSink := ApplyOpt(cand.sink, action)
 
 				candItem := item
-				candItem.Ast = newSink
-				candItem.WGSL = ""
+				candItem.SetAst(newSink)
 
 				// Value-identity guard: silently drop any semantically incorrect candidate.
 				if !beamValueOK(exec, candItem, testIn, refOut) {
@@ -552,9 +562,8 @@ func BeamApplyToItems(items []schedule.ExecItem, exec backend.Executor, bench ba
 			continue
 		}
 
-		// Apply opts, render WGSL, run value-identity guard.
+		// Apply opts (clears the pre-render), render WGSL, run value-identity guard.
 		optedItem := ApplyOpts(item, optsToApply)
-		optedItem.WGSL = ""
 		rendered := RenderWGSL(optedItem)
 		h := beamWGSLHash(rendered.WGSL)
 

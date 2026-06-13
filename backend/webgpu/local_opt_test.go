@@ -87,13 +87,14 @@ func TestB1_ValueOracle_LocalOpt(t *testing.T) {
 			a := uop.NewArena(65536)
 			out := tc.fn(a)
 
-			// 1. Run default (1D)
+			// 1. Run default (1D) with deterministic nonzero leaf data.
 			itemsDef := schedule.CreateSchedule(makeSink(a, out), "webgpu")
-			resDef, err := dev.Run(itemsDef, nil)
+			resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB1))
 			if err != nil {
 				t.Fatalf("Default run failed: %v", err)
 			}
-			gotDef := resDef[out.Node().Index()]
+			gotDef := firstFinalOutput(t, itemsDef, resDef)
+			requireNonDegenerate(t, "default output", gotDef)
 
 			// 2. Run with OptLocal. Use a fresh arena to avoid schedule cache hit
 			// which would return items with zeroed Ast.
@@ -101,13 +102,13 @@ func TestB1_ValueOracle_LocalOpt(t *testing.T) {
 			out2 := tc.fn(a2)
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
-				itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], tc.opts).Ast
+				itemsOpt[i] = codegen.ApplyOpts(itemsOpt[i], tc.opts)
 			}
-			resOpt, err := dev.Run(itemsOpt, nil)
+			resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB1))
 			if err != nil {
 				t.Fatalf("Opt run failed: %v", err)
 			}
-			gotOpt := resOpt[out2.Node().Index()]
+			gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 			if !approxEq(gotOpt, gotDef, 1e-5) {
 				t.Errorf("Value mismatch with OptLocal!\nDef[0:4]: %v\nOpt[0:4]: %v", gotDef[:4], gotOpt[:4])
@@ -191,11 +192,10 @@ func TestB1_Timing_Matmul_Local(t *testing.T) {
 	t.Logf("Matmul %dx%d (Default 1D): Min=%0.2fµs", N, N, resDef.MinMicros)
 
 	// 2. Benchmark with OptLocal (8,8)
-	itemOpt := item
-	itemOpt.Ast = codegen.ApplyOpts(item, []codegen.Opt{
+	itemOpt := codegen.ApplyOpts(item, []codegen.Opt{
 		{Kind: codegen.OptLocal, Axis: 0, Arg: 8},
 		{Kind: codegen.OptLocal, Axis: 1, Arg: 8},
-	}).Ast
+	})
 	resOpt, err := dev.Benchmark(itemOpt, 2, 5)
 	if err != nil {
 		t.Fatalf("Opt benchmark failed: %v", err)

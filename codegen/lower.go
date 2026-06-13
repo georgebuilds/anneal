@@ -933,6 +933,32 @@ func (l *lowerer) lowerSink() []Instr {
 			}
 		}
 	} else {
+		// Fail-loud guard: a Workgroup/Local split whose size does not
+		// divide the axis extent pads the dispatch space (W = ceil(S/L)),
+		// and this store has no tail mask — the flat index uses the padded
+		// strides, scattering values into a wrong layout. applyLocal refuses
+		// the non-divisible split everywhere except the tilable-matmul
+		// shape (rescued by the masked tiled-store branch above), so
+		// reaching this store with a padded space means a hand-composed
+		// sequence skipped the rescue (e.g. OptLocal(L∤S) on a matmul with
+		// no OptTile). The padding is detectable as a mismatch between the
+		// concrete loop-range product and the output buffer's element count;
+		// symbolic kernels are exempt (totalOut sentinel is 0 and the L∤m
+		// constraint is documented, not checkable here).
+		if !hasSymRange && len(l.item.Bufs) > 0 {
+			if sz := l.item.Bufs[0].Size; sz > 0 && totalOut != sz {
+				for _, r := range loopRanges {
+					if r.Op() != uop.OpRange {
+						continue
+					}
+					if t := r.Arg().(uop.RangeArg).Type; t == uop.AxisWorkgroup || t == uop.AxisLocal {
+						panic(fmt.Sprintf(
+							"codegen: unmasked static store over a padded dispatch space (loop product %d != output elems %d) — an OptLocal split does not divide its axis and no tile-masked store path rescued it",
+							totalOut, sz))
+					}
+				}
+			}
+		}
 		l.emit(Instr{Kind: InstrStore, TotalN: totalOut, Symbolic: hasSymRange, Expr: bodyExpr, IndexExpr: indexExpr, DType: outBufDType})
 	}
 
@@ -1528,10 +1554,6 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 	M_real := l.paramShape(paramA)[0]
 	K_real := l.paramShape(paramA)[1]
 	N_real := l.paramShape(paramB)[1]
-	K_size := K_outer_size * int64(TS)
-	if K_size < K_real {
-		K_size = K_real
-	}
 
 	// Identify M and N workgroup/local range IDs in the post-upcast dim layout.
 	var mWgID, mLocID, nWgID, nLocID int
@@ -1575,9 +1597,6 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 		smA := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxA.DType(), nil, int64(TS*TS), nil))
 		smB := l.emitExpr(l.item.Ast.Arena().New(uop.OpDefineLocal, idxB.DType(), nil, int64(TS*TS), nil))
 
-		M_size := int64(l.workgroupCount[1] * l.workgroupSize[1])
-		N_size := int64(l.workgroupCount[0] * l.workgroupSize[0])
-
 		row_A := fmt.Sprintf("(u32(r%d) * %du + lid.y)", mWgID, TS)
 		col_A := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
 		row_B := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
@@ -1585,8 +1604,13 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 
 		flat_store := fmt.Sprintf("(lid.y * %du + lid.x)", TS)
 
-		condA := fmt.Sprintf("(%s < %du) && (%s < %du)", row_A, M_size, col_A, K_size)
-		condB := fmt.Sprintf("(%s < %du) && (%s < %du)", row_B, K_size, col_B, N_size)
+		// Mask the tile loads by the REAL operand extents (M_real/K_real/
+		// N_real), not the padded dispatch sizes: when TS does not divide an
+		// extent, the padded bound admits out-of-range rows/cols whose flat
+		// index wraps into the NEXT row of the operand and feeds garbage
+		// into valid accumulators (e.g. A's cols K..K_pad-1 alias row r+1).
+		condA := fmt.Sprintf("(%s < %du) && (%s < %du)", row_A, M_real, col_A, K_real)
+		condB := fmt.Sprintf("(%s < %du) && (%s < %du)", row_B, K_real, col_B, N_real)
 
 		loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, row_A, M_stride_A, col_A, K_stride_A)
 		loadB := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramB, row_B, K_stride_B, col_B, N_stride_B)
@@ -1605,6 +1629,23 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 		l.emit(Instr{Kind: InstrBarrier})
 		l.emit(Instr{Kind: InstrLoopEnd})
 
+		// Hand off to the masked-store expansion in lowerSink as a single
+		// 1×1 stripe: the B2 output coordinate (wg*TS + lid) is exactly the
+		// upcast store layout with MR = NR = 1, and the masked store indexes
+		// the output with the REAL row stride bounded by the real extents.
+		// The static store path would use the padded LOCAL strides with no
+		// tail mask — a wrong layout whenever TS ∤ M or TS ∤ N.
+		l.upcastTileActive = true
+		l.upcastMR = 1
+		l.upcastNR = 1
+		l.upcastTS = TS
+		l.upcastOutMSize = M_real
+		l.upcastOutNSize = N_real
+		l.upcastMWgID = mWgID
+		l.upcastMLocID = mLocID
+		l.upcastNWgID = nWgID
+		l.upcastNLocID = nLocID
+		l.upcastAccName = func(mr, nr int) string { return fmt.Sprintf("acc%d", accIdx) }
 		l.exprOf[u.Index()] = fmt.Sprintf("acc%d", accIdx)
 		return fmt.Sprintf("acc%d", accIdx)
 	}
@@ -1620,6 +1661,16 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 
 	if vecN {
 		W := vecW
+		// The vec4 path shrinks workgroup_size.x to TS/W and makes every
+		// thread cover W consecutive columns in both tile fills; a W that
+		// does not divide TS would leave a fill gap (and overrun the stripe
+		// for the last lid.x). OptVectorize always targets the TS-sized
+		// N_loc range from OptLocal, so this is a composition invariant —
+		// fail loud rather than emit a silently-wrong kernel.
+		if TS%W != 0 {
+			panic(fmt.Sprintf(
+				"codegen: OptVectorize width %d must divide tile size %d (vec4 tile fill covers lid.x*W .. lid.x*W+W-1)", W, TS))
+		}
 		// vec4 accumulators: MR*NR vec4<f32>, one per (mr, nr) output cell.
 		accBase := l.accCnt
 		l.accCnt += MR * NR
@@ -1635,16 +1686,28 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 
 		l.emit(Instr{Kind: InstrLoopBegin, RangeID: raOuter.ID, RangeSize: K_outer_size})
 
-		// A tile load — MR stripes, each thread loads one element per stripe (scalar, unchanged).
+		// A tile load — MR stripes. workgroup_size.x is TS/W here (not TS as
+		// in the scalar B3 path), so each thread must fill W consecutive K
+		// columns per stripe: colA = kOuter*TS + lid.x*W + v. A bare lid.x
+		// would fill only columns 0..TS/W-1 and leave the rest of the tile
+		// zero — every output would silently lose (W-1)/W of each K tile.
 		for mr := 0; mr < MR; mr++ {
 			rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
-			colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
-			condA := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colA, K_real)
-			loadA := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colA, K_stride_A)
-			smIdx := fmt.Sprintf("(%du + lid.y * %du + lid.x)", mr*TS*TS, TS)
-			l.emit(Instr{Kind: InstrAssign,
-				IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
-				Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
+			colABase := fmt.Sprintf("(u32(r%d) * %du + lid.x * %du)", raOuter.ID, TS, W)
+			for v := 0; v < W; v++ {
+				var colAv string
+				if v == 0 {
+					colAv = colABase
+				} else {
+					colAv = fmt.Sprintf("(%s + %du)", colABase, v)
+				}
+				condAv := fmt.Sprintf("(%s < %du) && (%s < %du)", rowA, M_real, colAv, K_real)
+				loadAv := fmt.Sprintf("data%d[%s * %du + %s * %du]", paramA, rowA, M_stride_A, colAv, K_stride_A)
+				smIdxv := fmt.Sprintf("(%du + lid.y * %du + lid.x * %du + %du)", mr*TS*TS, TS, W, v)
+				l.emit(Instr{Kind: InstrAssign,
+					IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdxv),
+					Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadAv, condAv)})
+			}
 		}
 		// B tile load — NR stripes, each thread loads W consecutive N values.
 		// colB_base = nWgID*NR*TS + nr*TS + lid.x*W  (contiguous in N for fixed row)
@@ -1666,6 +1729,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 					Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadBv, condBv)})
 			}
 		}
+
 		l.emit(Instr{Kind: InstrBarrier})
 
 		// Unrolled inner-K loop. Each k step:
@@ -1761,6 +1825,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int) string {
 			IndexExpr: fmt.Sprintf("%s[%s]", smB, smIdx),
 			Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroB, loadB, condB)})
 	}
+
 	l.emit(Instr{Kind: InstrBarrier})
 
 	// Unrolled inner-K loop. Each k step pre-loads MR rA + NR rB registers

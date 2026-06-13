@@ -18,7 +18,7 @@ import (
 // kernels (Mean, Sub). The fail-loud guards in applyUpcast and applyVectorize
 // would otherwise crash on those non-matmul kernels; this helper restores the
 // prior "applies where it can, skips where it can't" semantics for the test.
-func applyMatmulOptsBestEffort(item schedule.ExecItem, opts []codegen.Opt) uop.UOp {
+func applyMatmulOptsBestEffort(item schedule.ExecItem, opts []codegen.Opt) schedule.ExecItem {
 	sink := item.Ast
 	for _, opt := range opts {
 		needsTile := opt.Kind == codegen.OptUpcast || opt.Kind == codegen.OptVectorize
@@ -27,7 +27,76 @@ func applyMatmulOptsBestEffort(item schedule.ExecItem, opts []codegen.Opt) uop.U
 		}
 		sink = codegen.ApplyOpt(sink, opt)
 	}
-	return sink
+	item.SetAst(sink) // invalidates the schedule-cache pre-rendered WGSL
+	return item
+}
+
+// lcgData returns n deterministic nonzero pseudo-random float32 values in
+// (0, 1], derived from seed via a 64-bit LCG. No wall clock involved: the
+// same seed always yields the same data.
+func lcgData(n int, seed uint64) []float32 {
+	d := make([]float32, n)
+	state := seed
+	for i := range d {
+		state = state*6364136223846793005 + 1442695040888963407
+		d[i] = float32((state>>40)%1000)/1000.0 + 0.001
+	}
+	return d
+}
+
+// seededLeafInputs builds the dev.Run inputs map covering every leaf buffer in
+// items (read by some kernel, written by none), filled with lcgData derived
+// from seed and the leaf's encounter ordinal. Identical schedules enumerate
+// leaves in the same order, so a default-vs-opted pair built from the same
+// graph receives identical data. Without this, dev.Run(items, nil) leaves
+// leaf buffers zero-filled and opt-vs-default oracles pass vacuously (0 == 0).
+func seededLeafInputs(items []schedule.ExecItem, seed uint64) map[uint32][]float32 {
+	written := make(map[uint32]bool, len(items))
+	for _, item := range items {
+		written[item.Bufs[0].UOpIdx] = true
+	}
+	inputs := make(map[uint32][]float32)
+	ordinal := uint64(0)
+	for _, item := range items {
+		for _, buf := range item.Bufs[1:] {
+			if written[buf.UOpIdx] {
+				continue
+			}
+			if _, ok := inputs[buf.UOpIdx]; ok {
+				continue
+			}
+			inputs[buf.UOpIdx] = lcgData(int(buf.Size), seed+ordinal*0x9E3779B97F4A7C15)
+			ordinal++
+		}
+	}
+	return inputs
+}
+
+// requireNonDegenerate fails the test when a reference output cannot serve as
+// an oracle: empty, all-zero, or (for multi-element outputs) all-identical.
+// An all-zero reference is the signature of the zero-input vacuous pass
+// (opted-vs-default comparing 0 == 0); this guard keeps that class of
+// silent non-test from coming back.
+func requireNonDegenerate(t *testing.T, label string, ref []float32) {
+	t.Helper()
+	if len(ref) == 0 {
+		t.Fatalf("%s: reference output is empty — oracle comparison is vacuous", label)
+	}
+	allZero, allSame := true, true
+	for _, v := range ref {
+		if v != 0 {
+			allZero = false
+		}
+		if v != ref[0] {
+			allSame = false
+		}
+	}
+	if allZero {
+		t.Fatalf("%s: reference output is all-zero — oracle comparison is vacuous (zero leaf inputs?)", label)
+	}
+	if allSame && len(ref) > 1 {
+		t.Fatalf("%s: reference output is constant (%g) — degenerate oracle", label, ref[0])
+	}
 }
 
 // requireDevice opens a GPU device or skips the test with a clear message.
@@ -90,24 +159,39 @@ func runSchedule(t *testing.T, dev *webgpu.Device, items []schedule.ExecItem, in
 // firstFinalOutput returns the data for the first final output buffer (in schedule order).
 func firstFinalOutput(t *testing.T, items []schedule.ExecItem, outputs map[uint32][]float32) []float32 {
 	t.Helper()
+	return finalOutputs(t, items, outputs)[0]
+}
+
+// finalOutputs returns the data for every final output buffer (written by a
+// kernel, read by none) in schedule order. Tensor node indices do NOT match
+// the kernel STORE buffer's UOpIdx, so outputs[someTensor.Node().Index()]
+// silently returns nil — always resolve outputs through this helper.
+func finalOutputs(t *testing.T, items []schedule.ExecItem, outputs map[uint32][]float32) [][]float32 {
+	t.Helper()
 	readByAny := make(map[uint32]bool)
 	for _, item := range items {
 		for _, buf := range item.Bufs[1:] {
 			readByAny[buf.UOpIdx] = true
 		}
 	}
+	var outs [][]float32
+	seen := make(map[uint32]bool)
 	for _, item := range items {
 		uid := item.Bufs[0].UOpIdx
-		if !readByAny[uid] {
-			data, ok := outputs[uid]
-			if !ok {
-				t.Fatalf("final output buffer %d missing from outputs map", uid)
-			}
-			return data
+		if readByAny[uid] || seen[uid] {
+			continue
 		}
+		seen[uid] = true
+		data, ok := outputs[uid]
+		if !ok {
+			t.Fatalf("final output buffer %d missing from outputs map", uid)
+		}
+		outs = append(outs, data)
 	}
-	t.Fatal("no final output buffer found in schedule")
-	return nil
+	if len(outs) == 0 {
+		t.Fatal("no final output buffer found in schedule")
+	}
+	return outs
 }
 
 // ── Test: elementwise exp2 ────────────────────────────────────────────────────

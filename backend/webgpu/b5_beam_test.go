@@ -167,6 +167,7 @@ func TestB5_CacheHitBitIdentical(t *testing.T) {
 	_ = os.Unsetenv("ANNEAL_BEAM")
 	ref := make([]float32, len(runMatmul()))
 	copy(ref, runMatmul())
+	requireNonDegenerate(t, "identity baseline", ref)
 
 	// Condition 2: search populates disk cache.
 	_ = os.Setenv("ANNEAL_BEAM", "1")

@@ -162,3 +162,22 @@ type ExecItem struct {
 	WorkgroupCount [3]int
 	SymDispatch    [3]DimDispatch
 }
+
+// SetAst replaces the kernel AST and invalidates every render-derived field
+// (WGSL, LocalSize, WorkgroupCount, SymDispatch) so executors re-render from
+// the new Ast. The schedule cache pre-renders WGSL into items at
+// CreateSchedule time and Run/Benchmark short-circuit on a non-empty WGSL;
+// mutating Ast directly without clearing WGSL silently executes the stale
+// (un-opted) kernel. Every post-schedule Ast mutation must go through here.
+// A no-op when ast is already the item's Ast, preserving the pre-rendered
+// fast path for genuinely unchanged items.
+func (it *ExecItem) SetAst(ast uop.UOp) {
+	if ast == it.Ast {
+		return
+	}
+	it.Ast = ast
+	it.WGSL = ""
+	it.LocalSize = [3]int{}
+	it.WorkgroupCount = [3]int{}
+	it.SymDispatch = [3]DimDispatch{}
+}

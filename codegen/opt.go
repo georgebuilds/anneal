@@ -97,6 +97,94 @@ func ApplyOpt(sink uop.UOp, opt Opt) uop.UOp {
 	}
 }
 
+// tilableMatmulReduce returns the kernel's terminal OpReduce when the kernel
+// has the exact shape the tiled-reduce lowerer supports: SINK → END → STORE
+// feeding from an OpReduce whose element node is Mul(Index, Index) with no
+// indirect (OpGatherIdx) reads in either operand. Reports false for anything
+// else.
+//
+// Two gates share this predicate:
+//   - applyTile: applicability (only this shape can be tiled);
+//   - applyLocal: whether a NON-DIVISIBLE local split is allowed — the
+//     tiled-reduce lowerer masks every load and store by the real operand
+//     extents, so LOCAL padding never leaks into memory there, while the
+//     static store path indexes the output with the padded strides and has
+//     no tail mask.
+func tilableMatmulReduce(sink uop.UOp) (uop.UOp, bool) {
+	// NSrc guards keep this a pure structural predicate: synthetic or
+	// malformed sinks (e.g. renderer unit tests build SINKs with no srcs)
+	// report false instead of panicking on Src().
+	if sink.Op() != uop.OpSink || sink.NSrc() < 1 {
+		return uop.UOp{}, false
+	}
+	end := sink.Src(0)
+	if end.Op() != uop.OpEnd || end.NSrc() < 1 {
+		return uop.UOp{}, false
+	}
+	store := end.Src(0)
+	if store.Op() != uop.OpStore || store.NSrc() < 2 {
+		return uop.UOp{}, false
+	}
+	reduce := store.Src(1)
+	if reduce.Op() != uop.OpReduce || reduce.NSrc() < 1 {
+		return uop.UOp{}, false
+	}
+
+	// The tiled-reduce lowerer only supports Mul(Index, Index) element nodes.
+	body := reduce.Src(0)
+	if body.Op() != uop.OpMul || body.NSrc() < 2 ||
+		body.Src(0).Op() != uop.OpIndex || body.Src(1).Op() != uop.OpIndex {
+		return uop.UOp{}, false
+	}
+
+	// Indirect-index containment guard (Slice C). The tiled-reduce lowerer
+	// assumes both OpIndex operands flatten to affine arithmetic over loop
+	// counters. An OpGatherIdx anywhere in either operand's subtree breaks
+	// that assumption (the gather load cannot be hoisted into a coalesced
+	// tile-load), so the tiling rewrite must skip.
+	if containsGatherIdx(body.Src(0)) || containsGatherIdx(body.Src(1)) {
+		return uop.UOp{}, false
+	}
+	return reduce, true
+}
+
+// localSplitDivides reports whether OptLocal(axisIdx, localSize) on sink
+// targets a concrete AxisLoop range whose extent localSize divides. Used by
+// ActionSpace to pre-filter BEAM's OptLocal proposals: a non-divisible split
+// is either refused by applyLocal (non-tilable kernels — the probe would
+// no-op anyway) or, on tilable-matmul kernels, only correct when a later
+// OptTile routes the kernel through the masked tiled-store path — a
+// composition BEAM cannot guarantee, so it never proposes the padding split.
+// Returns false when the axisIdx-th AxisLoop range is missing or symbolic
+// (the symbolic bound cannot be divisibility-checked at search time).
+func localSplitDivides(sink uop.UOp, axisIdx int, localSize int) bool {
+	if sink.Op() != uop.OpSink || localSize <= 0 {
+		return false
+	}
+	end := sink.Src(0)
+	if end.Op() != uop.OpEnd {
+		return false
+	}
+	currIdx := 0
+	for i := 1; i < end.NSrc(); i++ {
+		r := end.Src(i)
+		if r.Op() != uop.OpRange {
+			continue
+		}
+		if r.Arg().(uop.RangeArg).Type != uop.AxisLoop {
+			continue
+		}
+		if currIdx == axisIdx {
+			if uop.RangeIsSymbolic(r) {
+				return false
+			}
+			return uop.RangeSize(r)%int64(localSize) == 0
+		}
+		currIdx++
+	}
+	return false
+}
+
 func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	if sink.Op() != uop.OpSink {
 		return sink
@@ -132,6 +220,27 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 
 	ra := targetRange.Arg().(uop.RangeArg)
 	L := int64(localSize)
+
+	// Divisibility gate: a non-divisible split pads the iteration space
+	// (W = ceil(S/L), W*L > S). The static store path indexes the output
+	// with the padded strides and has no tail mask, so the kernel would
+	// scatter values into a wrong layout. The only lowering that masks the
+	// padding is the tiled-reduce path (emitTiledReduce bounds every load
+	// and store by the real operand extents), so the non-divisible split is
+	// allowed exactly when the kernel has the tilable Mul(Index, Index)
+	// reduce shape OptTile accepts — the sanctioned OptLocal→OptTile
+	// composition. Everything else refuses by returning sink unchanged, the
+	// same inapplicability signal applyTile uses; ActionSpace's no-op filter
+	// and spray-mode callers already treat that as "skip this kernel".
+	// Symbolic bounds cannot be checked here; the L∤m constraint for sym
+	// kernels remains documented in multidim_dispatch_local_test.go.
+	if !uop.RangeIsSymbolic(targetRange) {
+		if S := uop.RangeSize(targetRange); S%L != 0 {
+			if _, ok := tilableMatmulReduce(sink); !ok {
+				return sink
+			}
+		}
+	}
 
 	// Find max existing Range ID to pick unique ones for the new ranges
 	maxID := -1
@@ -270,43 +379,20 @@ func containsGatherIdx(u uop.UOp) bool {
 }
 
 func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
-	if sink.Op() != uop.OpSink {
+	// Applicability gate (shared with applyLocal's non-divisible escape
+	// valve): only the Mul(Index, Index) reduce shape without indirect
+	// indices can be tiled. Return sink unchanged for anything else so the
+	// no-op filter in ActionSpace correctly excludes it from the beam search
+	// and the kernel stays correct under the elementwise lowering path.
+	reduce, ok := tilableMatmulReduce(sink)
+	if !ok {
 		return sink
 	}
 	arena := sink.Arena()
 	end := sink.Src(0)
-	if end.Op() != uop.OpEnd {
-		return sink
-	}
 	store := end.Src(0)
-	if store.Op() != uop.OpStore {
-		return sink
-	}
-	reduce := store.Src(1)
-	if reduce.Op() != uop.OpReduce {
-		return sink
-	}
 
 	if axisIdx < 0 || axisIdx >= reduce.NSrc()-1 {
-		return sink
-	}
-
-	// The tiled-reduce lowerer only supports Mul(Index, Index) element nodes.
-	// Return sink unchanged for any other reduce shape so the no-op filter in
-	// ActionSpace correctly excludes them from the beam search.
-	body := reduce.Src(0)
-	if body.Op() != uop.OpMul || body.NSrc() < 2 ||
-		body.Src(0).Op() != uop.OpIndex || body.Src(1).Op() != uop.OpIndex {
-		return sink
-	}
-
-	// Indirect-index containment guard (Slice C). The tiled-reduce lowerer
-	// assumes both OpIndex operands flatten to affine arithmetic over loop
-	// counters. An OpGatherIdx anywhere in either operand's subtree breaks
-	// that assumption (the gather load cannot be hoisted into a coalesced
-	// tile-load), so the tiling rewrite must skip. Returning sink unchanged
-	// keeps the kernel correct under the elementwise lowering path.
-	if containsGatherIdx(body.Src(0)) || containsGatherIdx(body.Src(1)) {
 		return sink
 	}
 
@@ -659,13 +745,19 @@ func applyVectorize(sink uop.UOp, axisIdx int, width int) uop.UOp {
 	return arena.New(uop.OpSink, sink.DType(), []uop.UOp{newEnd}, sink.Arg(), sink.Tag())
 }
 
-// ApplyOpts applies a sequence of optimizations to a kernel's AST.
+// ApplyOpts applies a sequence of optimizations to a kernel's AST. When any
+// opt changes the AST, the item's pre-rendered WGSL and the other
+// render-derived fields are invalidated (via ExecItem.SetAst) so executors
+// re-render from the opted AST instead of running the stale schedule-cache
+// pre-render; an all-no-op sequence keeps the cached render intact.
 func ApplyOpts(item schedule.ExecItem, opts []Opt) schedule.ExecItem {
 	if !item.Ast.Valid() {
 		return item
 	}
+	ast := item.Ast
 	for _, opt := range opts {
-		item.Ast = ApplyOpt(item.Ast, opt)
+		ast = ApplyOpt(ast, opt)
 	}
+	item.SetAst(ast)
 	return item
 }

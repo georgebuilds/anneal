@@ -46,6 +46,7 @@ func TestB0_ApplyOpt_Identity_ValueOracle(t *testing.T) {
 	// 1. Without Opts
 	outputs1 := runSchedule(t, dev, items, inputs)
 	got1 := firstFinalOutput(t, items, outputs1)
+	requireNonDegenerate(t, "matmul reference", got1)
 
 	// 2. With OptIdentity
 	opt := codegen.Opt{Kind: codegen.OptIdentity}
@@ -76,6 +77,7 @@ func TestB0_ApplyOpt_Identity_ValueOracle(t *testing.T) {
 
 	outputs3 := runSchedule(t, dev, items2, inputs2)
 	got3 := firstFinalOutput(t, items2, outputs3)
+	requireNonDegenerate(t, "elementwise reference", got3)
 
 	appliedItem2 := codegen.ApplyOpts(item2, []codegen.Opt{opt})
 	appliedItems2 := []schedule.ExecItem{appliedItem2}

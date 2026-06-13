@@ -33,13 +33,14 @@ func TestB2_ValueOracle_TiledMatmul(t *testing.T) {
 			B.SetData(uniformData(int(tc.K*tc.N), 2))
 			out := A.Matmul(B)
 
-			// 1. Run default (1D)
+			// 1. Run default (1D) with deterministic nonzero leaf data.
 			itemsDef := schedule.CreateSchedule(makeSink(a, out), "webgpu")
-			resDef, err := dev.Run(itemsDef, nil)
+			resDef, err := dev.Run(itemsDef, seededLeafInputs(itemsDef, 0xB2))
 			if err != nil {
 				t.Fatalf("Default run failed: %v", err)
 			}
-			gotDef := resDef[out.Node().Index()]
+			gotDef := firstFinalOutput(t, itemsDef, resDef)
+			requireNonDegenerate(t, "default output", gotDef)
 
 			// 2. Run with OptTile + OptLocal
 			a2 := uop.NewArena(65536)
@@ -52,17 +53,17 @@ func TestB2_ValueOracle_TiledMatmul(t *testing.T) {
 			itemsOpt := schedule.CreateSchedule(makeSink(a2, out2), "webgpu")
 			for i := range itemsOpt {
 				// Matmul kernel is usually the one with the Reduce
-				itemsOpt[i].Ast = codegen.ApplyOpts(itemsOpt[i], []codegen.Opt{
+				itemsOpt[i] = codegen.ApplyOpts(itemsOpt[i], []codegen.Opt{
 					{Kind: codegen.OptLocal, Axis: 0, Arg: tc.TS}, // M -> [M_wg, M_loc, N]
 					{Kind: codegen.OptLocal, Axis: 0, Arg: tc.TS}, // N -> [M_wg, M_loc, N_wg, N_loc]
 					{Kind: codegen.OptTile, Axis: 0, Arg: tc.TS},  // K (reduction axis 0)
-				}).Ast
+				})
 			}
-			resOpt, err := dev.Run(itemsOpt, nil)
+			resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, 0xB2))
 			if err != nil {
 				t.Fatalf("Opt run failed: %v", err)
 			}
-			gotOpt := resOpt[out2.Node().Index()]
+			gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 			if !approxEq(gotOpt, gotDef, 1e-5) {
 				t.Errorf("Value mismatch with OptTile!\nDef[0:4]: %v\nOpt[0:4]: %v", gotDef[:4], gotOpt[:4])
@@ -92,12 +93,11 @@ func TestB2_Timing_Matmul_Tiled(t *testing.T) {
 		fmt.Printf("Matmul %dx%dx%d (Default 1D): Min=%0.2fµs (%0.2f GFLOP/s)\n", N, N, N, resDef.MinMicros, gflopsDef)
 
 		// 2. Benchmark with OptTile
-		itemOpt := item
-		itemOpt.Ast = codegen.ApplyOpts(item, []codegen.Opt{
+		itemOpt := codegen.ApplyOpts(item, []codegen.Opt{
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptLocal, Axis: 0, Arg: TS},
 			{Kind: codegen.OptTile, Axis: 0, Arg: TS},
-		}).Ast
+		})
 		resOpt, err := dev.Benchmark(itemOpt, 2, 5)
 		if err != nil {
 			t.Fatalf("Opt benchmark failed: %v", err)
