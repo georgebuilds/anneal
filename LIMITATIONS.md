@@ -46,11 +46,19 @@ In v1, `OptUpcast` and `OptVectorize` are only wired through the tiled-reduce lo
 
 Both `OptUpcast` and `OptVectorize` are now **fail-loud at opt-application time**: `applyUpcast` and `applyVectorize` panic with a diagnostic when targeting a kernel whose body lacks an `OpReduce` tagged by `OptTile` (the only path that activates `emitTiledReduce`). Compose `OptTile` before either opt, or skip them on the kernel. Use `codegen.KernelHasTiledReduce(sink)` to check eligibility ahead of time when applying opts across a mixed kernel list. BEAM's `ActionSpace` uses the same predicate to pre-filter both kinds, so the search never reaches either assertion; BEAM's existing value-identity guard remains as belt-and-suspenders for any other wrong-output candidate.
 
-### Per-thread scalar f32 throughput on M3
+### Large-matmul throughput on M3 (real baseline, post-smem-fix)
 
-Large compute-bound matmul (1024 cubed and above) on an M3 saturates at roughly 85 GFLOP/s, flat across identity, `OptLocal`, `OptTile`, `OptTile + OptUpcast`, and the full `OptTile + OptUpcast + OptVectorize` stack. A four-experiment diagnostic falsified the three obvious candidate ceilings (uncoalesced loads, occupancy, L2 bandwidth). The binding cost is per-thread scalar f32 load and FMA throughput in WGSL on M3, independent of cache topology, workgroup count, tile size, or register-block factor.
+The previously recorded "~85 GFLOP/s flat ceiling across all opt stacks" was an artifact of the schedule-cache opt-masking defect (Defect A) compounded by the broken `var<workgroup>` path: every "opted" measurement was actually timing the identity kernel. With both fixed, the real numbers on an M3 (min-of-6, f32):
 
-Two future levers (typed `array<vec4<f32>>` buffer bindings; WGSL subgroup-matrix ops) would in principle change the picture; both are out of v1 scope. Small or dispatch-bound kernels do see BEAM wins (an isolated 1x1x8x8 conv with 3x3 kernel goes 489us to 195us, a 2.5x speedup); the ceiling is specific to large compute-bound matmul.
+| stack | 1024³ | 2048³ |
+|---|---|---|
+| identity | 84 GFLOP/s | 85 GFLOP/s |
+| `OptLocal²+OptTile` | 216 | 223 |
+| `…+OptUpcast` (b3) | 312 | 321 |
+| `…+OptUpcast+OptVec4Load` | **371** | **420** |
+| `…+OptUpcast+OptVectorize` (b37) | 109 | 106 |
+
+So ~85 GFLOP/s is the identity kernel's real throughput, not a stack-invariant ceiling. The best-known stack is `OptLocal²+OptTile+OptUpcast²+OptVec4Load` (typed `array<vec4<f32>>` bindings with 128-bit distributed tile loads) at ~4.4–5.0x identity. Two honest residuals: `OptVectorize` (b37) is a measured **regression** versus plain register blocking (its TS/W-wide workgroups were never actually executed before the fix); and WGSL subgroup-matrix ops remain unavailable on the gogpu/naga stack (no parser/MSL support), so tensor-core-class throughput stays out of reach.
 
 ## Capability deferrals
 

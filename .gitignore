@@ -36,3 +36,6 @@ notes/
 
 # JS dev helpers (package-lock.json is the lockfile)
 /node_modules/
+
+# Claude Code local state (worktrees, settings)
+.claude/
