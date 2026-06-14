@@ -365,11 +365,18 @@ func runKVStep(g *nn.GPT, cache *nn.KVCache, id int32, device string) ([]float32
 	out := make([]float32, g.Vocab)
 	copy(out, logits.Data())
 
+	// Realize all 2*NLayer kNew/vNew buffers in a single batched call. The K/V
+	// projection kernels are genuinely isomorphic (same shape AND structure), so
+	// they cannot be told apart by the scheduler's structural-key order. The
+	// durable fix (tensor/realize.go assignOutputs over CreateScheduleWithOutputs'
+	// per-src output attribution) maps each tensor to ITS OWN output buffer by
+	// node identity, so the batched call is now correct — and avoids the
+	// 2*NLayer reschedules/step the old single-output workaround incurred.
 	kvOutputs := make([]*tensor.Tensor, 0, 2*g.NLayer)
 	kvOutputs = append(kvOutputs, kNews...)
 	kvOutputs = append(kvOutputs, vNews...)
 	if err := tensor.Realize(kvOutputs...); err != nil {
-		return nil, fmt.Errorf("realize kv: %w", err)
+		return nil, fmt.Errorf("realize kv outputs: %w", err)
 	}
 	for li := 0; li < g.NLayer; li++ {
 		cache.StoreLayerKV(li, kNews[li].Data(), vNews[li].Data())

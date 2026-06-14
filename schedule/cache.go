@@ -12,8 +12,15 @@ type arenaLocalKey struct {
 	device  string
 }
 
+// cachedSchedule is the per-key cache value: the executable items plus the
+// per-original-sink-src output-buffer attribution (see CreateScheduleWithOutputs).
+type cachedSchedule struct {
+	items       []ExecItem
+	outBufBySrc []uint32
+}
+
 // arenaSchedCache is the concrete type stored in Arena.Ext by this package.
-type arenaSchedCache map[arenaLocalKey][]ExecItem
+type arenaSchedCache map[arenaLocalKey]cachedSchedule
 
 // RenderResult carries the outputs of a shader-rendering call.
 type RenderResult struct {
@@ -41,26 +48,28 @@ func extCache(a *uop.Arena) arenaSchedCache {
 	return c
 }
 
-// cacheLookup checks the arena-local cache. Returns (items, true) on hit.
-func cacheLookup(sink uop.UOp, device string) ([]ExecItem, bool) {
+// cacheLookup checks the arena-local cache. Returns (items, outBufBySrc, true)
+// on hit. outBufBySrc is the per-original-sink-src output-buffer attribution
+// (see CreateScheduleWithOutputs); the returned slice is shared read-only.
+func cacheLookup(sink uop.UOp, device string) ([]ExecItem, []uint32, bool) {
 	if sink.Arena().Ext == nil {
 		schedCacheMisses.Add(1)
-		return nil, false
+		return nil, nil, false
 	}
 	key := arenaLocalKey{sinkIdx: sink.Index(), device: device}
-	if items, ok := sink.Arena().Ext.(arenaSchedCache)[key]; ok {
+	if cs, ok := sink.Arena().Ext.(arenaSchedCache)[key]; ok {
 		schedCacheHits.Add(1)
 		// Return a copy to prevent mutation of the cached items.
-		cp := make([]ExecItem, len(items))
-		copy(cp, items)
-		return cp, true
+		cp := make([]ExecItem, len(cs.items))
+		copy(cp, cs.items)
+		return cp, cs.outBufBySrc, true
 	}
 	schedCacheMisses.Add(1)
-	return nil, false
+	return nil, nil, false
 }
 
 // cacheStore inserts items into the arena-local cache.
-func cacheStore(sink uop.UOp, device string, items []ExecItem) {
+func cacheStore(sink uop.UOp, device string, items []ExecItem, outBufBySrc []uint32) {
 	var toStore []ExecItem
 	if fn := WGSLRenderFunc; fn != nil {
 		toStore = make([]ExecItem, len(items))
@@ -91,7 +100,7 @@ func cacheStore(sink uop.UOp, device string, items []ExecItem) {
 	key := arenaLocalKey{sinkIdx: sink.Index(), device: device}
 	c := extCache(sink.Arena())
 	if _, exists := c[key]; !exists {
-		c[key] = toStore
+		c[key] = cachedSchedule{items: toStore, outBufBySrc: outBufBySrc}
 	}
 }
 

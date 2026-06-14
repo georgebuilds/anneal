@@ -536,22 +536,59 @@ func memoryPlan(items []ExecItem) []ExecItem {
 // field and is GC'd when the arena is collected, so training loops that create a
 // fresh arena per step incur no global retention.
 func CreateSchedule(sink uop.UOp, device string) []ExecItem {
+	items, _ := CreateScheduleWithOutputs(sink, device)
+	return items
+}
+
+// CreateScheduleWithOutputs is CreateSchedule plus a per-original-sink-src
+// output-buffer attribution slice. outBufBySrc has one entry per src of the
+// input SINK (i.e. per requested output tensor, in CALLER order). Entry i is
+// the arena index of the BUFFER node holding the i-th requested output's
+// result, or 0 when that src materialises no kernel output (a leaf passed
+// directly to Realize — its data was caller-provided).
+//
+// This mapping is the durable fix for multi-output attribution: callers must
+// zip requested tensors onto their OWN output buffer by node identity rather
+// than positionally onto schedule (structural-key) order, which scrambles
+// genuinely isomorphic kernels (same shape AND structure) that no shape- or
+// structure-based disambiguator can separate.
+//
+// The mapping is captured from the kernel-graph SINK returned by
+// GetKernelGraph, whose srcs are preserved 1:1 with the original SINK srcs in
+// order by addBuffers' topo rebuild (each non-leaf src becomes an AFTER node
+// whose Src(0) is that src's output BUFFER). It is captured BEFORE splitKernels
+// applies the structural-key ordering, so the structural sort, PARAM numbering,
+// and execution order are untouched by this fix.
+func CreateScheduleWithOutputs(sink uop.UOp, device string) ([]ExecItem, []uint32) {
 	a := sink.Arena()
 
 	// Lookup uses the pre-expansion sink so hits skip all scheduler work.
 	// Binding values from RealizeWithBinding are NOT in the key: the schedule is
 	// structurally identical across all concrete batch sizes.
 	origSink := sink
-	if cached, ok := cacheLookup(origSink, device); ok {
-		return cached
+	if cached, outs, ok := cacheLookup(origSink, device); ok {
+		return cached, outs
 	}
 
 	uopsCount := a.Len()
 	startIdx := uint32(uopsCount)
-	sink = GetKernelGraph(sink, device)
+	kernelSink := GetKernelGraph(sink, device)
+
+	// Capture per-original-src output-buffer attribution from the kernel-graph
+	// SINK BEFORE splitKernels reorders by structural key. addBuffers preserves
+	// the top SINK's src order 1:1 with the original SINK srcs; a non-leaf src
+	// is an AFTER node whose Src(0) is its output BUFFER. A src that stayed a
+	// BUFFER (leaf passed directly) contributes a 0 sentinel.
+	outBufBySrc := make([]uint32, kernelSink.NSrc())
+	for i := 0; i < kernelSink.NSrc(); i++ {
+		s := kernelSink.Src(i)
+		if s.Op() == uop.OpAfter && s.NSrc() >= 1 && s.Src(0).Op() == uop.OpBuffer {
+			outBufBySrc[i] = s.Src(0).Index()
+		}
+	}
 
 	keys := uop.StructuralKeys(a)
-	_, calls := splitKernels(a, sink, startIdx, keys)
+	_, calls := splitKernels(a, kernelSink, startIdx, keys)
 
 	keys = uop.StructuralKeys(a)
 	ordered := createSchedule(calls, keys)
@@ -566,6 +603,6 @@ func CreateSchedule(sink uop.UOp, device string) []ExecItem {
 		})
 	}
 
-	cacheStore(origSink, device, items)
-	return items
+	cacheStore(origSink, device, items, outBufBySrc)
+	return items, outBufBySrc
 }

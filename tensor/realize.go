@@ -44,8 +44,10 @@ func Realize(tensors ...*Tensor) error {
 		return fmt.Errorf("tensor: no backend registered — set tensor.DefaultExecutor before calling Realize")
 	}
 
-	// Run all 10 scheduler passes.
-	items := schedule.CreateSchedule(sink, device)
+	// Run all 10 scheduler passes. outBufBySrc[i] is the output BUFFER arena
+	// index for the i-th requested tensor (caller order) — the durable
+	// attribution that survives the scheduler's structural-key reordering.
+	items, outBufBySrc := schedule.CreateScheduleWithOutputs(sink, device)
 	if len(items) == 0 {
 		return nil
 	}
@@ -75,12 +77,9 @@ func Realize(tensors ...*Tensor) error {
 		return fmt.Errorf("tensor: realize: %w", err)
 	}
 
-	// Map GPU outputs back to the requested tensors.
-	// Final output buffers (Slot=-1 and not read as input by any later kernel)
-	// appear in the `outputs` map. They are matched to tensors in Kahn order
-	// (ascending output buffer arena index), which is the order `items` was
-	// constructed — for independent tensors, tensor[i]→items[i]→outputs[i].
-	assignOutputs(tensors, items, outputs)
+	// Map GPU outputs back to the requested tensors by node identity: tensor[i]
+	// gets the buffer the scheduler attributed to ITS sink src (outBufBySrc[i]).
+	assignOutputs(tensors, outBufBySrc, outputs)
 	return nil
 }
 
@@ -102,7 +101,7 @@ func RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) error {
 		srcs[i] = t.node
 	}
 	sink := a.New(uop.OpSink, uop.Dtypes.Void, srcs, nil, nil)
-	items := schedule.CreateSchedule(sink, device)
+	items, outBufBySrc := schedule.CreateScheduleWithOutputs(sink, device)
 	if len(items) == 0 {
 		return nil
 	}
@@ -117,7 +116,7 @@ func RealizeWithBinding(binding map[string]int64, tensors ...*Tensor) error {
 	if err != nil {
 		return fmt.Errorf("tensor: realize with binding: %w", err)
 	}
-	assignOutputs(tensors, items, outputs)
+	assignOutputs(tensors, outBufBySrc, outputs)
 	return nil
 }
 
@@ -150,38 +149,37 @@ func leafInputs(tensors []*Tensor) map[uint32][]float32 {
 	return inputs
 }
 
-// assignOutputs maps final output buffer data back into tensor.data fields.
-// The match is by Kahn-sorted schedule order (same ordering used by createSchedule
-// when it broke ties by output buffer arena index). For a single-output call this
-// is exact. For multiple independent outputs the i-th tensor gets the i-th final
-// output in sorted-arena-index order.
-func assignOutputs(tensors []*Tensor, items []schedule.ExecItem, outputs map[uint32][]float32) {
-	// Collect final output buffer UOpIdxes in schedule order.
-	readByAny := make(map[uint32]bool)
-	for _, item := range items {
-		for _, buf := range item.Bufs[1:] {
-			readByAny[buf.UOpIdx] = true
+// assignOutputs maps realized output-buffer data back into tensor.data fields by
+// NODE IDENTITY. outBufBySrc[i] is the output BUFFER arena index attributed to
+// the i-th requested tensor (caller order, parallel to `tensors`), as captured
+// by schedule.CreateScheduleWithOutputs before the scheduler's structural-key
+// reordering. tensor[i].data = outputs[outBufBySrc[i]].
+//
+// This is the durable fix for the multi-output scramble: genuinely isomorphic
+// kernels (same shape AND structure) cannot be told apart by shape or structure,
+// so the only reliable disambiguator is the original tensor node threaded through
+// the schedule — which outBufBySrc carries.
+//
+// Behaviour by case:
+//   - leaf tensors keep their caller-provided data (outBufBySrc[i] == 0 sentinel);
+//   - duplicate tensors passed twice both resolve to the same buffer index;
+//   - a buffer absent from the outputs map (e.g. consumed only as a later
+//     kernel's input — should not happen for a requested output) leaves the
+//     tensor's data unchanged.
+func assignOutputs(tensors []*Tensor, outBufBySrc []uint32, outputs map[uint32][]float32) {
+	for i, t := range tensors {
+		if i >= len(outBufBySrc) {
+			break
 		}
-	}
-	var finalOutIdxes []uint32
-	for _, item := range items {
-		uopIdx := item.Bufs[0].UOpIdx
-		if !readByAny[uopIdx] {
-			finalOutIdxes = append(finalOutIdxes, uopIdx)
-		}
-	}
-
-	// For requested tensors that are not leaves (they need GPU output), assign
-	// in parallel with finalOutIdxes.
-	outSlot := 0
-	for _, t := range tensors {
 		if t.IsLeaf() {
 			continue // leaf data was provided by the caller, not produced by a kernel
 		}
-		if outSlot >= len(finalOutIdxes) {
-			break
+		bufIdx := outBufBySrc[i]
+		if bufIdx == 0 {
+			continue // no kernel output attributed to this src
 		}
-		t.data = outputs[finalOutIdxes[outSlot]]
-		outSlot++
+		if data, ok := outputs[bufIdx]; ok {
+			t.data = data
+		}
 	}
 }

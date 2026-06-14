@@ -157,7 +157,9 @@ func (j *JIT) storeCapture(tensors []*Tensor, fl []jitLeaf, symbolic bool) error
 	// Cache hit: items already computed and stored by the Realize call above.
 	// Items have Ast zeroed and WGSL pre-rendered by cacheStore, so they hold
 	// no arena references and will survive arena GC between training steps.
-	items := schedule.CreateSchedule(sink, device)
+	// outBufBySrc carries the by-identity output attribution (capture-arena
+	// buffer indices), which the executor reuses verbatim on replay.
+	items, outBufBySrc := schedule.CreateScheduleWithOutputs(sink, device)
 
 	cl := make([]capturedLeaf, len(fl))
 	ls := make([]int, len(fl))
@@ -168,7 +170,7 @@ func (j *JIT) storeCapture(tensors []*Tensor, fl []jitLeaf, symbolic bool) error
 
 	j.items = items
 	j.capLeaves = cl
-	j.capOuts = jitOutputMapping(tensors, items)
+	j.capOuts = jitOutputMapping(tensors, outBufBySrc)
 	j.device = device
 	j.symbolic = symbolic
 	j.leafCount = len(fl)
@@ -335,34 +337,26 @@ func jitDFSLeaves(tensors []*Tensor) []jitLeaf {
 	return out
 }
 
-// jitOutputMapping replicates assignOutputs' logic to record, at capture time,
-// which final-output buffer UOpIdx maps to which tensor position.
-// On replay, applyOutputs uses this mapping to write output data into the fresh
-// tensors' data fields without re-running assignOutputs.
-func jitOutputMapping(tensors []*Tensor, items []schedule.ExecItem) []capturedOutput {
-	readByAny := make(map[uint32]bool)
-	for _, item := range items {
-		for _, buf := range item.Bufs[1:] {
-			readByAny[buf.UOpIdx] = true
-		}
-	}
-	var finalOuts []uint32
-	for _, item := range items {
-		if idx := item.Bufs[0].UOpIdx; !readByAny[idx] {
-			finalOuts = append(finalOuts, idx)
-		}
-	}
+// jitOutputMapping records, at capture time, which output buffer (capture-arena
+// UOpIdx) maps to which tensor position, by NODE IDENTITY. outBufBySrc[i] is the
+// output BUFFER index attributed to the i-th requested tensor (caller order) by
+// schedule.CreateScheduleWithOutputs — the same durable attribution Realize uses
+// in assignOutputs. On replay, applyOutputs writes outputs[co.uopIdx] into
+// tensors[co.tensorPos].data. Resolving by identity (not by structural order)
+// is what keeps genuinely isomorphic multi-output kernels from scrambling.
+func jitOutputMapping(tensors []*Tensor, outBufBySrc []uint32) []capturedOutput {
 	var result []capturedOutput
-	outSlot := 0
 	for i, t := range tensors {
+		if i >= len(outBufBySrc) {
+			break
+		}
 		if t.IsLeaf() {
 			continue
 		}
-		if outSlot >= len(finalOuts) {
-			break
+		if outBufBySrc[i] == 0 {
+			continue
 		}
-		result = append(result, capturedOutput{uopIdx: finalOuts[outSlot], tensorPos: i})
-		outSlot++
+		result = append(result, capturedOutput{uopIdx: outBufBySrc[i], tensorPos: i})
 	}
 	return result
 }
