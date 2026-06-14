@@ -224,6 +224,45 @@ func TestB37_ScheduleCache_HitCorrect(t *testing.T) {
 	}
 }
 
+// TestB37_GeometryRegression_WorkgroupShrink locks the mechanism behind the
+// measured b37 regression (OptVectorize ~109 GF/s vs b3 ~312 GF/s @1024³): the
+// OptVectorize split shrinks the workgroup from 256 to 64 threads. applyVectorize
+// splits the TS-wide N_loc AxisLocal into an outer AxisLocal of size TS/W plus an
+// AxisVectorize inner of size W; the lowerer derives workgroup_size from AxisLocal
+// range sizes only (the AxisVectorize inner is excluded), so workgroup_size.x
+// drops 16 -> 4. Same output tile, same total ALU, 1/4 the threads -> the GPU
+// core loses latency-hiding across the smem-barrier-bounded k-loop, and the
+// "vec4" lowers to 4 scalar FMAs on Metal so nothing is bought back (SPEC §
+// large-matmul). This is GPU-free (render-time only): it asserts the geometry,
+// not the timing. A future "fix" that keeps OptVectorize while restoring 256
+// threads must update this test deliberately. The durable win is OptVec4Load on
+// the b3 stack (real 128-bit loads, 256 threads), not OptVectorize.
+func TestB37_GeometryRegression_WorkgroupShrink(t *testing.T) {
+	mk := func() schedule.ExecItem {
+		a := uop.NewArena(65536)
+		A := tensor.NewLeaf(a, []int64{1024, 1024}, uop.Dtypes.Float32, "webgpu")
+		B := tensor.NewLeaf(a, []int64{1024, 1024}, uop.Dtypes.Float32, "webgpu")
+		C := A.Matmul(B)
+		return schedule.CreateSchedule(makeSink(a, C), "webgpu")[0]
+	}
+
+	const TS, MR, NR, W = 16, 4, 4, 4
+	b3 := codegen.RenderWGSL(codegen.ApplyOpts(mk(), b3Opts(TS, MR, NR))).LocalSize
+	b37 := codegen.RenderWGSL(codegen.ApplyOpts(mk(), b37Opts(TS, MR, NR, W))).LocalSize
+
+	if b3 != [3]int{TS, TS, 1} {
+		t.Errorf("b3 LocalSize = %v, want [%d %d 1] (256 threads)", b3, TS, TS)
+	}
+	if b37 != [3]int{TS / W, TS, 1} {
+		t.Errorf("b37 LocalSize = %v, want [%d %d 1] (64 threads — the regression)", b37, TS/W, TS)
+	}
+	b3Threads := b3[0] * b3[1] * b3[2]
+	b37Threads := b37[0] * b37[1] * b37[2]
+	if b37Threads*4 != b3Threads {
+		t.Errorf("expected b37 to have 1/4 of b3's threads (occupancy collapse); got b3=%d b37=%d", b3Threads, b37Threads)
+	}
+}
+
 // TestB37_Timing_Matmul_Vectorize reports Min-of-N µs and GFLOP/s for
 // default vs (OptTile+OptUpcast+OptVectorize) at 512³, 1024³, 2048³, 4096³.
 // Acceptance grade: ≥1.5x at 2048³ (≥125 GFLOP/s). Below 1.5x is the honest
@@ -267,7 +306,7 @@ func TestB37_Timing_Matmul_Vectorize(t *testing.T) {
 
 		if N == 2048 {
 			if speedup < 1.5 {
-				fmt.Printf("  [FINDING] 2048³ speedup %.2fx < 1.5x target — at scalar-WGSL throughput ceiling\n", speedup)
+				fmt.Printf("  [FINDING] 2048³ speedup %.2fx < 1.5x — expected: OptVectorize shrinks the workgroup 256->64 threads (occupancy collapse, see TestB37_GeometryRegression_WorkgroupShrink). Use OptVec4Load on the b3 stack instead.\n", speedup)
 			} else {
 				fmt.Printf("  [PASS] 2048³ speedup %.2fx >= 1.5x target\n", speedup)
 			}
