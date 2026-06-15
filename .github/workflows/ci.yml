@@ -6,7 +6,7 @@ on:
     branches: ["main"]
 
 jobs:
-  ci:
+  go:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,17 +28,20 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test -short -timeout=10m -p 2 -coverprofile=coverage.txt ./...
+        # -p 1 keeps peak memory bounded: the Vulkan SW renderer (lavapipe)
+        # plus a second heavy package in parallel can OOM the hosted runner.
+        run: go test -short -timeout=12m -p 1 -coverprofile=coverage.txt ./...
         env:
           GOTRACEBACK: crash
 
       # NOTE to maintainer: add CODECOV_TOKEN as a repository secret in
       # repo Settings, Secrets and variables, Actions. Without it, uploads
       # from private repos or protected forks will fail.
-      - name: Upload coverage to Codecov
+      - name: Upload Go coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           files: coverage.txt
+          flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Vet
@@ -48,3 +51,30 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+
+  web:
+    # Frontend (web/studio.js, web/worker.js) tested under jsdom with Vitest.
+    # Separate job so the studio coverage upload is independent of the Go job.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Test with coverage
+        run: npm run coverage
+
+      - name: Upload web coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage-js/lcov.info
+          flags: frontend
+          token: ${{ secrets.CODECOV_TOKEN }}
