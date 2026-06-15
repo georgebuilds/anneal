@@ -39,3 +39,6 @@ notes/
 
 # Claude Code local state (worktrees, settings)
 .claude/
+
+# JS coverage output
+coverage-js/
