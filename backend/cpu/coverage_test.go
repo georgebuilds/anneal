@@ -363,8 +363,11 @@ func TestEvalIntIndex(t *testing.T) {
 			Bufs: []schedule.Buffer{{UOpIdx: 0, Shape: []int64{2}}},
 		},
 	}
-	if _, err := stShort.evalIntIndex(idx2); err == nil {
-		t.Error("short shape should error")
+	// A dim index beyond the recorded shape folds to stride factor 1 (the
+	// broadcast convention mirroring codegen's paramDimFactor), not an error:
+	// idx [1,2] over shape [2] → 1*1 + 2*1 = 3.
+	if v, err := stShort.evalIntIndex(idx2); err != nil || v != 3 {
+		t.Errorf("short shape (broadcast): got %v,%v want 3", v, err)
 	}
 
 	// symbolic (zero) dim mid-shape.
@@ -414,15 +417,16 @@ func TestEvalIndexLoadFloat(t *testing.T) {
 	if v, err := st.evalIndexLoadFloat(idxI); err != nil || v != 101 {
 		t.Errorf("i32 load: %v,%v", v, err)
 	}
-	// Out-of-range f32.
+	// Out-of-range loads clamp to the last valid element (naga/WGSL
+	// storage-buffer robustness; see clampFlat in interp.go), so index 99
+	// reads element 3.
 	idxOOR := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{p0, ci(a, 99)}, nil, nil)
-	if _, err := st.evalIndexLoadFloat(idxOOR); err == nil {
-		t.Error("oor f32 load should error")
+	if v, err := st.evalIndexLoadFloat(idxOOR); err != nil || v != 13 {
+		t.Errorf("oor f32 load = %v,%v; want 13 (clamped)", v, err)
 	}
-	// Out-of-range i32.
 	idxOORi := a.New(uop.OpIndex, uop.Dtypes.Int32, []uop.UOp{p1, ci(a, 99)}, nil, nil)
-	if _, err := st.evalIndexLoadFloat(idxOORi); err == nil {
-		t.Error("oor i32 load should error")
+	if v, err := st.evalIndexLoadFloat(idxOORi); err != nil || v != 103 {
+		t.Errorf("oor i32 load = %v,%v; want 103 (clamped)", v, err)
 	}
 	// Non-Param base.
 	notParam := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{ci(a, 0), ci(a, 0)}, nil, nil)

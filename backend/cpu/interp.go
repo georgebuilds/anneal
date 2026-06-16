@@ -585,18 +585,36 @@ func (st *state) evalIndexLoadFloat(u uop.UOp) (float32, error) {
 		return 0, fmt.Errorf("interp: missing buffer for UOpIdx=%d", desc.UOpIdx)
 	}
 	if f := buf.asF32(); f != nil {
-		if flat < 0 || flat >= int64(len(f)) {
-			return 0, fmt.Errorf("interp: f32 load flat=%d out of range [0,%d)", flat, len(f))
+		if len(f) == 0 {
+			return 0, fmt.Errorf("interp: empty f32 buffer for UOpIdx=%d", desc.UOpIdx)
 		}
-		return f[flat], nil
+		return f[clampFlat(flat, len(f))], nil
 	}
 	if iSlice := buf.asI32(); iSlice != nil {
-		if flat < 0 || flat >= int64(len(iSlice)) {
-			return 0, fmt.Errorf("interp: i32 load flat=%d out of range [0,%d)", flat, len(iSlice))
+		if len(iSlice) == 0 {
+			return 0, fmt.Errorf("interp: empty i32 buffer for UOpIdx=%d", desc.UOpIdx)
 		}
-		return float32(iSlice[flat]), nil
+		return float32(iSlice[clampFlat(flat, len(iSlice))]), nil
 	}
 	return 0, fmt.Errorf("interp: buffer for UOpIdx=%d has no storage", desc.UOpIdx)
+}
+
+// clampFlat mirrors naga/WGSL storage-buffer robustness: an out-of-bounds
+// element index is clamped into [0, n-1] rather than faulting. The GPU
+// computes the same (possibly out-of-range) flat offset for broadcast-param
+// loads in masked or reduced lanes — e.g. a [C] BatchNorm param or a 4-D conv
+// weight whose leading broadcast dim carries a non-zero index with a
+// full-buffer stride, producing an offset exactly one past the end — and
+// clamps the read. The interp must match so it stays a faithful value oracle
+// for the GPU backend. Callers guarantee n > 0.
+func clampFlat(flat int64, n int) int64 {
+	if flat < 0 {
+		return 0
+	}
+	if flat >= int64(n) {
+		return int64(n - 1)
+	}
+	return flat
 }
 
 // paramShape returns the (cached) shape of a buffer, as int64 dims with
@@ -631,16 +649,23 @@ func (st *state) evalIntIndex(u uop.UOp) (int64, error) {
 		return st.evalInt(u.Src(1))
 	}
 	shape := st.paramShape(paramIdx)
-	if len(shape) < nDims {
-		return 0, fmt.Errorf("interp: buffer shape len=%d < nDims=%d for paramIdx=%d", len(shape), nDims, paramIdx)
-	}
-	// stride[d] = product of shape[d+1..nDims-1].
+	// stride[d] = product of factor(d+1..nDims-1), mirroring codegen's
+	// paramDimFactor: a dim index beyond the buffer's recorded shape
+	// contributes a stride factor of 1. This is the broadcast case — e.g. a
+	// [C] BatchNorm param indexed in a 4-D [N,C,H,W] context, where rangeify
+	// zeroes the broadcast dims' index sources and the missing leading shape
+	// dims must fold to factor 1, not error. Without this the interp diverges
+	// from the GPU for every broadcast-param kernel (4-D conv + BatchNorm,
+	// diffusion time-embedding bias).
 	strides := make([]int64, nDims)
 	strides[nDims-1] = 1
 	for i := nDims - 2; i >= 0; i-- {
-		next := shape[i+1]
-		if next == 0 {
-			return 0, fmt.Errorf("interp: symbolic dim in buffer %d shape; slice 1 is static-only", paramIdx)
+		next := int64(1)
+		if i+1 < len(shape) {
+			next = shape[i+1]
+			if next == 0 {
+				return 0, fmt.Errorf("interp: symbolic dim in buffer %d shape; slice 1 is static-only", paramIdx)
+			}
 		}
 		strides[i] = strides[i+1] * next
 	}

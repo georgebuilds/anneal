@@ -288,10 +288,12 @@ func TestEvalIntIndexShapeTooShort(t *testing.T) {
 	st := newEvalState()
 	st.item.Bufs = []schedule.Buffer{{UOpIdx: 0, Shape: []int64{4}}} // 1 dim
 	param := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(0), nil)
-	// 2-dim index over a 1-dim shape.
+	// 2-dim index over a 1-dim shape: the leading dim is beyond the recorded
+	// shape, so it folds to stride factor 1 (broadcast convention mirroring
+	// codegen's paramDimFactor) rather than erroring: idx [0,1] → 0*1 + 1*1 = 1.
 	idx := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{param, ci(a, 0), ci(a, 1)}, nil, nil)
-	if _, err := st.evalIntIndex(idx); err == nil {
-		t.Error("nDims > shape len should error")
+	if v, err := st.evalIntIndex(idx); err != nil || v != 1 {
+		t.Errorf("nDims > shape len (broadcast): got %v,%v want 1", v, err)
 	}
 }
 
@@ -353,11 +355,16 @@ func TestEvalIndexLoadF32OutOfRange(t *testing.T) {
 	st := newEvalState()
 	st.item.Bufs = []schedule.Buffer{{UOpIdx: 0}}
 	b, _ := newBuffer(2, uop.Dtypes.Float32)
+	b.asF32()[1] = 7
 	st.bufs = map[uint32]*Buffer{0: b}
 	param := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(0), nil)
+	// Out-of-range load clamps to the last valid element, mirroring
+	// naga/WGSL storage-buffer robustness (see clampFlat in interp.go). The
+	// GPU computes the same offset for broadcast-param loads in masked lanes
+	// and clamps; the interp must match to stay a faithful value oracle.
 	idx := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{param, ci(a, 99)}, nil, nil)
-	if _, err := st.evalIndexLoadFloat(idx); err == nil {
-		t.Error("f32 load out of range should error")
+	if v, err := st.evalIndexLoadFloat(idx); err != nil || v != 7 {
+		t.Errorf("f32 OOR load = %v (err %v), want 7 (clamped to last)", v, err)
 	}
 }
 
@@ -373,10 +380,11 @@ func TestEvalIndexLoadI32Path(t *testing.T) {
 	if v, err := st.evalIndexLoadFloat(idx); err != nil || v != 42 {
 		t.Errorf("i32 load = %v (err %v), want 42", v, err)
 	}
-	// Out-of-range i32 load.
+	// Out-of-range i32 load clamps to the last valid element (naga robustness;
+	// see clampFlat in interp.go), so index 99 reads element 1 (value 42).
 	idxOOR := a.New(uop.OpIndex, uop.Dtypes.Int32, []uop.UOp{param, ci(a, 99)}, nil, nil)
-	if _, err := st.evalIndexLoadFloat(idxOOR); err == nil {
-		t.Error("i32 load out of range should error")
+	if v, err := st.evalIndexLoadFloat(idxOOR); err != nil || v != 42 {
+		t.Errorf("i32 OOR load = %v (err %v), want 42 (clamped to last)", v, err)
 	}
 }
 
