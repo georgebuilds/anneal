@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples/gpt2"
 	"github.com/georgebuilds/anneal/tensor"
 )
@@ -89,14 +88,14 @@ func gpt2SampleCmdW(args []string, w io.Writer) int {
 	}
 	prompt := strings.Join(promptParts, " ")
 
-	dev, err := webgpu.Open()
+	exec, closeExec, err := runExecOpener(*device)
 	if err != nil {
 		fmt.Fprint(w, noAdapterError())
 		return 1
 	}
-	defer dev.Close()
+	defer closeExec()
 
-	tensor.DefaultExecutor = dev
+	tensor.DefaultExecutor = exec
 	defer func() { tensor.DefaultExecutor = nil }()
 
 	opts := gpt2.SampleOptions{

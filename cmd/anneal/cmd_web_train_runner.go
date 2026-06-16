@@ -14,11 +14,40 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/tui"
 )
+
+// nativeTrainDevice describes the device the native web trainer runs on:
+// the wire device tag, an adapter display name, the executor, and a closer.
+type nativeTrainDevice struct {
+	deviceTag   string
+	adapterName string
+	exec        backend.Executor
+	close       func()
+}
+
+// openNativeTrainDevice is the seam that opens the device the web trainer
+// runs on. Production opens WebGPU; tests substitute a CPU device so the full
+// train body runs in CI without a GPU.
+var openNativeTrainDevice = openWebGPUTrainDevice
+
+// openWebGPUTrainDevice opens a WebGPU device for the native web trainer.
+func openWebGPUTrainDevice() (nativeTrainDevice, error) {
+	dev, err := webgpu.Open()
+	if err != nil {
+		return nativeTrainDevice{}, err
+	}
+	return nativeTrainDevice{
+		deviceTag:   "webgpu",
+		adapterName: dev.AdapterName(),
+		exec:        dev,
+		close:       func() { dev.Close() },
+	}, nil
+}
 
 // runTrainNative is the production trainRunner. It opens the WebGPU adapter
 // and runs the requested example end to end, pushing one Snapshot per
@@ -45,7 +74,7 @@ func runTrainNative(ctx context.Context, model string, steps int, snap func(tui.
 		return err
 	}
 
-	dev, err := webgpu.Open()
+	nd, err := openNativeTrainDevice()
 	if err != nil {
 		snap(tui.Snapshot{
 			Phase: tui.PhaseError,
@@ -53,13 +82,13 @@ func runTrainNative(ctx context.Context, model string, steps int, snap func(tui.
 		})
 		return err
 	}
-	defer dev.Close()
+	defer nd.close()
 
-	tensor.DefaultExecutor = dev
+	tensor.DefaultExecutor = nd.exec
 	defer func() { tensor.DefaultExecutor = nil }()
 
-	adapterName := dev.AdapterName()
-	backend := detectBackend()
+	adapterName := nd.adapterName
+	backendName := detectBackend()
 
 	cfg := examples.TrainConfig{
 		Steps:    steps,
@@ -72,7 +101,7 @@ func runTrainNative(ctx context.Context, model string, steps int, snap func(tui.
 	base := tui.Snapshot{
 		MaxSteps:     cfg.Steps,
 		AdapterName:  adapterName,
-		BackendName:  backend,
+		BackendName:  backendName,
 		LearningRate: cfg.LR,
 		BatchSize:    cfg.Batch,
 	}
@@ -83,14 +112,14 @@ func runTrainNative(ctx context.Context, model string, steps int, snap func(tui.
 			s.AdapterName = adapterName
 		}
 		if s.BackendName == "" {
-			s.BackendName = backend
+			s.BackendName = backendName
 		}
 		s.MaxSteps = cfg.Steps
 		snap(s)
 	}
 	logFn := snapshotShimLogFn(&base, startWall, cfg.SnapshotFn)
 
-	if err := ex.Train("webgpu", cfg, logFn); err != nil {
+	if err := ex.Train(nd.deviceTag, cfg, logFn); err != nil {
 		snap(tui.Snapshot{
 			Phase: tui.PhaseError,
 			Step:  steps,
@@ -106,7 +135,7 @@ func runTrainNative(ctx context.Context, model string, steps int, snap func(tui.
 		MaxSteps:    steps,
 		Phase:       tui.PhaseDone,
 		AdapterName: adapterName,
-		BackendName: backend,
+		BackendName: backendName,
 		WallMs:      time.Since(startWall).Milliseconds(),
 	})
 	return nil

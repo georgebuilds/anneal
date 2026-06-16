@@ -286,6 +286,14 @@ func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, devi
 	return bw
 }
 
+// teaProgramOpts returns the bubbletea program options for the training
+// dashboard. Production uses the alt-screen; it's hoisted to a var so tests
+// can inject a scripted input/output (e.g. an immediate "q") and drive the
+// TUI path headlessly without a real terminal.
+var teaProgramOpts = func() []tea.ProgramOption {
+	return []tea.ProgramOption{tea.WithAltScreen()}
+}
+
 // trainWithTUI runs the training loop with the bubbletea dashboard.
 // This goroutine is OS-locked for Metal and runs training directly; the TUI
 // runs in a separate goroutine receiving updates via tea.Program.Send.
@@ -304,7 +312,7 @@ func trainWithTUI(
 		TotalSteps: cfg.Steps,
 	})
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, teaProgramOpts()...)
 
 	// TUI renders in a background goroutine (no Metal calls there).
 	tuiDone := make(chan error, 1)

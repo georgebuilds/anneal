@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/examples"
 	"github.com/georgebuilds/anneal/examples/gpt2"
@@ -22,6 +23,31 @@ import (
 	"github.com/georgebuilds/anneal/tui"
 	"github.com/georgebuilds/anneal/uop"
 )
+
+// nativeGenerateDevice describes the device the native web generator runs on.
+type nativeGenerateDevice struct {
+	deviceTag string
+	exec      backend.Executor
+	close     func()
+}
+
+// openNativeGenerateDevice is the seam that opens the device the web
+// generator runs on. Production opens WebGPU; tests substitute a CPU device
+// so the nanogpt streaming body runs in CI without a GPU.
+var openNativeGenerateDevice = openWebGPUGenerateDevice
+
+// openWebGPUGenerateDevice opens a WebGPU device for the native generator.
+func openWebGPUGenerateDevice() (nativeGenerateDevice, error) {
+	dev, err := webgpu.Open()
+	if err != nil {
+		return nativeGenerateDevice{}, err
+	}
+	return nativeGenerateDevice{
+		deviceTag: "webgpu",
+		exec:      dev,
+		close:     func() { dev.Close() },
+	}, nil
+}
 
 // runGenerateNative is the production generateRunner. It pins the goroutine
 // to its OS thread (Metal autorelease-pool affinity), opens WebGPU, builds
@@ -38,7 +64,7 @@ func runGenerateNative(
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	dev, err := webgpu.Open()
+	nd, err := openNativeGenerateDevice()
 	if err != nil {
 		emit(tui.TokenSnapshot{
 			Phase:     tui.PhaseError,
@@ -47,9 +73,9 @@ func runGenerateNative(
 		})
 		return err
 	}
-	defer dev.Close()
+	defer nd.close()
 
-	tensor.DefaultExecutor = dev
+	tensor.DefaultExecutor = nd.exec
 	defer func() { tensor.DefaultExecutor = nil }()
 
 	startWall := time.Now()

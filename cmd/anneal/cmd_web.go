@@ -26,6 +26,11 @@ import (
 	"github.com/georgebuilds/anneal/web"
 )
 
+// webServe is the seam that lets tests substitute the blocking http.Serve
+// call (which never returns on success) with a fake. Production wires the
+// real http.Serve.
+var webServe = http.Serve
+
 // webCmd is the entry point wired into cmd/anneal/main.go.
 func webCmd(args []string) int {
 	addr := ":3001"
@@ -45,7 +50,7 @@ func webCmd(args []string) int {
 	fmt.Printf("open %s to load the studio.\n", url)
 	fmt.Printf("(W0 foundation: routing, theme, keyboard live; views land in W1+.)\n")
 
-	if err := http.Serve(ln, mux); err != nil {
+	if err := webServe(ln, mux); err != nil {
 		fmt.Printf("anneal web: serve: %v\n", err)
 		return 1
 	}

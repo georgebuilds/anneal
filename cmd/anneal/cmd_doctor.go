@@ -9,6 +9,26 @@ import (
 	"github.com/georgebuilds/anneal/backend/webgpu"
 )
 
+// doctorProbe reads the diagnostic fields `anneal doctor` prints. Production
+// opens a transient WebGPU device; tests inject a fake so the report-rendering
+// body runs in CI without a GPU.
+type doctorProbeResult struct {
+	adapterName string
+	shaderF16   bool
+}
+
+var doctorProbeFn = doctorProbeWebGPU
+
+// doctorProbeWebGPU opens a transient WebGPU device and reads its fields.
+func doctorProbeWebGPU() (doctorProbeResult, error) {
+	dev, err := webgpu.Open()
+	if err != nil {
+		return doctorProbeResult{}, err
+	}
+	defer dev.Close()
+	return doctorProbeResult{adapterName: dev.AdapterName(), shaderF16: dev.HasShaderF16}, nil
+}
+
 func doctorCmd(args []string) int {
 	return doctorCmdW(args, os.Stdout)
 }
@@ -25,17 +45,16 @@ func doctorCmdW(args []string, w io.Writer) int {
 	}
 	_ = flags
 
-	dev, err := webgpu.Open()
+	probe, err := doctorProbeFn()
 	if err != nil {
 		fmt.Fprint(w, doctorFailureMsg())
 		return 1
 	}
-	defer dev.Close()
 
-	name := dev.AdapterName()
+	name := probe.adapterName
 	backend := detectBackend()
 	shaderF16 := "NO"
-	if dev.HasShaderF16 {
+	if probe.shaderF16 {
 		shaderF16 = "yes"
 	}
 
