@@ -13,6 +13,9 @@ bin/
 *.out
 coverage.html
 
+# Test run artifacts (tee'd dispatch logs; local only)
+test_output_*.txt
+
 # Go workspace files
 go.work
 go.work.sum

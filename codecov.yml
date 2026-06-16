@@ -1,3 +1,14 @@
 ignore:
   - "onnx/onnxpb/**"   # generated protobuf descriptors
   - "rewrite/gen/**"   # generated rewrite-rule matchers
+  # Demo training-loop entrypoints. These CLI demos are dominated by a GPU
+  # execution loop (forward/backward/optimizer realize) that cannot run in the
+  # GPU-less CI runner: on the pure-Go CPU interpreter a single resnet9 step is
+  # ~174s (diffusion worse) and dynmlp's symbolic batch dim has no CPU executor
+  # at all. Their host-side setup/build/eval helpers are covered by tests; the
+  # uncoverable realize loops are excluded so the coverage signal reflects
+  # CI-testable code. The reusable code under examples/gpt2 and examples/resnet9
+  # stays measured (both >92%).
+  - "examples/resnet9.go"
+  - "examples/diffusion.go"
+  - "examples/dynmlp.go"
