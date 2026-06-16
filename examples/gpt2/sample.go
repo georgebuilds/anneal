@@ -490,7 +490,16 @@ func RunSampleCLI(w io.Writer, device string, prompt string, opts SampleOptions,
 	if err != nil {
 		return err
 	}
+	return runSampleWithModel(w, g, bpe, device, prompt, opts, plain)
+}
 
+// runSampleWithModel is the post-load body of RunSampleCLI: it computes the
+// context window, runs Sample, and renders the output. Factored out so tests
+// can drive it with a tiny CPU-backed model instead of the ~550 MB GPT-2
+// checkpoint LoadGPT2 fetches.
+//
+//nolint:errcheck // best-effort writes to stdout/stderr
+func runSampleWithModel(w io.Writer, g *nn.GPT, bpe *BPE, device string, prompt string, opts SampleOptions, plain bool) error {
 	// ctxLen: encode the prompt to know how many ids we start with, then
 	// pick a context window of min(GPT2BlockSize, len(ids)+MaxTokens). This
 	// avoids dispatching a 1024-token forward pass for a single-word prompt.

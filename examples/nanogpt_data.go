@@ -64,6 +64,12 @@ func newCharDatasetFromString(text string) *charDataset {
 	return &charDataset{Vocab: vocab, charToIdx: c2i, Data: data}
 }
 
+// loadDataset is the seam the nanoGPT Build / Train / Generate entry points
+// resolve their corpus through. It defaults to loadShakespeareDataset; tests
+// swap in an in-memory fixture so the full pipeline runs without a network
+// fetch or the 30 MB asset download. Restore the original in a defer.
+var loadDataset = loadShakespeareDataset
+
 // loadShakespeareDataset resolves the cached tinyshakespeare corpus and
 // returns a charDataset. On first call this triggers an HTTP fetch via
 // internal/assets; subsequent calls hit the disk cache. Honours
@@ -74,6 +80,14 @@ func loadShakespeareDataset() (*charDataset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nanogpt: fetch shakespeare asset: %w", err)
 	}
+	return readCharDataset(path)
+}
+
+// readCharDataset reads a UTF-8 corpus file from disk and builds a
+// charDataset from it. Split out of loadShakespeareDataset so the file-read
+// + construct path is testable with a plain temp file (the asset SHA gate in
+// internal/assets makes a real cache fixture impractical).
+func readCharDataset(path string) (*charDataset, error) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("nanogpt: read shakespeare asset %s: %w", path, err)

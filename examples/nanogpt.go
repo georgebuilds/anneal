@@ -54,12 +54,28 @@ func NanoGPTGenerateStream(
 		return "", fmt.Errorf("nanogpt: NanoGPTGenerateStream: nGen must be > 0, got %d", nGen)
 	}
 
-	ds, err := loadShakespeareDataset()
+	ds, err := loadDataset()
 	if err != nil {
 		return "", err
 	}
 	cfg := defaultNanoGPTConfig(ds.VocabSize())
+	return nanoGPTStreamCore(ctx, device, prompt, nGen, onTok, ds, cfg)
+}
 
+// nanoGPTStreamCore is the model-construction + autoregressive loop body of
+// NanoGPTGenerateStream, split out so a CPU-backend test can drive it with a
+// tiny in-memory dataset + config inside the CI budget. NanoGPTGenerateStream
+// itself is the production wrapper that resolves the Shakespeare corpus and
+// the default config; the validation and corpus fetch live there.
+func nanoGPTStreamCore(
+	ctx context.Context,
+	device string,
+	prompt string,
+	nGen int,
+	onTok func(NanoGPTStreamToken),
+	ds *charDataset,
+	cfg nanoGPTConfig,
+) (string, error) {
 	a0 := uop.NewArena(1 << 14)
 	g := nn.NewGPT(a0, cfg.Vocab, cfg.NLayer, cfg.NHead, cfg.NEmbd, cfg.BlockSize)
 	initGPTSmall(g, nanoGPTInitScale, rand.New(rand.NewSource(42)))
@@ -212,7 +228,7 @@ func defaultNanoGPTConfig(vocab int) nanoGPTConfig {
 // When ANNEAL_OFFLINE=1 is set and the corpus is not cached, Build returns
 // a clear error so the CLI surfaces the offline state to the user.
 func buildNanoGPT(device string) (*BuildResult, error) {
-	ds, err := loadShakespeareDataset()
+	ds, err := loadDataset()
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +287,7 @@ func buildNanoGPT(device string) (*BuildResult, error) {
 // targets (defaults to stdout). Loss values flow through cfg.LogFn / logFn
 // as usual.
 func trainNanoGPT(device string, cfg TrainConfig, logFn func(step int, loss float32)) error {
-	ds, err := loadShakespeareDataset()
+	ds, err := loadDataset()
 	if err != nil {
 		return err
 	}

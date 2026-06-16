@@ -111,6 +111,35 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 	return runViT(device, cfg, logFn, ds, 42)
 }
 
+// runViT is the production-shape wrapper around runViTArch using the canonical
+// vit-tiny constants.
+func runViT(
+	device string,
+	cfg TrainConfig,
+	logFn func(step int, loss float32),
+	ds *resnet9data.CIFAR10,
+	seed int64,
+) error {
+	return runViTArch(device, cfg, logFn, ds, seed, defaultViTArch())
+}
+
+// vitArch holds the model-shape hyperparameters runViT builds against. It
+// exists purely as a testability seam: the production entry point uses
+// defaultViTArch (the canonical vit-tiny constants), while CPU-backend tests
+// inject a much smaller arch so the full train body runs inside the CI budget.
+// The data dims (32x32 RGB, 10 classes) are fixed by the CIFAR-10 fixture and
+// are not part of this struct.
+type vitArch struct {
+	patch    int64
+	embedDim int64
+	nLayer   int
+	nHead    int
+}
+
+func defaultViTArch() vitArch {
+	return vitArch{patch: vitPatch, embedDim: vitEmbedDim, nLayer: vitNLayer, nHead: vitNHead}
+}
+
 // runViT is the shared trainer used by both the production entry point
 // (CIFAR-10) and the smoke tests (in-memory fixture). The model is the
 // same vit-tiny config as the synthetic-batch example; vit-tiny on real
@@ -119,12 +148,13 @@ func trainViT(device string, cfg TrainConfig, logFn func(step int, loss float32)
 // trajectory and the compiler surface (PatchEmbed reshape/permute chain,
 // non-causal attention softmax, mean-pool classification head, full
 // forward/backward fusion through Adam) are what the demo proves.
-func runViT(
+func runViTArch(
 	device string,
 	cfg TrainConfig,
 	logFn func(step int, loss float32),
 	ds *resnet9data.CIFAR10,
 	seed int64,
+	arch vitArch,
 ) error {
 	// Use Adam by default. cmd_train's --lr default is SGD-tuned (0.05); when
 	// the caller passes that sentinel through, switch to vitAdamLR. Any other
@@ -141,15 +171,15 @@ func runViT(
 
 	// Seed arena.
 	seedArena := uop.NewArena(1 << 14)
-	seedModel := nn.NewViT(seedArena, vitImageH, vitImageW, vitPatch, vitInCh,
-		vitEmbedDim, vitNLayer, vitNHead, vitNumClasses)
+	seedModel := nn.NewViT(seedArena, vitImageH, vitImageW, arch.patch, vitInCh,
+		arch.embedDim, arch.nLayer, arch.nHead, vitNumClasses)
 	initRNG := rand.New(rand.NewSource(seed))
 	initViTSmall(seedModel, vitInitScale, initRNG)
 
 	// Persistent model (values survive arena resets).
 	a0 := uop.NewArena(1 << 14)
-	model := nn.NewViT(a0, vitImageH, vitImageW, vitPatch, vitInCh,
-		vitEmbedDim, vitNLayer, vitNHead, vitNumClasses)
+	model := nn.NewViT(a0, vitImageH, vitImageW, arch.patch, vitInCh,
+		arch.embedDim, arch.nLayer, arch.nHead, vitNumClasses)
 	srcParams := seedModel.Params()
 	dstParams := model.Params()
 	if len(srcParams) != len(dstParams) {

@@ -128,30 +128,42 @@ func LoadGPT2WeightsInto(g *nn.GPT, path string) error {
 		if !ok {
 			return fmt.Errorf("gpt2: tensor %q not found in safetensors file %s", m.HFName, path)
 		}
-		if m.Transpose {
-			if len(entry.Shape) != 2 {
-				return fmt.Errorf("gpt2: tensor %q: expected rank-2 Conv1D weight, got shape %v", m.HFName, entry.Shape)
-			}
-			in, out := entry.Shape[0], entry.Shape[1]
-			if int64(len(m.Param.Value)) != in*out {
-				return fmt.Errorf("gpt2: tensor %q: element count %d != param %d (Conv1D transpose source [%d, %d])",
-					m.HFName, len(entry.Data), len(m.Param.Value), in, out)
-			}
-			// Anneal Linear stores [out, in]; HF Conv1D stores [in, out].
-			// Transpose src[i, j] -> dst[j, i]: dst[j*in + i] = src[i*out + j].
-			for i := int64(0); i < in; i++ {
-				for j := int64(0); j < out; j++ {
-					m.Param.Value[j*in+i] = entry.Data[i*out+j]
-				}
-			}
-		} else {
-			if len(entry.Data) != len(m.Param.Value) {
-				return fmt.Errorf("gpt2: tensor %q: element count %d != param %d (no transpose; HF shape %v)",
-					m.HFName, len(entry.Data), len(m.Param.Value), entry.Shape)
-			}
-			copy(m.Param.Value, entry.Data)
+		if err := applyTensorToParam(m, entry); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+// applyTensorToParam copies one safetensors Entry into the mapped Parameter,
+// applying the Conv1D [in, out] -> [out, in] transpose when m.Transpose is
+// set. Factored out of LoadGPT2WeightsInto so the per-tensor shape checks and
+// the transpose index math are unit-testable with tiny synthetic entries (the
+// full GPT-2 checkpoint is ~500 MB, far too large for a host-side test).
+func applyTensorToParam(m paramMap, entry safetensors.Entry) error {
+	if m.Transpose {
+		if len(entry.Shape) != 2 {
+			return fmt.Errorf("gpt2: tensor %q: expected rank-2 Conv1D weight, got shape %v", m.HFName, entry.Shape)
+		}
+		in, out := entry.Shape[0], entry.Shape[1]
+		if int64(len(m.Param.Value)) != in*out {
+			return fmt.Errorf("gpt2: tensor %q: element count %d != param %d (Conv1D transpose source [%d, %d])",
+				m.HFName, len(entry.Data), len(m.Param.Value), in, out)
+		}
+		// Anneal Linear stores [out, in]; HF Conv1D stores [in, out].
+		// Transpose src[i, j] -> dst[j, i]: dst[j*in + i] = src[i*out + j].
+		for i := int64(0); i < in; i++ {
+			for j := int64(0); j < out; j++ {
+				m.Param.Value[j*in+i] = entry.Data[i*out+j]
+			}
+		}
+		return nil
+	}
+	if len(entry.Data) != len(m.Param.Value) {
+		return fmt.Errorf("gpt2: tensor %q: element count %d != param %d (no transpose; HF shape %v)",
+			m.HFName, len(entry.Data), len(m.Param.Value), entry.Shape)
+	}
+	copy(m.Param.Value, entry.Data)
 	return nil
 }
 
