@@ -886,7 +886,7 @@ func TestRunsEndpoint_LossCSV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("loss.csv status = %d, want 200", resp.StatusCode)
 	}
@@ -917,7 +917,7 @@ func TestRunsEndpoint_GenerationNDJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("generation.ndjson status = %d, want 200", resp.StatusCode)
 	}
@@ -1068,10 +1068,9 @@ func TestOpenNativeDeviceOpeners(t *testing.T) {
 		}
 		closeFn()
 	}
-	// doctorProbeWebGPU: covers the probe wrapper (GPU success or open error).
-	if _, err := doctorProbeWebGPU(); err == nil {
-		// ok — adapter present
-	}
+	// doctorProbeWebGPU: covers the probe wrapper (GPU success or open error);
+	// the result depends on adapter presence, so we exercise it without asserting.
+	_, _ = doctorProbeWebGPU()
 }
 
 var errBoom = &boomError{}
