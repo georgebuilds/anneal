@@ -134,11 +134,29 @@ func requireGPUForSample(t *testing.T) {
 	if err != nil {
 		t.Skipf("no GPU: %v", err)
 	}
+	// A full GPT-2-small lm_head is [50257, 768] = 154 MB, which exceeds the
+	// 128 MB maxStorageBufferBindingSize of CI's software renderer (lavapipe /
+	// llvmpipe / swiftshader). These tests are correctness oracles against a
+	// real checkpoint, not capability probes, so skip them on software
+	// adapters rather than fail on the binding-size limit.
+	if isSoftwareSampleAdapter(dev.AdapterName()) {
+		dev.Close()
+		t.Skipf("software GPU adapter %q cannot bind a full GPT-2 (154 MB > 128 MB limit)", dev.AdapterName())
+	}
 	t.Cleanup(func() {
 		tensor.DefaultExecutor = nil
 		dev.Close()
 	})
 	tensor.DefaultExecutor = dev
+}
+
+// isSoftwareSampleAdapter mirrors backend/webgpu's internal isSoftwareAdapter
+// (not importable from this package): true for the CPU-backed WebGPU renderers
+// used in CI, which cannot hold GPT-2-scale storage bindings.
+func isSoftwareSampleAdapter(name string) bool {
+	n := strings.ToLower(name)
+	return strings.Contains(n, "llvmpipe") || strings.Contains(n, "swiftshader") ||
+		strings.Contains(n, "software") || strings.Contains(n, "cpu")
 }
 
 // ── HF oracle integration (gated on cached weights + GPU) ───────────────────
