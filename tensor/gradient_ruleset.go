@@ -239,7 +239,11 @@ func buildGradient() GradRuleset {
 					continue // symbolic src dim — never 1, not broadcast
 				}
 			}
-			if sv == 1 {
+			ev := int64(-1)
+			if v, ok := expandedSints[i].ConstValue(); ok {
+				ev = v
+			}
+			if sv == 1 && ev != 1 {
 				sumAxes = append(sumAxes, i)
 			}
 		}

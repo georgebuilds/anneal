@@ -15,15 +15,13 @@ package nn_test
 //
 //  3. TestGPTFDGradCheck
 //     Tiny config (vocab=8, nLayer=1, nHead=2, nEmbd=8, blockSize=4, B=1, T=4).
-//     Loss = output.Sum(). Tiered tolerance, mirroring Slice L's policy
-//     verbatim:
+//     Loss = output.Sum(). Tiered tolerance:
 //       - Linear-only paths at 1e-3 relative: Proj.{W,B}, LN2.{W,B},
 //         FC1.{W,B}, FC2.{W,B}, LNf.{W,B}, LMHead.{W,B}.
-//       - Documented-skip (upstream of softmax via Block backward):
-//         Wte.Weight, Wpe.Weight, QKV.{W,B}, LN1.{W,B}. Real autodiff
-//         drift at Block scale; root cause in tensor/gradient_ruleset.go.
-//         See notes/gather_slice_progress.md carry-forward "Softmax
-//         gradient drift in autodiff".
+//       - Softmax/embedding-chain paths at 7e-2: Wte.Weight, Wpe.Weight,
+//         QKV.{W,B}, LN1.{W,B}. These were sign-wrong and documented-skip under
+//         the OpExpand-backward bug (fixed 2026-06-18, tensor/gradient_ruleset.go;
+//         only sum genuinely-broadcast axes); they now agree with FD.
 //
 //  4. TestGPTDeterminism
 //     Same seed produces sha256-identical output logits across 3 fresh runs.
@@ -293,7 +291,12 @@ func TestGPTFDGradCheck(t *testing.T) {
 
 		fdH      = float32(1e-3)
 		tolTight = float32(1e-3)
-		nCheck   = 3
+		// Softmax/embedding-chain paths (Wte, Wpe, LN1, QKV): exp/div/rsqrt and
+		// the scatter-add embedding backward amplify central-difference truncation.
+		// These were sign-wrong and documented-skip under the OpExpand-backward bug
+		// (fixed 2026-06-18); they now agree with FD well inside this budget.
+		tolSoftmax = float32(7e-2)
+		nCheck     = 3
 	)
 
 	a0 := uop.NewArena(1 << 14)
@@ -399,16 +402,13 @@ func TestGPTFDGradCheck(t *testing.T) {
 		stats = append(stats, groupStat{label: label, maxRel: maxRel})
 	}
 
-	// Wte.Weight and Wpe.Weight FD coverage is documented-skip. Their analytic
-	// gradients are built by scatterAdd of the upstream adjoint from Block,
-	// which has already traversed the LN1 + softmax + ... compound chain and
-	// carries the autodiff drift. The scatter-add itself is bit-exact (Slice E
-	// proved it); the upstream signal is what drifts. Observed drift here:
-	// Wte.Weight ~14%, Wpe.Weight ~17%, same order as Block's softmax-chain
-	// paths. Embeddings still run through the full Backward dispatch.
-	_ = wteWGrad
-	_ = wpeWGrad
-	t.Logf("Wte.Weight and Wpe.Weight FD checks skipped (upstream softmax drift via Block backward; see notes carry-forward).")
+	// Wte.Weight / Wpe.Weight gradients are built by scatterAdd of the upstream
+	// adjoint from Block. Previously documented-skip: that upstream adjoint had
+	// already traversed the LN1+softmax chain and carried the OpExpand-backward
+	// sign-flip (~14-17% drift). With that bug fixed (2026-06-18) the scatter-add
+	// embedding gradients now agree with FD inside the softmax-chain budget.
+	checkParam(g.Wte.Weight, wteWGrad, "Wte.Weight", tolSoftmax)
+	checkParam(g.Wpe.Weight, wpeWGrad, "Wpe.Weight", tolSoftmax)
 
 	// Linear-only paths: tight 1e-3 budget.
 	checkParam(blk.Attn.Proj.Weight, projWGrad, "Proj.Weight", tolTight)
@@ -424,23 +424,15 @@ func TestGPTFDGradCheck(t *testing.T) {
 	checkParam(g.LMHead.Weight, lmhWGrad, "LMHead.Weight", tolTight)
 	checkParam(g.LMHead.Bias, lmhBGrad, "LMHead.Bias", tolTight)
 
-	// Softmax-chain paths (QKV.{W,B}, LN1.{W,B}) are documented-skip per the
-	// Slice L policy verbatim. The compound LN-into-softmax autodiff chain
-	// produces sign-wrong analytic gradients on small-magnitude bias indices
-	// at the tiny-config scale; this is a real bug in tensor/gradient_ruleset.go,
-	// not FD truncation drift. See notes/gather_slice_progress.md carry-forward
-	// "Softmax gradient drift in autodiff"; the autodiff fix is its own slice
-	// and high priority for nanoGPT training quality. The analytic gradients
-	// for these parameters STILL run through the full Backward dispatch (we
-	// just do not compare them to FD), so the structural shape / ordering
-	// gates still cover them.
-	_ = ln1WGrad
-	_ = ln1BGrad
-	_ = qkvWGrad
-	_ = qkvBGrad
-	t.Logf("LN1.{Weight,Bias} and QKV.{Weight,Bias} FD checks skipped (softmax+LN compound autodiff drift; see notes/gather_slice_progress.md carry-forward \"Softmax gradient drift in autodiff\").")
+	// Softmax/LN-chain paths (QKV.{W,B}, LN1.{W,B}): previously sign-wrong and
+	// documented-skip under the OpExpand-backward bug (fixed 2026-06-18); now
+	// FD-checked at the softmax-chain budget.
+	checkParam(blk.LN1.Weight, ln1WGrad, "LN1.Weight", tolSoftmax)
+	checkParam(blk.LN1.Bias, ln1BGrad, "LN1.Bias", tolSoftmax)
+	checkParam(blk.Attn.QKV.Weight, qkvWGrad, "QKV.Weight", tolSoftmax)
+	checkParam(blk.Attn.QKV.Bias, qkvBGrad, "QKV.Bias", tolSoftmax)
 
-	t.Logf("GPT FD summary (max rel per Linear-only group):")
+	t.Logf("GPT FD summary (max rel per group):")
 	for _, s := range stats {
 		t.Logf("  %-14s max-rel=%.2e", s.label, s.maxRel)
 	}

@@ -262,6 +262,11 @@ func TestBlockFDGradCheck(t *testing.T) {
 		fdH = float32(1e-3)
 		// Linear-only paths: Slice J's tight 1e-3 budget.
 		tolTight = float32(1e-3)
+		// Softmax/LayerNorm-chain paths (QKV, LN1): exp/div/rsqrt amplify central-
+		// difference truncation, so these carry a looser-but-still-tight budget.
+		// Before the OpExpand-backward fix (2026-06-18) these were sign-wrong and
+		// documented-skip; they now agree with FD well inside this budget.
+		tolSoftmax = float32(7e-2)
 		// Number of elements per tensor to FD-check; keeps total FD calls
 		// to ~12 * 3 + 3 = 39, well inside the GPU-roundtrip budget.
 		nCheck = 3
@@ -365,19 +370,13 @@ func TestBlockFDGradCheck(t *testing.T) {
 		stats = append(stats, groupStat{label: label, maxRel: maxRel})
 	}
 
-	// LN1.{W,B} FD coverage is documented-skip. LN1 sits upstream of both
-	// LayerNorm's compound autodiff chain (Mean / Variance / Rsqrt +
-	// Sum-keepdim) AND Attn's softmax. At the tiny configuration this test
-	// uses (B=1, T=4, nEmbd=8, h=1e-3), FD vs analytic on LN1.Bias hits
-	// sign-wrong differences (~0.29 absolute) at small-magnitude indices.
-	// This is the same class as the softmax-gradient-drift carry-forward in
-	// tensor/gradient_ruleset.go (see notes/gather_slice_progress.md). The
-	// other 3 Block tests still gate structural correctness (shape, params
-	// count, determinism), and the analytic gradients are exercised through
-	// the entire backward dispatch path.
-	_ = ln1WGrad
-	_ = ln1BGrad
-	t.Logf("LN1.{Weight,Bias} FD check skipped (compound LN+softmax autodiff drift; see notes carry-forward).")
+	// LN1.{W,B} sit upstream of both LayerNorm's compound autodiff chain
+	// (Mean / Variance / Rsqrt + Sum-keepdim) AND Attn's softmax. These were
+	// documented-skip while the OpExpand-backward bug sign-flipped softmax-chain
+	// gradients (fixed 2026-06-18, tensor/gradient_ruleset.go); they now agree
+	// with finite differences inside the softmax-chain budget.
+	checkParam(b.LN1.Weight, ln1WGrad, "LN1.Weight", tolSoftmax)
+	checkParam(b.LN1.Bias, ln1BGrad, "LN1.Bias", tolSoftmax)
 	checkParam(b.Attn.Proj.Weight, projWGrad, "Proj.Weight", tolTight)
 	checkParam(b.Attn.Proj.Bias, projBGrad, "Proj.Bias", tolTight)
 	checkParam(b.LN2.Weight, ln2WGrad, "LN2.Weight", tolTight)
@@ -387,20 +386,15 @@ func TestBlockFDGradCheck(t *testing.T) {
 	checkParam(b.MLP.FC2.Weight, fc2WGrad, "FC2.Weight", tolTight)
 	checkParam(b.MLP.FC2.Bias, fc2BGrad, "FC2.Bias", tolTight)
 
-	// Softmax-chain paths (QKV.{W,B}, input x) FD coverage is documented-skip
-	// at the Block-composition scale. Slice J ran FD on attention in isolation
-	// at 7e-2 and bisected the drift to the autodiff layer (NOT reshape /
-	// permute). Inside the Block, additional upstream operations (LN1 +
-	// residual add) compound the drift; observed values reach 22% relative
-	// with sign-wrong gradients on small-magnitude bias indices, which is
-	// real autodiff bug territory, not drift. The other 3 Block tests gate
-	// structural correctness; QKV and input still run through the full
-	// Backward dispatch. See notes/gather_slice_progress.md carry-forward
-	// "Softmax gradient drift in autodiff" for the root cause to fix.
-	_ = qkvWGrad
-	_ = qkvBGrad
+	// Softmax-chain paths (QKV.{W,B}): previously sign-wrong and documented-skip
+	// under the OpExpand-backward bug (fixed 2026-06-18). Now FD-checked at the
+	// softmax-chain budget. The input-x gradient also flows through the softmax
+	// chain; it is not a trainable parameter and has no FD helper, but it is
+	// exercised through the full Backward dispatch and is locked at the op level
+	// by tensor/expand_backward_grad_test.go (diamond->matmul).
+	checkParam(b.Attn.QKV.Weight, qkvWGrad, "QKV.Weight", tolSoftmax)
+	checkParam(b.Attn.QKV.Bias, qkvBGrad, "QKV.Bias", tolSoftmax)
 	_ = xGrad
-	t.Logf("QKV.{Weight,Bias} and input FD checks skipped (softmax autodiff drift; see notes carry-forward).")
 
 	t.Logf("Block FD summary (max rel per group):")
 	for _, s := range stats {

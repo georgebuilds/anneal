@@ -17,16 +17,14 @@ package nn_test
 //
 //  4. TestViTFDGradCheck
 //     Tiny config (imageH=imageW=8, patch=4 -> N=4; embedDim=8, nHead=2,
-//     nLayer=1, numClasses=4, B=1). Loss = output.Sum(). Tiered tolerance,
-//     mirroring the Slice L / Slice M policy verbatim:
-//       - Linear-only paths at 1e-3 relative: Patch.Proj.{W,B},
-//         Block.Proj.{W,B}, Block.LN2.{W,B}, Block.FC1.{W,B},
-//         Block.FC2.{W,B}, LNf.{W,B}, Head.{W,B}, PosEmb.
-//       - Documented-skip (upstream of softmax via Block backward):
-//         Block.QKV.{W,B}, Block.LN1.{W,B}. Real autodiff drift at Block
-//         scale; root cause in tensor/gradient_ruleset.go. See
-//         notes/gather_slice_progress.md carry-forward "Softmax gradient
-//         drift in autodiff" (same finding as gpt_test.go).
+//     nLayer=1, numClasses=4, B=1). Loss = output.Sum(). Tiered tolerance:
+//       - Linear-only paths at 1e-3 relative: Block.Proj.{W,B},
+//         Block.LN2.{W,B}, Block.FC1.{W,B}, Block.FC2.{W,B}, LNf.{W,B},
+//         Head.{W,B}.
+//       - Softmax-chain paths at 7e-2: Patch.Proj.{W,B}, PosEmb,
+//         Block.QKV.{W,B}, Block.LN1.{W,B}. These were sign-wrong and
+//         documented-skip under the OpExpand-backward bug (fixed 2026-06-18,
+//         tensor/gradient_ruleset.go); they now agree with FD.
 //
 //  5. TestViTDeterminism
 //     Same seed produces sha256-identical output logits across 3 fresh runs.
@@ -343,7 +341,11 @@ func TestViTFDGradCheck(t *testing.T) {
 
 		fdH      = float32(1e-3)
 		tolTight = float32(1e-3)
-		nCheck   = 3
+		// Softmax-chain paths (Patch.Proj, PosEmb, LN1, QKV): previously sign-wrong
+		// and documented-skip under the OpExpand-backward bug (fixed 2026-06-18);
+		// exp/div/rsqrt amplify FD truncation, so they carry this looser budget.
+		tolSoftmax = float32(7e-2)
+		nCheck     = 3
 	)
 
 	a0 := uop.NewArena(1 << 14)
@@ -450,17 +452,13 @@ func TestViTFDGradCheck(t *testing.T) {
 		stats = append(stats, groupStat{label: label, maxRel: maxRel})
 	}
 
-	// Linear-only paths: tight 1e-3 budget.
-	// PatchEmbed.Proj is a pure Linear after movement ops, so its gradient
-	// flows back through MLP, LayerNorm, attention output projection, etc.,
-	// and into the patch projection's input. The patch projection sits
-	// upstream of every softmax in the graph, so its gradient inherits the
-	// same softmax-chain drift as QKV/LN1. Treat the patch projection and
-	// PosEmb as documented-skip alongside QKV.{W,B} and LN1.{W,B}.
-	_ = patchWGrad
-	_ = patchBGrad
-	_ = posEmbGrad
-	t.Logf("Patch.Proj.{Weight,Bias} and PosEmb FD checks skipped (upstream of softmax via ViTBlock backward; same drift as Wte.Weight / Wpe.Weight in TestGPTFDGradCheck).")
+	// PatchEmbed.Proj and PosEmb sit upstream of every softmax in the graph, so
+	// their gradients previously inherited the OpExpand-backward sign-flip and
+	// were documented-skip. With that bug fixed (2026-06-18) they agree with FD
+	// inside the softmax-chain budget.
+	checkParam(v.Patch.Proj.Weight, patchWGrad, "Patch.Proj.Weight", tolSoftmax)
+	checkParam(v.Patch.Proj.Bias, patchBGrad, "Patch.Proj.Bias", tolSoftmax)
+	checkParam(v.PosEmb, posEmbGrad, "PosEmb", tolSoftmax)
 
 	checkParam(blk.Attn.Proj.Weight, projWGrad, "Proj.Weight", tolTight)
 	checkParam(blk.Attn.Proj.Bias, projBGrad, "Proj.Bias", tolTight)
@@ -475,18 +473,15 @@ func TestViTFDGradCheck(t *testing.T) {
 	checkParam(v.Head.Weight, headWGrad, "Head.Weight", tolTight)
 	checkParam(v.Head.Bias, headBGrad, "Head.Bias", tolTight)
 
-	// Softmax-chain paths (QKV.{W,B}, LN1.{W,B}) are documented-skip per the
-	// Slice L policy verbatim, mirroring TestGPTFDGradCheck. The compound
-	// LN-into-softmax autodiff chain produces sign-wrong analytic gradients
-	// on small-magnitude bias indices at the tiny-config scale; this is a
-	// real bug in tensor/gradient_ruleset.go, not FD truncation drift.
-	_ = ln1WGrad
-	_ = ln1BGrad
-	_ = qkvWGrad
-	_ = qkvBGrad
-	t.Logf("LN1.{Weight,Bias} and QKV.{Weight,Bias} FD checks skipped (softmax+LN compound autodiff drift; see notes/gather_slice_progress.md carry-forward \"Softmax gradient drift in autodiff\").")
+	// Softmax/LN-chain paths (QKV.{W,B}, LN1.{W,B}): previously sign-wrong and
+	// documented-skip under the OpExpand-backward bug (fixed 2026-06-18); now
+	// FD-checked at the softmax-chain budget.
+	checkParam(blk.LN1.Weight, ln1WGrad, "LN1.Weight", tolSoftmax)
+	checkParam(blk.LN1.Bias, ln1BGrad, "LN1.Bias", tolSoftmax)
+	checkParam(blk.Attn.QKV.Weight, qkvWGrad, "QKV.Weight", tolSoftmax)
+	checkParam(blk.Attn.QKV.Bias, qkvBGrad, "QKV.Bias", tolSoftmax)
 
-	t.Logf("ViT FD summary (max rel per Linear-only group):")
+	t.Logf("ViT FD summary (max rel per group):")
 	for _, s := range stats {
 		t.Logf("  %-14s max-rel=%.2e", s.label, s.maxRel)
 	}
