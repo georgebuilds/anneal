@@ -75,6 +75,15 @@ func buildGradient() GradRuleset {
 		return []*Tensor{adj.Neg()}
 	}
 
+	// OpContiguous is a value-identity materialization barrier (it forces a
+	// buffer to break kernel fusion / satisfy the WebGPU 8-buffer-per-kernel
+	// cap); its gradient is the identity, so the adjoint passes straight
+	// through. Without this rule Backward dead-ends at any Contiguous() on a
+	// gradient path, silently dropping the gradient of everything upstream.
+	m[uop.OpContiguous] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
+		return []*Tensor{adj}
+	}
+
 	// d/dx 2^x = 2^x · ln2  (node IS 2^x)
 	m[uop.OpExp2] = func(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32][]shape.Sint, device string) []*Tensor {
 		_, k, _ := gradHelpers(u, adj, shapeCache, device)
