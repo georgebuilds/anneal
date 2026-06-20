@@ -201,7 +201,14 @@ func gpt2StableCrossEntropy(logits, oneHot *tensor.Tensor, B, T, V int64) *tenso
 	nllPerEl := oneHot.Mul(logSoftmax)
 	totalNLL := nllPerEl.Sum(nil, false)
 	scale := tensor.ConstScalar(a, -1.0/float64(B*T), dtype, device)
-	return totalNLL.Mul(scale)
+	// Contiguous() materializes the full-reduce result before the scalar scale.
+	// Without it, the scheduler epilogue-fuses the scale Mul into the large
+	// reduce kernel (6.4M elements at V=50257), which miscompiles to 0 on the
+	// WebGPU backend (the bare reduce alone is correct; only the fused
+	// reduce+scalar-epilogue at scale fails). Contiguous is gradient-transparent
+	// (see tensor OpContiguous gradient rule). Underlying scheduler bug tracked
+	// in notes/gpt2_train_preflight.md; small vocab (nanoGPT/ViT) never hits it.
+	return totalNLL.Contiguous().Mul(scale)
 }
 
 // ── Gradient clipping ────────────────────────────────────────────────────────

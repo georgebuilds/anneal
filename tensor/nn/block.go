@@ -68,9 +68,9 @@ func NewBlock(a *uop.Arena, nEmbd, nHead, blockSize int) *Block {
 // reshape is needed at the residual joins.
 func (b *Block) Forward(x *tensor.Tensor) *tensor.Tensor {
 	// First sub-block: residual around (LN1 -> Attn).
-	h := x.Add(b.Attn.Forward(b.LN1.Forward(x)))
+	h := x.Add(b.Attn.Forward(b.LN1.Forward(x).Contiguous()))
 	// Second sub-block: residual around (LN2 -> MLP).
-	return h.Add(b.MLP.Forward(b.LN2.Forward(h)))
+	return h.Add(b.MLP.Forward(b.LN2.Forward(h).Contiguous()))
 }
 
 // ForwardKVStep computes one decode step of the block on a single new token,
