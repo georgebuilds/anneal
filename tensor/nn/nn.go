@@ -114,10 +114,21 @@ func ReLU(x *tensor.Tensor) *tensor.Tensor {
 }
 
 // Sigmoid returns 1 / (1 + exp(-x)) via primitives.
+//
+// The exponent argument is clamped to <= 40 so exp(-x) (and exp(-x)^2 in the
+// backward quotient rule) stay within f32 range. For x < -40 the sigmoid is
+// saturated to ~0 and its true derivative s(1-s) is ~1e-18 (negligible), so the
+// clamp is value- and gradient-faithful there. Without it the composite
+// backward overflows exp(>88) to inf -> NaN on large-magnitude activations
+// (notably the x^3 term in tanh-GELU drives inner ~40+ at GPT-2 scale, which
+// NaN'd every gradient in the fine-tune backward). 40 because the backward
+// squares exp(arg): exp(2*40) < f32 max, exp(2*88) would not.
 func Sigmoid(x *tensor.Tensor) *tensor.Tensor {
 	a := x.Arena()
 	one := tensor.FullSints(a, x.ShapeSints(), 1.0, x.DType(), x.Device())
-	return one.Div(one.Add(x.Neg().Exp()))
+	clamp := tensor.FullSints(a, x.ShapeSints(), 40.0, x.DType(), x.Device())
+	negx := x.Neg().Minimum(clamp)
+	return one.Div(one.Add(negx.Exp()))
 }
 
 // Tanh returns tanh(x) = 2*sigmoid(2x) - 1.
