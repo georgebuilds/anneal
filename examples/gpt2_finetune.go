@@ -114,10 +114,22 @@ func runGPT2Finetune(
 	V := int64(gptCfg.Vocab)
 	sampleRNG := rand.New(rand.NewSource(seed))
 
-	// Step-0 loss probe for the logger.
-	if cfg.LogEvery > 0 {
-		xs0, ys0 := sampleTokenBatch(rand.New(rand.NewSource(seed+101)), tokens, int(batch), T)
-		logFn(0, evalGPT2Loss(g, params, xs0, ys0, batch, T, V, device))
+	// All grads and the loss are realized in ONE batched call so the shared
+	// forward is computed once (vs once-per-grad); assignOutputs maps each output
+	// buffer to its tensor by node identity, so same-shape grads across layers
+	// are not scrambled (verified bit-exact vs sequential).
+	//
+	// On GPU we wrap that batched realize in a JIT: it captures the train-step
+	// schedule on step 1 and replays it on later steps with fresh leaf data
+	// (token batch, one-hot, reloaded params), skipping the ~900-kernel
+	// re-schedule + re-render that dominates per-step wall time at GPT-2 scale.
+	// JIT freezes the plan to pre-rendered WGSL (AST zeroed), so it is
+	// incompatible with the pure-Go CPU interpreter (which evaluates the AST);
+	// the CPU path uses plain batched Realize.
+	realizeStep := tensor.Realize
+	if device != "cpu" {
+		jit := tensor.NewJIT()
+		realizeStep = jit.Realize
 	}
 
 	for step := 1; step <= cfg.Steps; step++ {
@@ -143,22 +155,29 @@ func runGPT2Finetune(
 			leaves[i] = p.T
 		}
 		grads := tensor.Backward(loss, leaves)
+
+		// One batched realize: loss first, then grads in param order. The shared
+		// forward is computed once; JIT replays the plan after step 1.
+		outs := make([]*tensor.Tensor, 0, len(params)+1)
+		outs = append(outs, loss)
 		for _, p := range params {
 			if gr, ok := grads[p.T]; ok {
-				if err := tensor.Realize(gr); err != nil {
-					return fmt.Errorf("gpt2 finetune: realize grad %q at step %d: %w", p.Name, step, err)
-				}
+				outs = append(outs, gr)
 			}
 		}
+		if err := realizeStep(outs...); err != nil {
+			return fmt.Errorf("gpt2 finetune: realize step %d: %w", step, err)
+		}
+
 		clipGradsByGlobalNorm(grads, params, gpt2FinetuneGradClip)
 		opt.Step(grads)
 
 		if cfg.OnStep != nil {
 			cfg.OnStep(step)
 		}
-		if cfg.LogEvery > 0 && step%cfg.LogEvery == 0 {
-			lp := evalGPT2Loss(g, params, xs, ys, batch, T, V, device)
-			logFn(step, lp)
+		// loss is realized as outs[0]; it is the pre-update loss at this step.
+		if cfg.LogEvery > 0 && (step == 1 || step%cfg.LogEvery == 0) {
+			logFn(step, loss.Data()[0])
 		}
 	}
 
@@ -251,24 +270,6 @@ func clipGradsByGlobalNorm(grads map[*tensor.Tensor]*tensor.Tensor, params []*nn
 }
 
 // ── Loss eval + sampling ─────────────────────────────────────────────────────
-
-// evalGPT2Loss recomputes the stable cross-entropy for one batch in a fresh
-// arena, independent of the training graph, for logging.
-func evalGPT2Loss(g *nn.GPT, params []*nn.Parameter, xs, ys []int32, B, T, V int64, device string) float32 {
-	a := uop.NewArena(1 << 20)
-	for _, p := range params {
-		p.Load(a)
-	}
-	idx := tensor.NewLeaf(a, []int64{B, T}, uop.Dtypes.Int32, device)
-	idx.SetData(int32sAsBits(xs))
-	oh := tensor.NewLeaf(a, []int64{B, T, V}, uop.Dtypes.Float32, device)
-	oh.SetData(oneHotBits(ys, int(V)))
-	loss := gpt2StableCrossEntropy(g.Forward(idx), oh, B, T, V)
-	if err := tensor.Realize(loss); err != nil {
-		return float32(math.NaN())
-	}
-	return loss.Data()[0]
-}
 
 // greedySampleGPT2 generates nGen tokens greedily (argmax) from the fine-tuned
 // model, using a fixed seqLen rolling window. Mirrors generateNanoGPT; greedy

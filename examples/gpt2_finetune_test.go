@@ -148,6 +148,51 @@ func TestRunGPT2FinetuneCorpusTooShort(t *testing.T) {
 	}
 }
 
+// TestGPT2FinetuneJITGPU exercises the JIT-wrapped training loop on the GPU
+// backend with a small tied model: step 1 captures the schedule, steps 2-3
+// replay it. Asserts the loop completes with finite losses (JIT replay zeroes
+// the AST, so this would crash on the CPU interpreter — the trainer correctly
+// uses JIT only on non-cpu devices). This is the small-scale guard for the path
+// the real GPT-2 fine-tune drives.
+func TestGPT2FinetuneJITGPU(t *testing.T) {
+	requireGPUTest(t)
+
+	const (
+		vocab     = 24
+		nLayer    = 1
+		nHead     = 2
+		nEmbd     = 16
+		blockSize = 16
+	)
+	a0 := uop.NewArena(1 << 14)
+	g := nn.NewGPTWithTiedHead(a0, vocab, nLayer, nHead, nEmbd, blockSize)
+	initGPTSmall(g, 0.02, rand.New(rand.NewSource(1)))
+	corpus := make([]int32, vocab*8)
+	for i := range corpus {
+		corpus[i] = int32(i % vocab)
+	}
+	gptCfg := gpt2FinetuneConfig{
+		Vocab: vocab, NLayer: nLayer, NHead: nHead, NEmbd: nEmbd,
+		BlockSize: blockSize, SeqLen: 8, SampleN: 0,
+	}
+	cfg := TrainConfig{Steps: 3, LR: 5e-3, LogEvery: 1, Batch: 2}
+
+	var losses []float32
+	logFn := func(step int, loss float32) { losses = append(losses, loss) }
+	if err := runGPT2Finetune("webgpu", cfg, logFn, g, corpus, gptCfg, nil, nil, 7); err != nil {
+		t.Fatalf("runGPT2Finetune (GPU/JIT): %v", err)
+	}
+	if len(losses) < 3 {
+		t.Fatalf("expected 3 loss logs (capture + 2 replays), got %d", len(losses))
+	}
+	for i, l := range losses {
+		if math.IsNaN(float64(l)) || math.IsInf(float64(l), 0) {
+			t.Fatalf("loss[%d] not finite under JIT: %v", i, l)
+		}
+	}
+	t.Logf("GPU/JIT train loop: losses=%v", losses)
+}
+
 // TestGPT2StableCrossEntropyNoOverflow confirms the stable loss stays finite on
 // GPT-2-magnitude logits where the bare-exp loss (nanoGPT's) would overflow f32.
 func TestGPT2StableCrossEntropyNoOverflow(t *testing.T) {
