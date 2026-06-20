@@ -78,8 +78,23 @@ const MaxBuffersPerKernel = 8
 func enforceBufferBudget(sink uop.UOp) uop.UOp {
 	a := sink.Arena()
 
-	// Cap iterations to avoid infinite loops if the heuristic stalls.
-	const maxIters = 64
+	// Cap iterations to avoid infinite loops if the heuristic stalls. Each
+	// iteration cuts exactly one over-budget kernel (and adds at most one new
+	// realize point), so the number of cuts a graph needs scales with its
+	// realize-point count, not a small constant. A deep model (e.g. GPT-2's
+	// 12-layer backward) has hundreds of kernels and needs far more than 64
+	// cuts; a fixed-64 cap left over-budget kernels unsplit and they failed at
+	// codegen. Scale the cap with the realize-point count (the tier-1 heuristic
+	// guarantees progress, so this is a stall backstop, not a target).
+	topo0 := uop.TopoSort(sink)
+	realize0 := buildRealizeMapForBudget(sink, topo0)
+	nRealize := 0
+	for _, u := range topo0 {
+		if realize0[u.Index()] && !isLeafForBudget(u) {
+			nRealize++
+		}
+	}
+	maxIters := 64 + 4*nRealize
 	for iter := 0; iter < maxIters; iter++ {
 		topo := uop.TopoSort(sink)
 		realize := buildRealizeMapForBudget(sink, topo)
