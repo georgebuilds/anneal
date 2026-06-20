@@ -149,6 +149,7 @@ func canonicalOpName(q string) string {
 		"max":        "Max",
 		"min":        "Min",
 		"erf":        "Erf",
+		"contiguous": "Contiguous",
 	}
 	if n, ok := m[q]; ok {
 		return n
@@ -585,6 +586,15 @@ var allRules = []ruleEntry{
 		pattern:     "adj = Sum(adj, broadcast_axes)",
 		description: "undo broadcast: sum adjoint over expanded axes",
 		source:      "tensor/gradient.go",
+	},
+
+	// ── Contiguous ───────────────────────────────────────────────────────────
+	{
+		ops:         []string{"contiguous"},
+		kind:        "gradient",
+		pattern:     "adj = adj",
+		description: "value-identity materialization barrier (forces a kernel boundary); gradient passes straight through",
+		source:      "tensor/gradient_ruleset.go",
 	},
 
 	// ── Permute ──────────────────────────────────────────────────────────────

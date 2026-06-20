@@ -415,6 +415,7 @@ var gradPatternForOp = map[uop.Op]string{
 	uop.OpWhere:      "grad_x = where(cond, adj, 0); grad_y = where(cond, 0, adj); cond has no grad",
 	uop.OpReshape:    "adj = Reshape(adj, src_shape)",
 	uop.OpExpand:     "adj = Sum(adj, broadcast_axes)",
+	uop.OpContiguous: "adj = adj (materialization barrier; identity gradient)",
 	uop.OpPermute:    "adj = Permute(adj, inverse_perm)",
 	uop.OpPad:        "adj = Shrink(adj, remove_padding)",
 	uop.OpShrink:     "adj = Pad(adj, restore_size)",
