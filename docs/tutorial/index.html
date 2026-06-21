@@ -1178,9 +1178,9 @@
                     </div>
 
                     <div class="variant" data-model="gpt2">
-                        <h1 class="step-heading">Get anneal running and sample from GPT-2-small on your GPU.</h1>
+                        <h1 class="step-heading">Get anneal running, then run and fine-tune GPT-2-small on your GPU.</h1>
                         <p class="intent">
-                            You picked the <span class="model-pill">GPT-2</span> path. There is no training here: anneal loads the HuggingFace GPT-2-small checkpoint (about 548 MB of FP32 weights, plus the BPE vocab and merges), runs forward inference, and samples text. The first run downloads roughly 550 MB into the asset cache and verifies SHA pins. Use it to see the same compiler that trains nanoGPT also drive a real production checkpoint, byte-for-byte against HuggingFace.
+                            You picked the <span class="model-pill">GPT-2</span> path. anneal loads the HuggingFace GPT-2-small checkpoint (about 548 MB of FP32 weights, plus the BPE vocab and merges), runs forward inference byte-for-byte against HuggingFace, and <strong>fine-tunes</strong> it end to end on tinyshakespeare. The first run downloads roughly 550 MB into the asset cache and verifies SHA pins. Use it to see the same compiler that trains nanoGPT drive&nbsp;&mdash; and now train&nbsp;&mdash; a real production checkpoint.
                         </p>
                     </div>
 
@@ -1726,9 +1726,9 @@
                     </div>
 
                     <div class="variant" data-model="gpt2">
-                        <h2 class="step-heading">Sample from GPT-2-small, end to end in Go.</h2>
+                        <h2 class="step-heading">Run and fine-tune GPT-2-small, end to end in Go.</h2>
                         <p class="intent">
-                            GPT-2 has no training path in anneal v1 (training from scratch needs OpenWebText, about 40 GB, and a multi-day budget; that is a deliberate non-goal). The compiler-correctness story for this model is forward inference: anneal loads the HuggingFace checkpoint, runs forward, and the next-token logits agree with the reference implementation to f32 noise. The command below downloads the weights on first run, decodes BPE in pure Go, samples 10 tokens greedily from "Hello, world", and prints them.
+                            anneal loads the HuggingFace GPT-2-small checkpoint and does two things with it. First, forward inference: the next-token logits agree with the reference implementation to f32 noise (the command below downloads the weights on first run, decodes BPE in pure Go, and samples greedily from "Hello, world"). Second, <strong>fine-tuning</strong>: <code>anneal train gpt2</code> takes those same weights and trains them end to end on tinyshakespeare &mdash; the rangeify scheduler fuses the forward and backward passes, the tied embedding/LM-head share one gradient, the cross-entropy is numerically stable, and the optimizer is AdamW with LR warmup. (Pretraining <em>from scratch</em> needs OpenWebText, about 40&nbsp;GB, and a multi-day budget &mdash; that remains a deliberate non-goal; fine-tuning a pretrained checkpoint is the supported training path.)
                         </p>
 
                         <div class="terminal" role="region" aria-label="GPT-2 sample command">
@@ -1755,11 +1755,32 @@
                             Same model class, no Python, no CGO, no shim. The weights load through the pure-Go safetensors reader; the BPE tokenizer is pure Go too.
                         </div>
 
+                        <p class="intent">
+                            Now fine-tune those same weights. <code>anneal train gpt2</code> trains GPT-2-small end to end on tinyshakespeare: tied embedding/LM-head gradient, numerically stable cross-entropy, global-norm clip, and AdamW with LR warmup. On an M3 the schedule is captured once and JIT-replayed (~40s/step), and the held-out eval loss falls steadily.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="GPT-2 fine-tune command">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train gpt2 --steps=100 --lr=2e-5 --plain" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train gpt2 --steps=100 --lr=2e-5 --plain</span></div>
+                                <span class="t-out">training gpt2 &mdash; fine-tune GPT-2-small (HuggingFace weights) on tinyshakespeare</span>
+                                <span class="t-out">device: Metal (Apple M3)</span>
+                                <span class="t-out">step   1: loss=4.937841</span>
+                                <span class="t-out">step  24: loss=4.563632</span>
+                                <span class="t-out">step  48: loss=4.294182</span>
+                                <span class="t-out">step  64: loss=4.220015</span>
+                                <span class="t-out"><span class="t-fwd">step  96: loss=4.163856</span>  (perplexity ~140 &rarr; ~64)</span>
+                            </div>
+                        </div>
+
                         <details class="why">
-                            <summary>Why forward-only, and where does this fit?</summary>
+                            <summary>Fine-tune vs from-scratch, and where this fits</summary>
                             <div class="body">
-                                <p>Training GPT-2 from scratch needs OpenWebText (about 40 GB), a multi-day budget, and a tuned schedule; that is out of scope for v1. Forward inference gives you a clean side-by-side against a reference implementation: the same weights drive HuggingFace and anneal, and the outputs should agree to f32 noise.</p>
-                                <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op that drives nanoGPT. Nothing changes at the compiler level: this is the same pipeline with bigger weights.</p>
+                                <p>Fine-tuning starts from the pretrained checkpoint and adapts it; pretraining <em>from scratch</em> needs OpenWebText (about 40&nbsp;GB), a multi-day budget, and a tuned schedule, which is out of scope for v1. Fine-tuning is the supported training path and exercises the whole compiler under load: the autodiff pass injects gradients into the same graph as the forward, the scheduler fuses across the forward/backward boundary, and the tied embedding/LM-head accumulate one shared gradient.</p>
+                                <p>The BPE encoder is pure Go (no <code>tiktoken</code> dependency). The safetensors loader is pure Go (no Python shim). The embedding lookup at the front of the model is the same <code>Gather</code> op that drives nanoGPT. Nothing changes at the compiler level between forward and fine-tune: it is the same pipeline with bigger weights and a backward pass.</p>
                             </div>
                         </details>
 

@@ -41,10 +41,11 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## CLI
 
 - `anneal run mlp` — realize and execute a registered example graph
-- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, vit; use `--batch=N` with dynmlp for dynamic batch)
+- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, vit, gpt2; use `--batch=N` with dynmlp for dynamic batch)
 - `anneal train nanogpt`: char-level transformer trained end to end on tinyshakespeare; first run fetches the corpus, prints a generated sample at the end
 - `anneal train vit`: Vision Transformer (ViT-tiny: 32x32 RGB, patch 4, 64-dim embed, 2 encoder blocks, 4 heads, mean-pool classification head) trained on a synthetic 10-class image dataset; no asset downloads
 - `anneal gpt2 sample <prompt>`: load HuggingFace GPT-2-small weights (~548 MB SHA-pinned safetensors fetched on first run), encode with pure-Go BPE, run forward through the same `nn.GPT` module, decode the sampled continuation
+- `anneal train gpt2`: fine-tune GPT-2-small end to end on tinyshakespeare from the same HuggingFace weights — tied embedding/LM-head gradient, numerically stable cross-entropy, global-norm clip, AdamW + LR warmup, JIT-replayed train step (~40s/step on M3); the eval-batch loss converges
 - `anneal viz` — launch the graph visualizer (WASM)
 - `anneal web [addr]` — serve the local studio (eight deep-linkable views, no telemetry)
 - `anneal graph mlp` — inspect the UOp DAG
@@ -55,6 +56,6 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## Links
 
 - Homepage: https://georgebuilds.github.io/anneal/
-- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step tutorial. Install anneal, train nanoGPT on Shakespeare, run GPT-2-small forward; covers WebGPU prereqs, asset download cache, BPE tokenizer, compiler-level walkthrough.
+- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step tutorial. Install anneal, train nanoGPT on Shakespeare, run GPT-2-small forward and fine-tune it end to end; covers WebGPU prereqs, asset download cache, BPE tokenizer, compiler-level walkthrough.
 - Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/ : Static UOp graph visualizer for the MLP model. Forward / backward / fused-kernel coloring; a scrubbable timeline through compiler passes; a rules sub-timeline on the gradient and scheduled stages that animates backward nodes appearing in reverse-topological order per BackwardWithTrace's GradTrace, with SVG tooltips naming the gradient rule and firing seq on each backward node.
 - Source: https://github.com/georgebuilds/anneal
