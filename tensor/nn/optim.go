@@ -36,7 +36,14 @@ type Adam struct {
 	Beta1  float32
 	Beta2  float32
 	Eps    float32
-	T      int // step counter; incremented on each Step call
+	// WeightDecay enables decoupled weight decay (AdamW, Loshchilov & Hutter):
+	// each step also pulls every parameter toward 0 by lr*WeightDecay*value,
+	// applied independently of the moment estimates. 0 disables it (plain Adam).
+	// It is the direct stabiliser against weight explosion in fine-tuning (e.g.
+	// the tied GPT-2 Wte, which gets a double gradient and otherwise grows until
+	// the logits overflow f32).
+	WeightDecay float32
+	T           int // step counter; incremented on each Step call
 
 	// Per-parameter first/second moment buffers. m[i] and v[i] are slices of
 	// the same length as Params[i].Value; they are zero-initialised on construction.
@@ -48,6 +55,15 @@ type Adam struct {
 // (beta1=0.9, beta2=0.999, eps=1e-8). lr is the only required tuning knob.
 func NewAdam(params []*Parameter, lr float32) *Adam {
 	return NewAdamWithBetas(params, lr, 0.9, 0.999, 1e-8)
+}
+
+// NewAdamW constructs an AdamW optimizer (Adam + decoupled weight decay) with
+// the paper's default betas/eps. Use weightDecay ~0.1 for transformer
+// fine-tuning to keep weights bounded.
+func NewAdamW(params []*Parameter, lr, weightDecay float32) *Adam {
+	a := NewAdamWithBetas(params, lr, 0.9, 0.999, 1e-8)
+	a.WeightDecay = weightDecay
+	return a
 }
 
 // NewAdamWithBetas constructs an Adam optimizer with caller-supplied betas and
@@ -118,6 +134,7 @@ func (opt *Adam) applyOne(i int, p *Parameter, grad []float32, bc1, bc2 float32)
 	b1 := opt.Beta1
 	b2 := opt.Beta2
 	eps := opt.Eps
+	wd := opt.WeightDecay
 
 	for j := range p.Value {
 		g := grad[j]
@@ -125,6 +142,11 @@ func (opt *Adam) applyOne(i int, p *Parameter, grad []float32, bc1, bc2 float32)
 		v[j] = b2*v[j] + (1-b2)*g*g
 		mHat := m[j] / bc1
 		vHat := v[j] / bc2
+		// Decoupled weight decay (AdamW): pull toward 0 independently of the
+		// adaptive moment step. Skipped when wd==0 (plain Adam).
+		if wd != 0 {
+			p.Value[j] -= lr * wd * p.Value[j]
+		}
 		p.Value[j] -= lr * mHat / (float32(math.Sqrt(float64(vHat))) + eps)
 	}
 }
