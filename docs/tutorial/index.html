@@ -36,10 +36,10 @@
         </script>
 
         <!-- Primary SEO ------------------------------------------------ -->
-        <title>Tutorial · anneal: ML compiler in Go (WebGPU)</title>
+        <title>Train ML models from scratch in Go on your GPU · anneal tutorial</title>
         <meta
             name="description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Learn to train neural networks from scratch in pure Go on a real GPU: nanoGPT, a Llama-style decoder, GPT-2, ConvNet, ViT, and ResNet-9. No Python, no CUDA."
         />
         <meta
             name="robots"
@@ -71,11 +71,11 @@
         <meta property="og:site_name" content="anneal" />
         <meta
             property="og:title"
-            content="Tutorial · anneal: ML compiler in Go (WebGPU)"
+            content="Train ML models from scratch in Go on your GPU · anneal tutorial"
         />
         <meta
             property="og:description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Learn to train neural networks from scratch in pure Go on a real GPU: nanoGPT, a Llama-style decoder, GPT-2, ConvNet, ViT, and ResNet-9. No Python, no CUDA."
         />
         <meta
             property="og:image"
@@ -99,11 +99,11 @@
         <meta name="twitter:card" content="summary_large_image" />
         <meta
             name="twitter:title"
-            content="Tutorial · anneal: ML compiler in Go (WebGPU)"
+            content="Train ML models from scratch in Go on your GPU · anneal tutorial"
         />
         <meta
             name="twitter:description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Learn to train neural networks from scratch in pure Go on a real GPU: nanoGPT, a Llama-style decoder, GPT-2, ConvNet, ViT, and ResNet-9. No Python, no CUDA."
         />
         <meta
             name="twitter:image"
@@ -128,8 +128,8 @@
                 "@context": "https://schema.org",
                 "@type": "LearningResource",
                 "name": "anneal tutorial",
-                "headline": "Tutorial · anneal: ML compiler in Go (WebGPU)",
-                "description": "Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it.",
+                "headline": "Train ML models from scratch in Go on your GPU · anneal tutorial",
+                "description": "Learn to train neural networks from scratch in pure Go on a real GPU: nanoGPT, a Llama-style decoder, GPT-2, ConvNet, ViT, and ResNet-9. No Python, no CUDA.",
                 "url": "https://georgebuilds.github.io/anneal/tutorial/",
                 "inLanguage": "en",
                 "learningResourceType": "Tutorial",
@@ -178,6 +178,57 @@
                         "position": 2,
                         "name": "Tutorial",
                         "item": "https://georgebuilds.github.io/anneal/tutorial/"
+                    }
+                ]
+            }
+        </script>
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "HowTo",
+                "name": "How to train a machine learning model from scratch in Go on your GPU",
+                "description": "Install anneal, verify your GPU, and train a neural network (nanoGPT, a Llama-style decoder, GPT-2, ConvNet, ViT, or ResNet-9) end to end with no Python and no CUDA.",
+                "inLanguage": "en",
+                "totalTime": "PT20M",
+                "image": "https://georgebuilds.github.io/anneal/og-image.png",
+                "tool": [
+                    {
+                        "@type": "HowToTool",
+                        "name": "Go toolchain"
+                    },
+                    {
+                        "@type": "HowToTool",
+                        "name": "A WebGPU-capable GPU (Metal, Vulkan, or D3D12)"
+                    }
+                ],
+                "step": [
+                    {
+                        "@type": "HowToStep",
+                        "position": 1,
+                        "name": "Install anneal",
+                        "text": "Install the Go toolchain and build the anneal CLI.",
+                        "url": "https://georgebuilds.github.io/anneal/tutorial/#install"
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 2,
+                        "name": "Verify your GPU",
+                        "text": "Run anneal doctor to confirm a working WebGPU adapter on your machine.",
+                        "url": "https://georgebuilds.github.io/anneal/tutorial/#sanity"
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 3,
+                        "name": "Train a model on your GPU",
+                        "text": "Run anneal train with mlp, nanogpt, llama, vit, resnet9, or gpt2 to train a model end to end on your GPU.",
+                        "url": "https://georgebuilds.github.io/anneal/tutorial/#train"
+                    },
+                    {
+                        "@type": "HowToStep",
+                        "position": 4,
+                        "name": "Explore the compiler",
+                        "text": "Inspect the generated WebGPU kernels and the forward and backward graph the compiler produced.",
+                        "url": "https://georgebuilds.github.io/anneal/tutorial/#tour"
                     }
                 ]
             }
@@ -985,7 +1036,7 @@
                 overflow: hidden;
                 clip: rect(0 0 0 0);
             "
-        >anneal tutorial</h1>
+        >Train machine learning models from scratch in Go on your GPU: the anneal tutorial</h1>
 
         <div class="progress-track" aria-hidden="true">
             <div class="progress-fill" id="js-progress"></div>

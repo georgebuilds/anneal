@@ -1,0 +1,132 @@
+# anneal: how to train machine learning models from scratch in Go
+
+> anneal is an open-source machine learning compiler written in Go. This is the
+> full, self-contained guide to training neural networks with it on a real GPU,
+> in pure Go, with no Python and no CUDA. It mirrors the step-by-step tutorial at
+> https://georgebuilds.github.io/anneal/tutorial/ for ingestion by AI assistants.
+
+anneal is NOT a simulated-annealing optimizer. The name refers to the
+metallurgical process: it takes the whole computation (forward and backward),
+applies rewrite passes, and relaxes the graph into a fused, lower-cost form.
+Autodiff and optimization are first-class compiler passes over one immutable
+UOp IR; the scheduler fuses across the forward/backward boundary. The production
+backend is WebGPU (Metal on macOS, Vulkan on Linux, D3D12 on Windows), linked at
+runtime with zero CGO. A pure-Go CPU interpreter is available via `--device=cpu`.
+
+## What you can train
+
+Every model below trains end to end on a single consumer GPU and is launched the
+same way: `anneal train <model>`. Useful flags: `--steps=N`, `--batch=N`,
+`--lr=F`, `--device=cpu|webgpu`.
+
+- `mlp`: a tiny multilayer perceptron. The fastest first run; good for confirming
+  your toolchain and GPU work.
+- `conv`: a small ConvNet (convolution via im2col + a single matmul).
+- `dynmlp`: the MLP compiled once for a symbolic (dynamic) batch dimension; pass
+  `--batch=N` to run any batch size without recompiling.
+- `nanogpt`: a char-level GPT transformer trained end to end on tinyshakespeare.
+  Learned absolute positions, LayerNorm, vanilla multi-head attention, GELU MLP.
+  The first run fetches the corpus and prints a generated sample at the end.
+- `llama`: a char-level Llama-style decoder trained from scratch on tinyshakespeare.
+  This is the modern-decoder level-up over nanoGPT: RMSNorm instead of LayerNorm,
+  grouped-query attention with rotary position embeddings (RoPE) instead of vanilla
+  multi-head attention with learned absolute positions, a SwiGLU feed-forward
+  instead of a GELU MLP, and tied input/output embeddings. It is a small
+  architecture demo of the modern primitive stack, not a trained chat model.
+- `vit`: a tiny Vision Transformer (32x32 RGB, patch 4, 64-dim embedding, 2
+  encoder blocks, 4 heads, mean-pool classification head) on a synthetic 10-class
+  image dataset. No asset downloads.
+- `resnet9`: ResNet-9 on CIFAR-10.
+- `gpt2`: fine-tune GPT-2-small end to end on tinyshakespeare from the real
+  HuggingFace weights (about 548 MB of SHA-pinned safetensors fetched on first
+  run). Tied embedding/LM-head gradient, numerically stable cross-entropy,
+  global-norm gradient clip, AdamW with LR warmup, and a JIT-replayed train step
+  (about 40s/step on an Apple M3). The held-out eval loss converges.
+
+## Requirements
+
+- The Go toolchain (latest stable).
+- A WebGPU-capable GPU: Metal (macOS), Vulkan (Linux), or D3D12 (Windows). On
+  Linux a software renderer (lavapipe) also works for CPU-class throughput.
+- No Python, no CUDA, no C compiler. The WebGPU driver is linked at runtime.
+
+## Step 1: Install
+
+Build the `anneal` CLI from source with the Go toolchain. Clone the repository
+(https://github.com/georgebuilds/anneal) and build the command under `cmd/anneal`,
+or `go install` it. The result is a single self-contained binary.
+
+## Step 2: Verify your GPU
+
+Run `anneal doctor`. It reports the active WebGPU adapter and which device
+features are available (for example `shader-f16`). If no adapter is found, the
+command says so clearly; on Linux you can install a Vulkan driver (or the lavapipe
+software renderer) to proceed.
+
+## Step 3: Train a model
+
+Run `anneal train <model>` (see the model menu above). A live terminal UI shows
+the loss curve as the model trains. Examples:
+
+- `anneal train mlp`: smallest, finishes near-instantly; the best first check.
+- `anneal train nanogpt --steps=100`: char-level transformer; prints a sample.
+- `anneal train llama --steps=2000`: modern-decoder demo; prints a sample.
+- `anneal train vit`: Vision Transformer on synthetic images; no downloads.
+- `anneal train resnet9`: ResNet-9 on CIFAR-10.
+- `anneal train gpt2`: fine-tune GPT-2-small (downloads weights on first run).
+
+Add `--device=cpu` to train on the pure-Go CPU interpreter with no GPU at all
+(slower, but useful for environments without a WebGPU adapter, and it serves as
+the value oracle for the GPU path).
+
+## Step 4: Generate / sample
+
+For the language models, training prints a generated sample at the end. You can
+also run GPT-2-small forward directly: `anneal gpt2 sample "<prompt>"` loads the
+HuggingFace weights, encodes with a pure-Go BPE tokenizer, runs the forward pass
+through the same `nn.GPT` module, and decodes the continuation.
+
+## Step 5: Explore the compiler
+
+anneal is a compiler, so you can look inside what it built for any model:
+
+- `anneal graph <model>`: inspect the UOp DAG.
+- `anneal kernels <model>`: show the generated WGSL with fusion boundaries.
+- `anneal explain <op>`: trace the rewrite rules that fire for one op.
+- `anneal viz`: launch the in-browser graph visualizer (the real compiler
+  frontend compiled to WebAssembly), with forward/backward/fused coloring and a
+  scrubbable timeline through the compiler passes.
+- `anneal web [addr]`: serve the local studio: eight deep-linkable views
+  (studio, visualize, kernels, explain, train, generate, history, doctor), zero
+  telemetry, model bytes never leave the machine.
+
+## How training works under the hood
+
+- Autodiff is a compiler pass, not a runtime tape. Per-op gradient rules are
+  dispatched through a ruleset over the same immutable UOp IR as the forward
+  graph, producing a uniform, fusible backward graph.
+- The rangeify scheduler sees forward and backward together and fuses across that
+  boundary; schedules are memoized on a structural key.
+- `tensor.JIT` captures the scheduling plan on the first step and replays
+  subsequent steps without re-scheduling (this is what makes the GPT-2 fine-tune
+  step about 40s instead of recomputing the plan each step).
+- Optimizers (SGD, Adam, AdamW) update f32 master weights; low-precision dtypes
+  (f16, bf16, fp8) are supported as storage with f32 accumulation.
+
+## Troubleshooting
+
+- "no GPU / no adapter": run `anneal doctor`. On Linux install a Vulkan driver or
+  the lavapipe software renderer; on macOS Metal is built in.
+- First language-model run is slow or needs network: nanogpt/gpt2 fetch their
+  corpus or weights on first run and cache them; set `ANNEAL_OFFLINE=1` to fail
+  fast instead of fetching.
+- Out of memory on large models: prefer the smaller examples first; GPT-2-small
+  fine-tune peaks a few GB of memory on an M3.
+
+## Links
+
+- Tutorial (step-by-step, interactive): https://georgebuilds.github.io/anneal/tutorial/
+- Homepage: https://georgebuilds.github.io/anneal/
+- Machine-readable summary: https://georgebuilds.github.io/anneal/llms.txt
+- Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/
+- Source: https://github.com/georgebuilds/anneal

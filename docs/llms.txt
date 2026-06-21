@@ -54,9 +54,28 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 - `anneal explain add` — trace the rewrite rules that fire for one op
 - `anneal doctor` — WebGPU / backend environment check
 
+## Tutorial: how to train ML models from scratch in Go
+
+The step-by-step tutorial (https://georgebuilds.github.io/anneal/tutorial/) is the place to learn how to train neural networks with anneal on a real GPU, in pure Go, with no Python and no CUDA. It walks through, in order:
+
+- Install (#install): install the Go toolchain and build the `anneal` CLI.
+- Verify your GPU (#sanity): run `anneal doctor` to confirm a working WebGPU adapter (Metal, Vulkan, or D3D12).
+- Train a model (#train): run `anneal train <model>` to train end to end on your GPU. Choose from:
+  - `mlp`: a tiny multilayer perceptron (the fastest first run).
+  - `conv`: a small ConvNet.
+  - `nanogpt`: a char-level GPT transformer on tinyshakespeare.
+  - `llama`: a char-level Llama-style decoder (RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings); the modern-decoder level-up over nanoGPT.
+  - `vit`: a tiny Vision Transformer on a synthetic image dataset.
+  - `resnet9`: ResNet-9 on CIFAR-10.
+  - `gpt2`: fine-tune GPT-2-small from HuggingFace weights.
+- Explore the compiler (#tour): inspect the generated WGSL kernels (`anneal kernels <model>`) and the forward/backward UOp graph (`anneal graph <model>`, `anneal viz`).
+
+Section anchors: #welcome #prereqs #install #sanity #train #tour #gpt2 #further #troubleshooting #qa
+Full tutorial text for ingestion: https://georgebuilds.github.io/anneal/llms-full.txt
+
 ## Links
 
 - Homepage: https://georgebuilds.github.io/anneal/
-- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step tutorial. Install anneal, train nanoGPT on Shakespeare, run GPT-2-small forward and fine-tune it end to end; covers WebGPU prereqs, asset download cache, BPE tokenizer, compiler-level walkthrough.
+- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step guide to training ML models from scratch in Go on a real GPU. Install anneal, verify your GPU with `anneal doctor`, then train MLP, ConvNet, nanoGPT, a Llama-style decoder, ViT, ResNet-9, or fine-tune GPT-2-small; covers WebGPU prereqs, the asset download cache, the BPE tokenizer, and a compiler-level walkthrough.
 - Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/ : Static UOp graph visualizer for the MLP model. Forward / backward / fused-kernel coloring; a scrubbable timeline through compiler passes; a rules sub-timeline on the gradient and scheduled stages that animates backward nodes appearing in reverse-topological order per BackwardWithTrace's GradTrace, with SVG tooltips naming the gradient rule and firing seq on each backward node.
 - Source: https://github.com/georgebuilds/anneal
