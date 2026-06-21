@@ -52,7 +52,7 @@ const (
 	gpt2FinetuneSeqLen      = int64(64)
 	gpt2FinetuneBatch       = int64(2)
 	gpt2FinetuneLR          = float32(3e-5)
-	gpt2FinetuneGradClip    = float32(1.0)
+	gpt2FinetuneGradClip    = float32(0.5) // global-norm clip; bounds update spikes
 	gpt2FinetuneWeightDecay = float32(0.1) // AdamW decay; bounds the tied Wte
 	gpt2FinetuneWarmup      = 20           // LR warmup steps
 	gpt2FinetuneSampleN     = 60
@@ -119,6 +119,11 @@ func runGPT2Finetune(
 	T := gptCfg.SeqLen
 	V := int64(gptCfg.Vocab)
 	sampleRNG := rand.New(rand.NewSource(seed))
+
+	// Fixed held-out eval batch (sampled once from an independent RNG). Logging
+	// the loss on the SAME batch every interval gives a clean, comparable
+	// convergence curve, vs the high-variance per-step training-batch loss.
+	evalXs, evalYs := sampleTokenBatch(rand.New(rand.NewSource(seed+777)), tokens, int(batch), T)
 
 	// All grads and the loss are realized in ONE batched call so the shared
 	// forward is computed once (vs once-per-grad); assignOutputs maps each output
@@ -196,9 +201,14 @@ func runGPT2Finetune(
 		if cfg.OnStep != nil {
 			cfg.OnStep(step)
 		}
-		// loss is realized as outs[0]; it is the pre-update loss at this step.
+		// Log the loss on the FIXED eval batch (clean curve). Falls back to the
+		// step's training loss if no eval batch is available.
 		if cfg.LogEvery > 0 && (step == 1 || step%cfg.LogEvery == 0) {
-			logFn(step, loss.Data()[0])
+			if evalXs != nil {
+				logFn(step, evalGPT2Loss(g, params, evalXs, evalYs, batch, T, V, device))
+			} else {
+				logFn(step, loss.Data()[0])
+			}
 		}
 	}
 
@@ -320,6 +330,24 @@ func clipGradsByGlobalNorm(grads map[*tensor.Tensor]*tensor.Tensor, params []*nn
 }
 
 // ── Loss eval + sampling ─────────────────────────────────────────────────────
+
+// evalGPT2Loss computes the stable cross-entropy for one batch forward-only in a
+// fresh arena (no backward), for a clean held-out convergence signal.
+func evalGPT2Loss(g *nn.GPT, params []*nn.Parameter, xs, ys []int32, B, T, V int64, device string) float32 {
+	a := uop.NewArena(1 << 20)
+	for _, p := range params {
+		p.Load(a)
+	}
+	idx := tensor.NewLeaf(a, []int64{B, T}, uop.Dtypes.Int32, device)
+	idx.SetData(int32sAsBits(xs))
+	oh := tensor.NewLeaf(a, []int64{B, T, V}, uop.Dtypes.Float32, device)
+	oh.SetData(oneHotBits(ys, int(V)))
+	loss := gpt2StableCrossEntropy(g.Forward(idx), oh, B, T, V)
+	if err := tensor.Realize(loss); err != nil {
+		return float32(math.NaN())
+	}
+	return loss.Data()[0]
+}
 
 // greedySampleGPT2 generates nGen tokens greedily (argmax) from the fine-tuned
 // model, using a fixed seqLen rolling window. Mirrors generateNanoGPT; greedy
