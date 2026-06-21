@@ -30,9 +30,18 @@ jobs:
       - name: Test
         # -p 1 keeps peak memory bounded: the Vulkan SW renderer (lavapipe)
         # plus a second heavy package in parallel can OOM the hosted runner.
+        #
+        # GOMEMLIMIT caps the Go heap's transient growth so the runtime returns
+        # garbage to the OS aggressively. The onnx e2e suite (ResNet-9 multi /
+        # symbolic batch) peaks ~15 GB un-capped, which exceeds the 16 GB hosted
+        # runner once lavapipe's host-side buffer overhead is added, and the
+        # runner SIGTERMs the step (exit 143, no Go traceback). 8 GiB trims ~4 GB
+        # of heap garbage with no measurable time cost (live heap stays well
+        # under the limit, so there is no GC death-spiral).
         run: go test -short -timeout=12m -p 1 -coverprofile=coverage.txt ./...
         env:
           GOTRACEBACK: crash
+          GOMEMLIMIT: 8GiB
 
       # NOTE to maintainer: add CODECOV_TOKEN as a repository secret in
       # repo Settings, Secrets and variables, Actions. Without it, uploads
