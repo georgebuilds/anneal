@@ -155,6 +155,9 @@ func TestRunGPT2FinetuneCorpusTooShort(t *testing.T) {
 // uses JIT only on non-cpu devices). This is the small-scale guard for the path
 // the real GPT-2 fine-tune drives.
 func TestGPT2FinetuneJITGPU(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: GPU JIT training burst is too slow on the software renderer (lavapipe); CPU smoke + FD checks cover the logic")
+	}
 	requireGPUTest(t)
 
 	const (
