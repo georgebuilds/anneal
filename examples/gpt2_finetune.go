@@ -49,12 +49,14 @@ const (
 	// Fine-tune defaults. The sequence length and batch are deliberately small
 	// relative to GPT-2's 1024 block size to keep per-step GPU memory (attention
 	// scores scale as B*nHead*T*T) and the V=50257 one-hot target tractable.
-	gpt2FinetuneSeqLen   = int64(64)
-	gpt2FinetuneBatch    = int64(2)
-	gpt2FinetuneLR       = float32(3e-5)
-	gpt2FinetuneGradClip = float32(1.0)
-	gpt2FinetuneSampleN  = 60
-	gpt2FinetunePrompt   = "ROMEO:"
+	gpt2FinetuneSeqLen      = int64(64)
+	gpt2FinetuneBatch       = int64(2)
+	gpt2FinetuneLR          = float32(3e-5)
+	gpt2FinetuneGradClip    = float32(1.0)
+	gpt2FinetuneWeightDecay = float32(0.1) // AdamW decay; bounds the tied Wte
+	gpt2FinetuneWarmup      = 20           // LR warmup steps
+	gpt2FinetuneSampleN     = 60
+	gpt2FinetunePrompt      = "ROMEO:"
 	// cmd_train.go's --lr default (0.05, tuned for the SGD MLP/Conv examples)
 	// explodes a GPT-2 Adam update; treat that exact value as "user did not set
 	// --lr" and swap to the canonical fine-tune LR. Any other value is honored.
@@ -108,7 +110,11 @@ func runGPT2Finetune(
 	for _, p := range params {
 		p.Load(uop.NewArena(1 << 12)) // ensure p.T exists before optimizer captures it
 	}
-	opt := nn.NewAdam(params, lr)
+	// AdamW (decoupled weight decay) + LR warmup are the standard GPT-2 fine-tune
+	// stabilisers. Without them the tied Wte weight grows until the LM-head logits
+	// overflow f32 (forward NaN); weight decay bounds it and warmup avoids the
+	// large initial gradient kick on pretrained weights.
+	opt := nn.NewAdamW(params, lr, gpt2FinetuneWeightDecay)
 
 	T := gptCfg.SeqLen
 	V := int64(gptCfg.Vocab)
@@ -167,6 +173,21 @@ func runGPT2Finetune(
 		}
 		if err := realizeStep(outs...); err != nil {
 			return fmt.Errorf("gpt2 finetune: realize step %d: %w", step, err)
+		}
+
+		// LR warmup: linearly ramp to the target over the first warmup steps,
+		// avoiding the destructive first-step kick on pretrained weights.
+		opt.LR = warmupLR(lr, step, gpt2FinetuneWarmup)
+
+		// Skip-step guard: if any gradient is non-finite (a numerical spike on a
+		// hard batch), skip the optimizer update rather than poison every weight
+		// with NaN. Standard mixed-precision practice; with AdamW+warmup it should
+		// rarely fire.
+		if anyNonFiniteGrad(grads, params) {
+			if cfg.OnStep != nil {
+				cfg.OnStep(step)
+			}
+			continue
 		}
 
 		clipGradsByGlobalNorm(grads, params, gpt2FinetuneGradClip)
@@ -228,6 +249,35 @@ func gpt2StableCrossEntropy(logits, oneHot *tensor.Tensor, B, T, V int64) *tenso
 	// (see tensor OpContiguous gradient rule). Underlying scheduler bug tracked
 	// in notes/gpt2_train_preflight.md; small vocab (nanoGPT/ViT) never hits it.
 	return totalNLL.Contiguous().Mul(scale)
+}
+
+// ── Training-dynamics helpers ─────────────────────────────────────────────────
+
+// warmupLR linearly ramps the learning rate from 0 to target over the first
+// `warmup` steps (1-based), then holds at target. warmup <= 0 disables ramping.
+func warmupLR(target float32, step, warmup int) float32 {
+	if warmup <= 0 || step >= warmup {
+		return target
+	}
+	return target * float32(step) / float32(warmup)
+}
+
+// anyNonFiniteGrad reports whether any parameter gradient contains NaN/Inf.
+// Used to skip an optimizer step on a numerical spike rather than poison every
+// weight (the clip would otherwise turn one Inf into an all-NaN update).
+func anyNonFiniteGrad(grads map[*tensor.Tensor]*tensor.Tensor, params []*nn.Parameter) bool {
+	for _, p := range params {
+		g, ok := grads[p.T]
+		if !ok {
+			continue
+		}
+		for _, v := range g.Data() {
+			if f := float64(v); math.IsNaN(f) || math.IsInf(f, 0) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ── Gradient clipping ────────────────────────────────────────────────────────
