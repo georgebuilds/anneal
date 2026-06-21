@@ -67,27 +67,24 @@ func TestMLPBlockShape(t *testing.T) {
 
 // ── GELU known-point oracle (GPU) ────────────────────────────────────────────
 
-// geluTanhRef computes the tanh-approximant GELU in float64 reference math:
-// 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-func geluTanhRef(x float64) float64 {
-	const c0 = 0.7978845608028654 // sqrt(2/pi)
-	const c1 = 0.044715
-	inner := c0 * (x + c1*x*x*x)
-	return 0.5 * x * (1.0 + math.Tanh(inner))
+// geluErfRef computes the exact (erf-based) GELU in float64 reference math:
+// 0.5 * x * (1 + erf(x / sqrt(2)))
+func geluErfRef(x float64) float64 {
+	return 0.5 * x * (1.0 + math.Erf(x/math.Sqrt2))
 }
 
-func TestGELUTanhKnownPoints(t *testing.T) {
+func TestGELUKnownPoints(t *testing.T) {
 	requireGPU(t)
 
 	// Probe inputs and analytic-formula references.
 	probes := []struct {
 		x    float32
-		want float32 // analytic tanh-approximant value
+		want float32 // analytic exact-GELU value
 	}{
 		{0.0, 0.0},
-		{1.0, float32(geluTanhRef(1.0))},   // ≈ 0.8412
-		{-1.0, float32(geluTanhRef(-1.0))}, // ≈ -0.1588
-		{2.0, float32(geluTanhRef(2.0))},   // ≈ 1.9546
+		{1.0, float32(geluErfRef(1.0))},   // ≈ 0.8413
+		{-1.0, float32(geluErfRef(-1.0))}, // ≈ -0.1587
+		{2.0, float32(geluErfRef(2.0))},   // ≈ 1.9545
 	}
 
 	// Build a single forward pass over all probes batched as a [N] vector.
@@ -99,48 +96,41 @@ func TestGELUTanhKnownPoints(t *testing.T) {
 	xT := tensor.NewLeaf(a, []int64{int64(len(probes))}, uop.Dtypes.Float32, "webgpu")
 	xT.SetData(xs)
 
-	// Exercise the same gelu_tanh path used by MLP.Forward by building it
-	// inline against the public API (Tanh + Mul/Add). This is equivalent to
-	// nn.MLP's internal geluTanh; both share the same formula.
-	yT := callGELUTanh(xT)
+	// Exercise the same erf-GELU path used by MLP.Forward by building it inline
+	// against the public API (Erf + Mul/Add), equivalent to nn.MLP's internal gelu.
+	yT := callGELUErf(xT)
 	if err := tensor.Realize(yT); err != nil {
 		t.Fatalf("realize GELU: %v", err)
 	}
 	got := yT.Data()
 
-	const tol = float32(1e-3) // tanh-approximant has O(1e-4) deviation from
-	// exact erf-GELU; using 1e-3 keeps headroom against both the approximation
-	// gap and float32 rounding.
+	const tol = float32(1e-3) // anneal's OpErf is a polynomial approximation
+	// (~1e-7 abs error); 1e-3 keeps headroom against that and float32 rounding.
 	for i, p := range probes {
 		diff := got[i] - p.want
 		if diff < 0 {
 			diff = -diff
 		}
-		t.Logf("gelu_tanh(%+.2f) = %+.6f  ref=%+.6f  diff=%.2e", p.x, got[i], p.want, diff)
+		t.Logf("gelu(%+.2f) = %+.6f  ref=%+.6f  diff=%.2e", p.x, got[i], p.want, diff)
 		if diff > tol {
-			t.Fatalf("gelu_tanh(%+.2f): got %.6f want %.6f diff=%.2e > tol=%.2e",
+			t.Fatalf("gelu(%+.2f): got %.6f want %.6f diff=%.2e > tol=%.2e",
 				p.x, got[i], p.want, diff, tol)
 		}
 	}
 }
 
-// callGELUTanh rebuilds the tanh-approximant GELU using the public tensor API
-// so that the oracle test exercises the same primitive chain MLP uses.
-func callGELUTanh(x *tensor.Tensor) *tensor.Tensor {
-	const c0 = 0.7978845608028654 // sqrt(2/pi)
-	const c1 = 0.044715
+// callGELUErf rebuilds the exact erf-GELU using the public tensor API so the
+// oracle test exercises the same primitive chain MLP uses.
+func callGELUErf(x *tensor.Tensor) *tensor.Tensor {
+	const invSqrt2 = 0.7071067811865476 // 1/sqrt(2)
 	a := x.Arena()
 	sh := x.ShapeSints()
 	dt := x.DType()
 	dev := x.Device()
 	half := tensor.FullSints(a, sh, 0.5, dt, dev)
 	one := tensor.FullSints(a, sh, 1.0, dt, dev)
-	kC0 := tensor.FullSints(a, sh, c0, dt, dev)
-	kC1 := tensor.FullSints(a, sh, c1, dt, dev)
-	x2 := x.Mul(x)
-	x3 := x2.Mul(x)
-	inner := kC0.Mul(x.Add(kC1.Mul(x3)))
-	return half.Mul(x).Mul(one.Add(nn.Tanh(inner)))
+	kInv := tensor.FullSints(a, sh, invSqrt2, dt, dev)
+	return half.Mul(x).Mul(one.Add(x.Mul(kInv).Erf()))
 }
 
 // ── FD gradient check (GPU) ──────────────────────────────────────────────────

@@ -346,6 +346,12 @@ func (st *state) evalFloat(u uop.UOp) (float32, error) {
 			return 0, err
 		}
 		return float32(math.Log2(float64(a))), nil
+	case uop.OpErf:
+		a, err := st.evalFloat(u.Src(0))
+		if err != nil {
+			return 0, err
+		}
+		return float32(math.Erf(float64(a))), nil
 	case uop.OpMax:
 		a, err := st.evalFloat(u.Src(0))
 		if err != nil {

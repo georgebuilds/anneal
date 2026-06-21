@@ -8,7 +8,7 @@ import (
 // ── MLP block (transformer FFN) ───────────────────────────────────────────────
 
 // MLP is the canonical transformer feed-forward block: a linear expansion to
-// 4*nEmbd, a tanh-approximant GELU activation, and a linear contraction back
+// 4*nEmbd, an exact (erf-based) GELU activation, and a linear contraction back
 // to nEmbd. The 4x expansion ratio is the GPT-2/-3 default.
 type MLP struct {
 	FC1 *Linear // nEmbd -> 4*nEmbd
@@ -27,11 +27,11 @@ func NewMLP(a *uop.Arena, nEmbd int, dtype *uop.DType, device string) *MLP {
 	}
 }
 
-// Forward computes FC2(gelu_tanh(FC1(x))).
+// Forward computes FC2(gelu(FC1(x))).
 // x shape: [..., nEmbd]; output shape: [..., nEmbd].
 func (m *MLP) Forward(x *tensor.Tensor) *tensor.Tensor {
 	h := m.FC1.Forward(x)
-	h = geluTanh(h)
+	h = gelu(h)
 	return m.FC2.Forward(h)
 }
 
@@ -41,21 +41,21 @@ func (m *MLP) Params() []*Parameter {
 	return append(m.FC1.Params(), m.FC2.Params()...)
 }
 
-// ── tanh-approximant GELU ─────────────────────────────────────────────────────
+// ── exact (erf-based) GELU ────────────────────────────────────────────────────
 
-// geluTanh implements the tanh-approximant Gaussian Error Linear Unit:
+// gelu implements the exact Gaussian Error Linear Unit:
 //
-//	gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+//	gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
 //
-// This is the GPT-2 / Hendrycks-Gimpel approximation, chosen here because the
-// codebase exposes Tanh as a composite (nn.Tanh) but does not yet implement
-// erf, which the exact GELU requires. The approximation agrees with the exact
-// erf-based GELU to within O(1e-4) over a wide range, which tests document.
-func geluTanh(x *tensor.Tensor) *tensor.Tensor {
-	const (
-		c0 = float64(0.7978845608028654) // sqrt(2/pi)
-		c1 = float64(0.044715)
-	)
+// This uses the OpErf primitive (erf is bounded in [-1, 1]; its backward is
+// (2/sqrt(pi))*exp(-x^2), which underflows harmlessly to 0 for large |x|). It
+// replaces the former tanh-approximant, whose backward built tanh from
+// exp-composites and whose explicit x^3 term overflowed f32 in both forward and
+// backward once fine-tuning drifted activations up at GPT-2 scale (NaN). The
+// exact and tanh-approximant GELUs agree to O(1e-3); the change is invisible to
+// training quality but numerically stable. No x^3, no Tanh/Sigmoid dependency.
+func gelu(x *tensor.Tensor) *tensor.Tensor {
+	const invSqrt2 = float64(0.7071067811865476) // 1/sqrt(2)
 	a := x.Arena()
 	sh := x.ShapeSints()
 	dt := x.DType()
@@ -63,16 +63,8 @@ func geluTanh(x *tensor.Tensor) *tensor.Tensor {
 
 	half := tensor.FullSints(a, sh, 0.5, dt, dev)
 	one := tensor.FullSints(a, sh, 1.0, dt, dev)
-	kC0 := tensor.FullSints(a, sh, c0, dt, dev)
-	kC1 := tensor.FullSints(a, sh, c1, dt, dev)
+	kInv := tensor.FullSints(a, sh, invSqrt2, dt, dev)
 
-	// x^3 = x * x * x
-	x2 := x.Mul(x)
-	x3 := x2.Mul(x)
-
-	// inner = c0 * (x + c1 * x^3)
-	inner := kC0.Mul(x.Add(kC1.Mul(x3)))
-
-	// gelu(x) = 0.5 * x * (1 + tanh(inner))
-	return half.Mul(x).Mul(one.Add(Tanh(inner)))
+	// gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
+	return half.Mul(x).Mul(one.Add(x.Mul(kInv).Erf()))
 }
