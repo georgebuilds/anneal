@@ -261,14 +261,20 @@ func (m *CausalSelfAttention) Forward(x *tensor.Tensor) *tensor.Tensor {
 	// mismatch. keepdim=false + explicit Reshape makes the rank-adding step
 	// visible to the autodiff shape tracker.
 	//
-	// Numerical-stability NOTE: a standard implementation subtracts max(att)
-	// from att before exp to keep exp arguments <= 0. We omit the max-shift
-	// because OpMax backward (tie-broken argmax routing) inflates the
-	// per-kernel buffer count above the WebGPU 8-buffer cap when the
-	// input-gradient kernel is realized. The inputs and weights here are
-	// initialised at bounded scales so exp(att) stays in float32 range
-	// (the multiplicative mask further bounds the operating point: any score
-	// at a masked position has no effect on the loss).
+	// Numerical-stability NOTE: a standard softmax subtracts the per-row max
+	// before exp. We do NOT use the reduce-max shift here: its gradient routes
+	// through the OpMax-reduce backward (tie-broken argmax routing), which is
+	// itself numerically unstable at GPT-2 scale and destabilised fine-tuning
+	// worse than no shift. Instead we clamp the score element-wise to <= 40
+	// before exp. This bounds exp(att) (and exp(att)^2 in the e/sum(e) diamond
+	// backward, which otherwise overflows f32 to inf -> NaN once fine-tuning
+	// drifts the scores up) using the stable element-wise OpMin backward. For
+	// att < 40 it is the identity; a clamped score is in the saturated regime
+	// where its softmax gradient is ~0, so the OpMin backward routing the
+	// gradient to the constant there is faithful. exp(2*40) stays under f32 max.
+	clampAtt := tensor.FullSints(a, att.ShapeSints(), 40.0, m.dtype, m.device)
+	att = att.Minimum(clampAtt)
+
 	maskData := make([]float32, T*T)
 	for i := int64(0); i < T; i++ {
 		for j := int64(0); j < T; j++ {
