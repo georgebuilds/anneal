@@ -25,7 +25,7 @@ import (
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 func TestRegistryGetKnown(t *testing.T) {
-	for _, name := range []string{"mlp", "conv", "dynmlp", "vit", "nanogpt", "resnet9"} {
+	for _, name := range []string{"mlp", "conv", "dynmlp", "vit", "nanogpt", "resnet9", "llama"} {
 		ex, err := Get(name)
 		if err != nil {
 			t.Errorf("Get(%q): %v", name, err)
