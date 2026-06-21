@@ -41,8 +41,9 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## CLI
 
 - `anneal run mlp` — realize and execute a registered example graph
-- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, vit, gpt2; use `--batch=N` with dynmlp for dynamic batch)
+- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, llama, vit, gpt2; use `--batch=N` with dynmlp for dynamic batch)
 - `anneal train nanogpt`: char-level transformer trained end to end on tinyshakespeare; first run fetches the corpus, prints a generated sample at the end
+- `anneal train llama`: char-level Llama-style decoder trained from scratch on tinyshakespeare; the modern-decoder level-up over nanoGPT (RMSNorm instead of LayerNorm, grouped-query attention with RoPE instead of vanilla multi-head attention plus learned absolute positions, SwiGLU feed-forward instead of a GELU MLP, tied embeddings); first run fetches the corpus, prints a generated sample at the end. A small architecture demo, not a trained chat model
 - `anneal train vit`: Vision Transformer (ViT-tiny: 32x32 RGB, patch 4, 64-dim embed, 2 encoder blocks, 4 heads, mean-pool classification head) trained on a synthetic 10-class image dataset; no asset downloads
 - `anneal gpt2 sample <prompt>`: load HuggingFace GPT-2-small weights (~548 MB SHA-pinned safetensors fetched on first run), encode with pure-Go BPE, run forward through the same `nn.GPT` module, decode the sampled continuation
 - `anneal train gpt2`: fine-tune GPT-2-small end to end on tinyshakespeare from the same HuggingFace weights — tied embedding/LM-head gradient, numerically stable cross-entropy, global-norm clip, AdamW + LR warmup, JIT-replayed train step (~40s/step on M3); the eval-batch loss converges

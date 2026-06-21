@@ -20,7 +20,7 @@
                         : "dark";
                 document.documentElement.setAttribute("data-theme", t);
 
-                var VALID = { mlp: 1, conv: 1, nanogpt: 1, vit: 1, resnet9: 1, gpt2: 1 };
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, llama: 1, vit: 1, resnet9: 1, gpt2: 1 };
                 var m = null;
                 // URL takes priority so deep links win on first paint.
                 var hash = (window.location.hash || "").replace(/^#/, "");
@@ -39,7 +39,7 @@
         <title>Tutorial · anneal: ML compiler in Go (WebGPU)</title>
         <meta
             name="description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
         />
         <meta
             name="robots"
@@ -75,7 +75,7 @@
         />
         <meta
             property="og:description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
         />
         <meta
             property="og:image"
@@ -103,7 +103,7 @@
         />
         <meta
             name="twitter:description"
-            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it."
+            content="Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it."
         />
         <meta
             name="twitter:image"
@@ -129,7 +129,7 @@
                 "@type": "LearningResource",
                 "name": "anneal tutorial",
                 "headline": "Tutorial · anneal: ML compiler in Go (WebGPU)",
-                "description": "Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, ViT, ResNet-9, or GPT-2 and walk through it.",
+                "description": "Hands-on tutorial for anneal, a Go ML compiler with autograd and WebGPU codegen. Pick MLP, ConvNet, nanoGPT, Llama, ViT, ResNet-9, or GPT-2 and walk through it.",
                 "url": "https://georgebuilds.github.io/anneal/tutorial/",
                 "inLanguage": "en",
                 "learningResourceType": "Tutorial",
@@ -381,6 +381,7 @@
             html[data-model="mlp"] .variant[data-model="mlp"],
             html[data-model="conv"] .variant[data-model="conv"],
             html[data-model="nanogpt"] .variant[data-model="nanogpt"],
+            html[data-model="llama"] .variant[data-model="llama"],
             html[data-model="vit"] .variant[data-model="vit"],
             html[data-model="resnet9"] .variant[data-model="resnet9"],
             html[data-model="gpt2"] .variant[data-model="gpt2"] {
@@ -1059,6 +1060,16 @@
                     </button>
                     <button
                         role="tab"
+                        id="tab-llama"
+                        data-model="llama"
+                        aria-selected="false"
+                        aria-controls="welcome install sanity train tour gpt2"
+                        tabindex="-1"
+                    >
+                        llama <span class="tab-cost">(minutes)</span>
+                    </button>
+                    <button
+                        role="tab"
                         id="tab-vit"
                         data-model="vit"
                         aria-selected="false"
@@ -1163,6 +1174,13 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="llama">
+                        <h1 class="step-heading">Get anneal running and train a char-level Llama-style decoder on your GPU.</h1>
+                        <p class="intent">
+                            You picked the <span class="model-pill">Llama</span> path. It is the modern-decoder level-up over nanoGPT: same tiny char-level setup (2 layers, embedding 64, block size 32, vocab about 65 on Tiny Shakespeare, cached on first run), but built from the small-LM primitive stack that replaced the GPT-2 design across 2024-2026 models. RMSNorm instead of LayerNorm, grouped-query attention (4 query heads sharing 2 KV heads) with RoPE rotary positions instead of vanilla multi-head attention plus learned absolute positions, a SwiGLU feed-forward instead of a GELU MLP, and tied embeddings. A few minutes for 2000 steps on Apple Silicon; it prints a Shakespeare-flavored sample at the end. It is a small architecture demo, not a trained chat model.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="vit">
                         <h1 class="step-heading">Get anneal running and train a tiny Vision Transformer on your GPU.</h1>
                         <p class="intent">
@@ -1217,6 +1235,12 @@
                         <div class="compare">
                             <span class="tag">disk / network for nanoGPT</span>
                             About 1 MB for the Tiny Shakespeare corpus on first run, cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.
+                        </div>
+                    </div>
+                    <div class="variant" data-model="llama">
+                        <div class="compare">
+                            <span class="tag">disk / network for Llama</span>
+                            About 1 MB for the Tiny Shakespeare corpus on first run (the same corpus nanoGPT uses), cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.
                         </div>
                     </div>
                     <div class="variant" data-model="vit">
@@ -1353,6 +1377,27 @@
                                 <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  <span class="t-fwd">nanogpt</span>   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  llama     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="llama">
+                        <div class="terminal" role="region" aria-label="list models (llama highlighted)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">usage: anneal train &lt;model&gt; [--steps=N] [--lr=F] [--log-every=N] [--batch=N] [--plain]</span>
+                                <span class="t-out"></span>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  mlp       2 to 8 to 1 multilayer perceptron; trains on y = x₁² + x₂²</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  <span class="t-fwd">llama</span>     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
                                 <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
@@ -1372,6 +1417,7 @@
                                 <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  llama     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
                                 <span class="t-out">  <span class="t-fwd">vit</span>       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
@@ -1391,6 +1437,7 @@
                                 <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
                                 <span class="t-out">  dynmlp    2 to 8 to 1 MLP with symbolic batch dim (same task as mlp)</span>
                                 <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  llama     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
                                 <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                                 <span class="t-out">  <span class="t-fwd">resnet9</span>   ResNet-9 on CIFAR-10 (David Page architecture, 6.57M params)</span>
                             </div>
@@ -1443,6 +1490,11 @@
                     <div class="variant" data-model="nanogpt">
                         <p class="intent" style="margin-top: 0">
                             For nanoGPT, what you want is <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is small; the wall-time you see in step 04 is dominated by kernel compile and dispatch, not buffer pressure.
+                        </p>
+                    </div>
+                    <div class="variant" data-model="llama">
+                        <p class="intent" style="margin-top: 0">
+                            For Llama, what you want is <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is the same size as nanoGPT; the wall-time you see in step 04 is dominated by kernel compile and dispatch, not buffer pressure.
                         </p>
                     </div>
                     <div class="variant" data-model="vit">
@@ -1655,6 +1707,38 @@
                         </p>
                     </div>
 
+                    <div class="variant" data-model="llama">
+                        <h2 class="step-heading">Train a char-level Llama-style decoder on Shakespeare, end to end, on your GPU.</h2>
+                        <p class="intent">
+                            <code>anneal train llama</code> downloads the Tiny Shakespeare corpus (about 1 MB, cached on first run, the same corpus nanoGPT uses), constructs a tiny but Llama-shaped model (2 pre-RMSNorm blocks, embedding 64, block size 32, vocab about 65 from the corpus), trains it for the requested number of steps with Adam at lr 3e-4, then prints a Shakespeare-flavored sample seeded with "ROMEO:". What is architecturally new versus nanoGPT: RMSNorm replaces LayerNorm, attention is grouped-query (4 query heads sharing 2 KV heads) with RoPE rotary positions instead of vanilla multi-head attention plus a learned position embedding, the feed-forward is SwiGLU instead of a GELU MLP, and the LM head ties its weight to the token embedding. Position is carried entirely by RoPE inside attention, so there is no learned position table. The training loop runs through the standard <code>tensor.Backward()</code> plus <code>tensor.Realize()</code> path, so forward and backward fuse into the same WGSL kernels through the rangeify scheduler exactly as they do for nanoGPT.
+                        </p>
+
+                        <div class="terminal" role="region" aria-label="Llama training">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal train llama --steps=2000" aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train llama --steps=2000</span></div>
+                                <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
+                                <span class="t-out">model llama-char vocab=65 layers=2 heads=4 kvheads=2 dmodel=64 block=32</span>
+                                <span class="t-out">device webgpu · apple m3 max</span>
+                                <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.20</span></span>
+                                <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.34</span></span>
+                                <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.49</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> rmsnorm + gqa(rope) + swiglu <span class="t-bwd">backward</span> → <span class="t-fsd">fused</span> WGSL kernels</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">sample:</span>
+                                <span class="t-out"><span class="t-fwd">ROMEO: and the world that we have done the streets,</span></span>
+                                <span class="t-out"><span class="t-fwd">and the heart of the heavens of the sea.</span></span>
+                            </div>
+                        </div>
+
+                        <p class="intent" style="margin-top: 1rem">
+                            Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same forward / backward / fused-kernel pipeline on the modern-decoder primitive stack.
+                        </p>
+                    </div>
+
                     <div class="variant" data-model="vit">
                         <h2 class="step-heading">Train the Vision Transformer, live in your terminal.</h2>
                         <p class="intent">
@@ -1859,6 +1943,26 @@
                         </div>
                     </div>
 
+                    <div class="variant" data-model="llama">
+                        <div class="terminal" role="region" aria-label="compiler inspection for Llama">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy="anneal explain gather" aria-label="copy explain command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain gather</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: indexed load over the tied embedding table.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: deterministic sort + segment-sum into the index axis.</span>
+                                <span class="t-out">rules fired: gather.fold-identity, gather.lift-permute</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels llama</span></div>
+                                <span class="t-out">kernel rmsnorm    <span class="t-dim">// fused: square + mean + rsqrt + scale</span></span>
+                                <span class="t-out">kernel attn.gqa   <span class="t-dim">// fused: qkv proj + rope rotate + grouped attention</span></span>
+                                <span class="t-out">kernel mlp.swiglu <span class="t-dim">// fused: gate proj + silu + up proj + mul</span></span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="variant" data-model="vit">
                         <div class="terminal" role="region" aria-label="compiler inspection for ViT">
                             <div class="term-bar" aria-hidden="true">
@@ -1999,6 +2103,26 @@
                         </div>
                         <div class="crossref">
                             <strong>Try the smallest demo.</strong> Switch the picker to <em>MLP</em> for the fastest end-to-end run in the project (a few seconds), useful for benchmarking compile and dispatch latency against the transformer.
+                        </div>
+                    </div>
+
+                    <div class="variant" data-model="llama">
+                        <div class="crossref">
+                            <strong>Compare against nanoGPT.</strong> Switch the picker to <em>nanoGPT</em> to see the same char-level task on the GPT-2-style stack (LayerNorm, vanilla multi-head attention with a learned position embedding, a GELU MLP). Same compiler, same dataset; the only difference is the primitives, which makes it the cleanest way to see what the modern-decoder swaps actually change.
+                        </div>
+                        <div class="crossref">
+                            <strong>Sample from GPT-2-small.</strong> The compiler you just used to train Llama also runs the real GPT-2-small checkpoint forward. Same scheduler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.
+                        </div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar" aria-hidden="true">
+                                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                                <button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button>
+                            </div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
                         </div>
                     </div>
 
@@ -2167,6 +2291,26 @@
                     </div>
 
                     <div class="qa-group">
+                        <h3>llama</h3>
+                        <details>
+                            <summary>How is this different from nanoGPT?</summary>
+                            <div class="a">Same char-level task and dataset, different primitives. Llama uses RMSNorm instead of LayerNorm, grouped-query attention (4 query heads sharing 2 KV heads) with RoPE rotary positions instead of vanilla multi-head attention plus a learned position embedding, a SwiGLU feed-forward instead of a GELU MLP, and ties the LM-head weight to the token embedding. It is the small-LM primitive stack shared by Llama, Qwen, and Gemma, dropped onto the same compiler.</div>
+                        </details>
+                        <details>
+                            <summary>What is grouped-query attention?</summary>
+                            <div class="a">Each query head no longer gets its own key/value projection. Instead query heads are split into groups, and every head in a group shares one key/value head. Here 4 query heads share 2 KV heads (group size 2), which shrinks the K/V projections while keeping full query resolution. The example uses it to exercise the broadcast-over-groups indexing in the attention kernel, not for a memory win at this size.</div>
+                        </details>
+                        <details>
+                            <summary>Where does position come from without a position embedding?</summary>
+                            <div class="a">RoPE: the query and key vectors are rotated by a position-dependent angle inside each attention block, so relative position falls out of the dot product. There is no learned absolute position table, which is the modern default and what lets the same weights generalize across context lengths.</div>
+                        </details>
+                        <details>
+                            <summary>Is this a real Llama model?</summary>
+                            <div class="a">No. It is a tiny char-level demo of the Llama-style architecture trained from scratch on Tiny Shakespeare, not a pretrained or chat-tuned checkpoint. The point is to exercise the modern-decoder primitives (RMSNorm, GQA, RoPE, SwiGLU, tied embeddings) end to end through the compiler, not to produce a usable language model.</div>
+                        </details>
+                    </div>
+
+                    <div class="qa-group">
                         <h3>gpt-2</h3>
                         <details>
                             <summary>Why no GPT-2 fine-tuning or training?</summary>
@@ -2298,11 +2442,12 @@
                         moves between models, and
                      4. announces the change to assistive tech.
                 */
-                var MODELS = ["mlp", "conv", "nanogpt", "vit", "resnet9", "gpt2"];
+                var MODELS = ["mlp", "conv", "nanogpt", "llama", "vit", "resnet9", "gpt2"];
                 var MODEL_LABEL = {
                     mlp: "MLP",
                     conv: "ConvNet",
                     nanogpt: "nanoGPT",
+                    llama: "Llama",
                     vit: "ViT",
                     resnet9: "ResNet-9",
                     gpt2: "GPT-2-small"
