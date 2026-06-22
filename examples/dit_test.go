@@ -121,3 +121,30 @@ func TestRunDiTFewStepsSmoke(t *testing.T) {
 		t.Errorf("LogText did not receive CFG sample line; got %q", captured.String())
 	}
 }
+
+// TestRunDiTDefaultDimsGPU verifies the PRODUCTION config (ditDefaultConfig:
+// embedDim 64, 64 patch tokens, 2 blocks) trains on the GPU, i.e. the full-size
+// forward + backward realizes on Metal with no codegen-scaling ceiling (the risk
+// that gates ResNet-9 training). Uses an in-memory CIFAR fixture (no download)
+// and batch 2 / 1 step so it stays a smoke; the long convergence run is S4.
+func TestRunDiTDefaultDimsGPU(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping GPU DiT default-dims smoke")
+	}
+	requireGPUForDiTTest(t)
+
+	ds := synthCIFAR10(4, rand.New(rand.NewSource(11)))
+	dc := ditDefaultConfig()
+	var losses []float32
+	cfg := TrainConfig{Steps: 1, LR: 0, Batch: 2, LogEvery: 1}
+	if err := runDiT("webgpu", cfg, func(_ int, l float32) {
+		losses = append(losses, l)
+	}, ds, dc, 11); err != nil {
+		t.Fatalf("runDiT (default dims): %v", err)
+	}
+	for i, l := range losses {
+		if math.IsNaN(float64(l)) || math.IsInf(float64(l), 0) || l < 0 {
+			t.Fatalf("loss[%d] invalid: %v", i, l)
+		}
+	}
+}
