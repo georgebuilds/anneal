@@ -35,7 +35,7 @@ func (b *deviceBuffer) DType() *uop.DType { return b.dt }
 
 // Raw returns the underlying *wgpu.Buffer. Used by collaborators (Compiler,
 // Program) that need to attach the buffer to a BindGroup. Not exposed via the
-// backend.DeviceBuffer interface — backends are not required to expose a raw
+// backend.DeviceBuffer interface - backends are not required to expose a raw
 // handle.
 func (b *deviceBuffer) Raw() *wgpu.Buffer { return b.buf }
 
@@ -51,7 +51,7 @@ func (b *deviceBuffer) Write(data []byte) error {
 }
 
 // Read returns the buffer contents as raw bytes. Internally it copies through
-// a staging buffer and resolves the mapping via MapAsync + Poll(PollWait) —
+// a staging buffer and resolves the mapping via MapAsync + Poll(PollWait) -
 // NOT wgpu.Buffer.Map, which spawns an unpinned goroutine whose
 // NSAutoreleasePool drain would race a different OS thread. See the readBuffer
 // commentary in open.go and the original executor.go for the full rationale.
@@ -87,7 +87,7 @@ func (b *deviceBuffer) Read() ([]byte, error) {
 	// Poll(PollWait) issues a full GPU barrier (WaitIdle) and resolves all
 	// pending maps. Because we run on the GPU-owner goroutine (locked to one
 	// OS thread), the WaitIdle's NSAutoreleasePool is created and drained on
-	// the same thread — no migration, no crash.
+	// the same thread - no migration, no crash.
 	pending, err := staging.MapAsync(wgpu.MapModeRead, 0, byteSize)
 	if err != nil {
 		return nil, fmt.Errorf("MapAsync: %w", err)

@@ -310,7 +310,7 @@ func TestHostUnsqueeze(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	// Host payload is a flat int vector — unsqueeze is a no-op on the data.
+	// Host payload is a flat int vector - unsqueeze is a no-op on the data.
 	if got := v.Ints(); !int64SliceEq(got, []int64{1, 2, 3}) {
 		t.Errorf("Unsqueeze=%v, want [1 2 3]", got)
 	}

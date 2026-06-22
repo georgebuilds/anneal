@@ -33,7 +33,7 @@
 //
 // Anything in manifest.json is keyed structurally (per spec §6). Map keys
 // are encoded in lexicographic order so byte-equality holds across runs
-// with the same payload — important for citations and content hashing.
+// with the same payload - important for citations and content hashing.
 //
 // # Path safety
 //
@@ -116,7 +116,7 @@ func (k *BundleKind) UnmarshalJSON(b []byte) error {
 // device + adapter, WGSL hash, symbolic bindings, kind, created/duration
 // timestamps, and the bundle_version integer.
 //
-// The shape is keyed structurally per spec §6 — extending it requires
+// The shape is keyed structurally per spec §6 - extending it requires
 // either an additive field (older readers will silently ignore) or a
 // BundleVersion bump.
 type Manifest struct {
@@ -240,7 +240,7 @@ const LossCSVHeader = "step,loss,wall_ms"
 
 // GenerationRow is one row of generation.ndjson. RefMatch is a pointer so
 // the absence of a reference (no oracle configured) is distinguishable
-// from a recorded "false" — JSON omits the field entirely when nil.
+// from a recorded "false" - JSON omits the field entirely when nil.
 type GenerationRow struct {
 	Step         int    `json:"step"`
 	TokenID      int    `json:"token_id"`
@@ -270,7 +270,7 @@ type BundleSummary struct {
 	Manifest Manifest `json:"manifest"`
 }
 
-// splitCSV is a minimal CSV row splitter — bundle CSV files have no
+// splitCSV is a minimal CSV row splitter - bundle CSV files have no
 // quoted fields, so a naive split-on-comma is correct.
 func splitCSV(s string) []string {
 	out := []string{}

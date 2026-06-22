@@ -10,7 +10,7 @@ import (
 
 const version = "0.0.0-dev"
 
-const usageText = `anneal — a tensor compiler. Gradients are just rewrites.
+const usageText = `anneal - a tensor compiler. Gradients are just rewrites.
 
 usage:
   anneal <command> [flags]
@@ -28,7 +28,7 @@ commands:
 
 flags (global):
   --device=<name>   target device (default: webgpu)
-  --debug=<n>       debug verbosity level (0–3); also: DEBUG=n
+  --debug=<n>       debug verbosity level (0-3); also: DEBUG=n
   --viz             enable graph visualization; also: VIZ=1
 
 run 'anneal help <command>' for more information on a command.
@@ -201,7 +201,7 @@ for in-browser compilation (WASM dogfood), build anneal.wasm first:
   cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" viz/static/
 
 without the WASM binary the server falls back to a REST API that runs the
-real compiler natively and returns JSON — both paths produce real graphs.
+real compiler natively and returns JSON - both paths produce real graphs.
 
 `)
 	case "doctor":
@@ -215,7 +215,7 @@ flags:
 
 `)
 	default:
-		fmt.Printf("anneal: unknown command %q — run 'anneal help' for usage\n", verb)
+		fmt.Printf("anneal: unknown command %q - run 'anneal help' for usage\n", verb)
 		return 1
 	}
 	return 0

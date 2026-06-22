@@ -241,6 +241,6 @@ func TestWebExplain_UpatByteParity(t *testing.T) {
 		t.Fatalf("read rewrite/rules/symbolic.upat: %v", err)
 	}
 	if string(vizCopy) != string(upstream) {
-		t.Errorf("viz/symbolic.upat is out of sync with rewrite/rules/symbolic.upat — re-copy with `cp rewrite/rules/symbolic.upat viz/symbolic.upat`")
+		t.Errorf("viz/symbolic.upat is out of sync with rewrite/rules/symbolic.upat - re-copy with `cp rewrite/rules/symbolic.upat viz/symbolic.upat`")
 	}
 }

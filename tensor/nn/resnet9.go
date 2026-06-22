@@ -65,7 +65,7 @@ type ResNet9 struct {
 // For unit tests and quick smoke runs, use NewResNet9Scaled to dial channels
 // down: the im2col lowering in Conv2d generates O(Cin*kH*kW) graph nodes per
 // conv, so at Cin=512 each conv contributes 4608 nodes and the full network
-// graph approaches ~10K UOps — fine for the headline 90% training run on a
+// graph approaches ~10K UOps - fine for the headline 90% training run on a
 // downloaded CIFAR-10, but too heavy for an in-process unit test.
 func NewResNet9(a *uop.Arena, numClasses int64, dtype *uop.DType, device string) *ResNet9 {
 	return NewResNet9Scaled(a, [4]int64{64, 128, 256, 512}, numClasses, dtype, device)

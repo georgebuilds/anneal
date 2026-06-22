@@ -27,7 +27,7 @@ func requireGPUForLlamaTest(t *testing.T) {
 }
 
 // TestRunLlamaGPUConvergence trains the tiny Llama on the GPU for a handful of
-// steps and asserts the loss decreases — the end-to-end GPU proof (RoPE concat,
+// steps and asserts the loss decreases - the end-to-end GPU proof (RoPE concat,
 // GQA expand, tied-weight backward, and the 8-buffer budget on the deeper Llama
 // backward all exercised on the real device). Guarded on -short because the GPU
 // JIT/compile burst is slow on the CI software renderer (lavapipe); CPU smoke +

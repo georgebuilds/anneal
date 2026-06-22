@@ -1,4 +1,4 @@
-// bytes.go — byte-based inspection APIs for the WASM tensor-inspect view (W9).
+// bytes.go - byte-based inspection APIs for the WASM tensor-inspect view (W9).
 //
 // The Load / LoadNPZ entry points read from disk and return Float32 Tensors;
 // they erase the original dtype string. The inspect dropzone needs:
@@ -24,7 +24,7 @@ import (
 
 // InspectEntry is one decoded array surfaced by ReadBytes / ReadZBytes.
 //
-// DType is the raw numpy dtype descriptor ("<f4", "<i8", "|b1", …) — what the
+// DType is the raw numpy dtype descriptor ("<f4", "<i8", "|b1", …) - what the
 // .npy header literally carries. Shape is the row-major dimensions (Fortran
 // arrays are transposed in Data). Data is the same Float32 payload Load
 // returns, dequantized through the documented dtype policy.

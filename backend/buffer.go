@@ -5,7 +5,7 @@ import "github.com/georgebuilds/anneal/uop"
 // DeviceBuffer is the backend-agnostic handle for one GPU buffer.
 //
 // Threading: every method that touches native GPU state (Write, Read, Release)
-// must be called from the backend's GPU-owner goroutine — on backends where one
+// must be called from the backend's GPU-owner goroutine - on backends where one
 // exists (the WebGPU/Metal implementation pins all native calls to a single
 // runtime.LockOSThread'd goroutine, see backend/webgpu/open.go). Calling these
 // methods from anywhere else risks the same NSAutoreleasePool migration crash

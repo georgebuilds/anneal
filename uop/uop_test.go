@@ -153,7 +153,7 @@ func TestInterningDifferentSrc(t *testing.T) {
 	x := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
 	y := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(2), nil)
 
-	// neg(x) vs neg(y) — same op and dtype, different src
+	// neg(x) vs neg(y) - same op and dtype, different src
 	nx := a.New(uop.OpNeg, uop.Dtypes.Float32, []uop.UOp{x}, nil, nil)
 	ny := a.New(uop.OpNeg, uop.Dtypes.Float32, []uop.UOp{y}, nil, nil)
 
@@ -282,7 +282,7 @@ func TestBypassOpsAreDistinct(t *testing.T) {
 			u2 := a.New(tc.op, uop.Dtypes.Void, nil, nil, nil)
 
 			if u1 == u2 {
-				t.Errorf("%s: bypass op produced identical UOps — must be distinct", tc.name)
+				t.Errorf("%s: bypass op produced identical UOps - must be distinct", tc.name)
 			}
 			if a.Len() != 2 {
 				t.Errorf("%s: arena Len = %d, want 2", tc.name, a.Len())
@@ -520,7 +520,7 @@ func TestProvenanceFirstConstructionWins(t *testing.T) {
 		t.Errorf("interning broken: forward add@%d, backward request→@%d (expected same)",
 			add.Index(), addAgain.Index())
 	}
-	// Arena has exactly 3 nodes (x, y, add) — not 4.
+	// Arena has exactly 3 nodes (x, y, add) - not 4.
 	if a.Len() != 3 {
 		t.Errorf("arena Len = %d after backward re-request, want 3 (no duplicate)", a.Len())
 	}
@@ -535,7 +535,7 @@ func TestProvenanceFirstConstructionWins(t *testing.T) {
 }
 
 // TestProvenanceBypassOpsGetCurrentPhase verifies that bypass ops (BUFFER,
-// UNIQUE, LUNIQUE) — which always allocate fresh slots — correctly inherit
+// UNIQUE, LUNIQUE) - which always allocate fresh slots - correctly inherit
 // the current build phase at allocation time.
 func TestProvenanceBypassOpsGetCurrentPhase(t *testing.T) {
 	a := uop.NewArena(8)

@@ -180,7 +180,7 @@ func TestBeamApplyToItemsSearchModeAppliesWinner(t *testing.T) {
 
 // TestBeamSearchCacheHitNonEmptyOpts seeds the in-memory cache with a real
 // non-identity opt so the cache-hit branch applies it (winItem = ApplyOpts)
-// before benchmarking — covering the len(cached) > 0 sub-branch.
+// before benchmarking - covering the len(cached) > 0 sub-branch.
 func TestBeamSearchCacheHitNonEmptyOpts(t *testing.T) {
 	codegen.BeamCacheReset()
 	defer codegen.BeamCacheReset()

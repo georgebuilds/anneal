@@ -25,7 +25,7 @@ package nn_test
 // A small residual block (Conv → BN → ReLU → Conv → BN + residual) backward
 // produces a kernel with many sibling reduces (one per output of the conv-
 // transpose-style gradient computation) sharing input-index ALU. We compile
-// it and assert every gradient Realize succeeds — independently of any
+// it and assert every gradient Realize succeeds - independently of any
 // gradient-value oracle.
 
 import (
@@ -47,7 +47,7 @@ func TestResNet9Backward_WGSLCompiles(t *testing.T) {
 	a := uop.NewArena(1 << 25) // 32 MiB
 
 	// Use the smallest scale that still exercises every Conv/BN/Pool/residual
-	// edge — TestResNet9Forward establishes that this scale is the floor.
+	// edge - TestResNet9Forward establishes that this scale is the floor.
 	// The backward fusion produces the sibling-reduce-shared kernels that
 	// the L0' hoist must handle.
 	m := nn.NewResNet9Scaled(a, [4]int64{4, 8, 16, 32}, 10, uop.Dtypes.Float32, "webgpu")
@@ -78,7 +78,7 @@ func TestResNet9Backward_WGSLCompiles(t *testing.T) {
 	//   for (var r178 ...) { ...; let t170221 = (t170200 + ...); ... }
 	//
 	// where t170200 is loop-invariant but defined inside reduce #1 and
-	// referenced from reduce #2 — Naga rejects with "unresolved identifier".
+	// referenced from reduce #2 - Naga rejects with "unresolved identifier".
 	// The pre-Slice hoist only considered (innerReachable ∩ outerReachable),
 	// so sibling-only shares were missed; the generalised color-count hoist
 	// in codegen/lower.go now lifts these to kernel-top.

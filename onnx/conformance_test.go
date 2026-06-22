@@ -6,7 +6,7 @@ package onnx
 // committed under onnx/testdata/node/ (regenerated via
 // notes/scripts/copy_node_corpus.py), runs each model through the
 // importer, and compares the realised output against the
-// onnx-supplied golden output_*.pb (Strategy B fixtures — no
+// onnx-supplied golden output_*.pb (Strategy B fixtures - no
 // onnxruntime or Python at test time).
 //
 // Per plan §7: the value oracle reports max-abs-diff and
@@ -455,7 +455,7 @@ func TestConformance_SummaryReport(t *testing.T) {
 	}
 
 	// Assertions (per Phase 4 dispatch spec):
-	// (a) skip list is non-trivial — we have explicit deferrals.
+	// (a) skip list is non-trivial - we have explicit deferrals.
 	if skipped == 0 {
 		t.Errorf("expected skip list to fire at least once (skipped=%d); the documented exclusion contract is empty", skipped)
 	}

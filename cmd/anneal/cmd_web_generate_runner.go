@@ -182,7 +182,7 @@ func runGPT2Stream(
 
 // runNanoGPTStream drives examples.NanoGPTGenerateStream over the
 // tinyshakespeare vocabulary. The model is freshly seeded (no training),
-// matching the train+sample contract in the existing nanogpt example —
+// matching the train+sample contract in the existing nanogpt example -
 // the demo's value is the per-token kernel pulse, not the text quality.
 func runNanoGPTStream(
 	ctx context.Context,

@@ -37,7 +37,7 @@ func fp8WGSLFor(t *testing.T, build func(a *uop.Arena) *tensor.Tensor) string {
 // TestFP8_WGSL verifies fp8 elementwise kernels generate correct WGSL for
 // both formats:
 // - buffers declared as array<u32> (decoded storage; WGSL has no fp8 type)
-// - loads widen via bitcast<f32> (free — the storage word is f32 bits)
+// - loads widen via bitcast<f32> (free - the storage word is f32 bits)
 // - stores narrow via the format's _fp8*_rtne_bits helper
 // - no "enable f16;" directive (fp8 needs no device extension)
 func TestFP8_WGSL(t *testing.T) {

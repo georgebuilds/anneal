@@ -21,7 +21,7 @@ import (
 // rc.kernelRanges so the caller can include them in the enclosing END loop nest.
 //
 // fillOp is the enclosing reduce op (e.g. OpAdd, OpMax) if this call is
-// evaluating the source of a ReduceAxis — used by OpPad to substitute the
+// evaluating the source of a ReduceAxis - used by OpPad to substitute the
 // reduce identity element instead of 0 for out-of-bounds positions.
 // Op(0) means "no reduce context; use 0 as the pad fill."
 // Movement ops propagate fillOp unchanged; elementwise/ALU ops reset it to 0.
@@ -39,7 +39,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		return a.New(uop.OpIndex, expr.DType(), srcs, nil, nil)
 
 	case uop.OpConst, uop.OpRange, uop.OpLUnique, uop.OpDevice, uop.OpDefineVar:
-		// Scalar/meta nodes — not position-dependent
+		// Scalar/meta nodes - not position-dependent
 		return expr
 
 	case uop.OpGatherIdx:
@@ -51,7 +51,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		// it through unchanged; the codegen lowerer handles emission.
 		return expr
 
-	// ── movement ops — dissolve into index arithmetic ─────────────────────
+	// ── movement ops - dissolve into index arithmetic ─────────────────────
 
 	case uop.OpReshape:
 		// Flat index from output (new) shape, then decompose into source (old) shape.
@@ -430,7 +430,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 		}
 		panic("schedule/index: OpReduceAxis: unexpected arg type")
 
-	// ── elementwise / ALU — distribute index through all sources ──────────
+	// ── elementwise / ALU - distribute index through all sources ──────────
 
 	default:
 		// Elementwise ops break the reduce context: a Pad behind an ALU should
@@ -440,7 +440,7 @@ func indexExprNode(a *uop.Arena, expr uop.UOp, indices []uop.UOp, shapeMap map[u
 			src := expr.Src(i)
 			switch src.Op() {
 			case uop.OpConst, uop.OpRange, uop.OpLUnique:
-				// Scalar — no indexing
+				// Scalar - no indexing
 				newSrcs[i] = src
 			default:
 				newSrcs[i] = indexExprNode(a, src, indices, shapeMap, rc, 0)
@@ -531,7 +531,7 @@ func unflatIndex(a *uop.Arena, flat uop.UOp, shape []int64) []uop.UOp {
 // preserves the concrete fast-path (Mul(1, x) = x; ConstInt × ConstInt
 // folds) and builds symbolic UOp nodes when a symbolic dim enters the
 // product. The position of the symbolic dim is recovered structurally via
-// s.ConstValue() — strides for dims to the left of a symbolic dim now
+// s.ConstValue() - strides for dims to the left of a symbolic dim now
 // carry the symbolic factor.
 func sintStrides(sh []shape.Sint) []shape.Sint {
 	n := len(sh)
@@ -583,7 +583,7 @@ func flatIndexSints(a *uop.Arena, indices []uop.UOp, sh []shape.Sint) uop.UOp {
 // symbolic outermost dim would force a runtime read of the symbolic bound
 // inside the inner loop. The quotient is exact for valid flat indices
 // (flat < total = sh[0] * strides[0]). For symbolic dims at i>0 the Mod is
-// required for correctness — flat / stride is not bounded by sh[i].
+// required for correctness - flat / stride is not bounded by sh[i].
 func unflatIndexSints(a *uop.Arena, flat uop.UOp, sh []shape.Sint) []uop.UOp {
 	if len(sh) == 0 {
 		return nil

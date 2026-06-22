@@ -122,7 +122,7 @@ func TestMLPValueOracle(t *testing.T) {
 	}
 	// FD tolerance for f32 with eps=1e-3 through a ReLU-non-smooth net:
 	// truncation O(eps^2)~1e-6 plus f32 noise O(machine_eps/eps)~1e-4 puts
-	// the realistic floor at low-1e-2. Brief is "under 1e-3" — that is
+	// the realistic floor at low-1e-2. Brief is "under 1e-3" - that is
 	// achievable only on smooth nets / higher precision; we report the
 	// number and pass at <=1e-2 which is the f32-FD literature norm.
 	if fdMaxRel > 1e-2 {
@@ -216,7 +216,7 @@ func runMLP(
 
 		if step == 1 {
 			// Snapshot the very first gradient set (step 1's gradient is
-			// computed from step 0's params — that's the "step 0 gradient").
+			// computed from step 0's params - that's the "step 0 gradient").
 			for i, p := range opt.Params {
 				if g, ok := grads[p.T]; ok {
 					gradsStep0[paramNames[i]] = append([]float32(nil), g.Data()...)
@@ -256,7 +256,7 @@ func evalMLP(
 	diff := pred.Sub(tgt)
 	scale := tensor.ConstScalar(a, 1.0/float64(mlpBatch), uop.Dtypes.Float32, "cpu")
 	loss := diff.Mul(diff).Sum(nil, false).Mul(scale)
-	// Realize independently so each tensor lands its own kernel/output —
+	// Realize independently so each tensor lands its own kernel/output -
 	// passing both to one Realize couples them under one SINK whose Kahn
 	// order assignOutputs uses to match tensor[i]→item[i], which can drop
 	// pred when loss's kernel chain consumes it as an intermediate.

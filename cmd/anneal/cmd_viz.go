@@ -21,7 +21,7 @@ var browserOpener = openBrowser
 func vizCmd(args []string) int {
 	addr := ":3000"
 	url := "http://localhost:3000"
-	fmt.Printf("anneal viz — static UOp graph visualizer\n")
+	fmt.Printf("anneal viz - static UOp graph visualizer\n")
 	fmt.Printf("server: %s\n", url)
 	fmt.Printf("\nopen %s in a browser to view the graph.\n", url)
 	fmt.Printf("build the WASM binary for in-browser compilation:\n")

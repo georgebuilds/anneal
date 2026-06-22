@@ -182,9 +182,9 @@ describe('renderONNXSummary', () => {
     const items = document.querySelectorAll('#onnx-unsupported-list li');
     expect(items.length).toBe(2);
     expect(items[0].querySelector('.op-name').textContent).toBe('GridSample (2)');
-    expect(items[0].querySelector('.op-reason').textContent).toBe(' — not implemented');
+    expect(items[0].querySelector('.op-reason').textContent).toBe(' - not implemented');
     expect(items[1].querySelector('.op-name').textContent).toBe('Loop');
-    expect(items[1].querySelector('.op-reason').textContent).toBe(' — no handler registered');
+    expect(items[1].querySelector('.op-reason').textContent).toBe(' - no handler registered');
     expect(document.getElementById('onnx-summary').textContent)
       .toContain('2 unsupported ops');
   });

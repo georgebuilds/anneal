@@ -12,7 +12,7 @@ import (
 // TestFP16GradCheck verifies GPU backward against finite differences for a
 // 2-layer f16 MLP.
 //
-// f16 FD gradient check. NOT a tight equivalence oracle —
+// f16 FD gradient check. NOT a tight equivalence oracle -
 // f16's ~1e-3 precision floor + FD's epsilon/h rounding error
 // make tight gradient checks impossible. This test catches
 // catastrophic regression (e.g. a gradient bug that produces

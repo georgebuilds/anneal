@@ -1,6 +1,6 @@
 //go:build !js
 
-// W6 — /sse/train: stream Snapshot frames from a real training run to the
+// W6 - /sse/train: stream Snapshot frames from a real training run to the
 // browser dashboard. Spec: notes/anneal_web_spec.md §5.5 + §7.
 //
 // Design notes:

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>anneal studio</title>
-  <meta name="description" content="anneal studio — a local browser surface for the anneal tensor compiler. forward, backward, and fused kernels share one immutable IR.">
+  <meta name="description" content="anneal studio - a local browser surface for the anneal tensor compiler. forward, backward, and fused kernels share one immutable IR.">
 
   <!-- Worker / WASM gating: studio.js only instantiates web/worker.js when this
        meta is present. W2 added the annealGetKernels export to viz/wasm, but
@@ -183,7 +183,7 @@
            aria-describedby="dropzone-hint">
         <p>drop an .onnx model here to visualize</p>
         <p class="dropzone-hint" id="dropzone-hint">
-          structure only — model bytes never leave the tab. press Enter or use the picker below.
+          structure only - model bytes never leave the tab. press Enter or use the picker below.
         </p>
         <input type="file" id="onnx-picker" accept=".onnx" aria-label="select ONNX model file">
         <button class="ghost" id="onnx-picker-btn" type="button"
@@ -211,7 +211,7 @@
     <!-- W4: visualize view embeds the existing viz artifact verbatim in an
          iframe (per spec §5.2) and adds a node-inspector drawer that opens
          on a postMessage from the iframe. The iframe sandbox is the minimum
-         needed for the WASM viz to run — allow-scripts so the inline
+         needed for the WASM viz to run - allow-scripts so the inline
          bridge + app.js execute, allow-same-origin so WebAssembly fetch
          can load anneal.wasm. No allow-forms, no allow-top-navigation. -->
     <section class="view" id="view-visualize" aria-labelledby="view-visualize-heading">
@@ -295,7 +295,7 @@
          and a before/after mini-graph on the right. The rules and gradient
          pattern come from the real rewrite engine (symbolic.upat parsed at
          runtime + tensor.Gradient.RegisteredOps()); only the op descriptions
-         are hand-curated (docs, not behaviour — DD2). -->
+         are hand-curated (docs, not behaviour - DD2). -->
     <section class="view" id="view-explain" aria-labelledby="view-explain-heading">
       <h1 id="view-explain-heading">explain</h1>
       <div class="lede">pick an op, see the rewrite rules that fire and the gradient that's registered.</div>
@@ -393,23 +393,23 @@
         <div class="train-stats" aria-live="polite" aria-atomic="false" id="train-stats">
           <div class="stat-card stat-card-loss">
             <span class="stat-label">step</span>
-            <span class="stat-value" id="t-step">—</span>
+            <span class="stat-value" id="t-step">-</span>
           </div>
           <div class="stat-card stat-card-loss">
             <span class="stat-label">loss</span>
-            <span class="stat-value" id="t-loss">—</span>
+            <span class="stat-value" id="t-loss">-</span>
           </div>
           <div class="stat-card">
             <span class="stat-label">uops</span>
-            <span class="stat-value" id="t-uops">—</span>
+            <span class="stat-value" id="t-uops">-</span>
           </div>
           <div class="stat-card">
             <span class="stat-label">kernels</span>
-            <span class="stat-value" id="t-kernels">—</span>
+            <span class="stat-value" id="t-kernels">-</span>
           </div>
           <div class="stat-card stat-card-fused">
             <span class="stat-label">fused</span>
-            <span class="stat-value" id="t-fused">—</span>
+            <span class="stat-value" id="t-fused">-</span>
           </div>
         </div>
         <figure class="loss-sparkline">
@@ -503,10 +503,10 @@
                aria-label="last-token logit summary">
           <h2>last token</h2>
           <dl>
-            <dt>token text</dt><dd id="gen-last-text">—</dd>
-            <dt>token id</dt><dd id="gen-last-id">—</dd>
-            <dt>logit summary</dt><dd id="gen-last-logit">—</dd>
-            <dt>ref match</dt><dd id="gen-last-ref">—</dd>
+            <dt>token text</dt><dd id="gen-last-text">-</dd>
+            <dt>token id</dt><dd id="gen-last-id">-</dd>
+            <dt>logit summary</dt><dd id="gen-last-logit">-</dd>
+            <dt>ref match</dt><dd id="gen-last-ref">-</dd>
           </dl>
           <a id="gen-click-through" class="quiet" href="#"
              aria-label="open the producing kernel for the last token">open producing kernel</a>
@@ -523,7 +523,7 @@
     <!-- W9: doctor view (spec §5.8). Two cards side by side: the native
          binary's adapter via /api/device, and the browser's own
          navigator.gpu.requestAdapter() probe run in-page. The browser-card
-         caveat is binding per spec — the two adapters are independent
+         caveat is binding per spec - the two adapters are independent
          enumerations on the same machine; anneal does not run kernels in the
          browser's WebGPU. -->
     <section class="view" id="view-doctor" aria-labelledby="view-doctor-heading">

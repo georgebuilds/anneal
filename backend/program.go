@@ -4,7 +4,7 @@ package backend
 //
 // WorkgroupCount is the [x, y, z] workgroup grid for this launch. For symbolic
 // kernels, the orchestrator computes this from the binding before calling
-// Dispatch — the Program itself is binding-agnostic.
+// Dispatch - the Program itself is binding-agnostic.
 //
 // Buffers are the storage-buffer arguments in binding-index order, matching the
 // layout the Compiler was given when creating the Program. The output buffer is

@@ -3,10 +3,10 @@ package nn_test
 // Phase 9a: parameter-persistence design proof.
 //
 // Two GPU tests exercise the load→step→writeback lifecycle:
-//   TestSGDQuadratic_Trajectory   — 4 SGD steps on sum((p-target)²); verifies
+//   TestSGDQuadratic_Trajectory   - 4 SGD steps on sum((p-target)²); verifies
 //                                   each p_n against the closed form p_n = target
 //                                   + (p0-target)*0.8^n within float32 tolerance.
-//   TestCrossResetPersistence     — confirms that an update applied in step 1
+//   TestCrossResetPersistence     - confirms that an update applied in step 1
 //                                   is visible in step 2 built from a completely
 //                                   fresh arena, proving no arena-index identity
 //                                   is used to locate the value.
@@ -224,7 +224,7 @@ func TestCrossResetPersistence(t *testing.T) {
 	wantP1 := float32(2.6)
 	for i, v := range p.Value {
 		if absF32(v-wantP1) > 1e-4 {
-			t.Fatalf("after step 1: p.Value[%d] = %.6f, want %.6f — SGDStep did not apply",
+			t.Fatalf("after step 1: p.Value[%d] = %.6f, want %.6f - SGDStep did not apply",
 				i, v, wantP1)
 		}
 	}
@@ -251,11 +251,11 @@ func TestCrossResetPersistence(t *testing.T) {
 	wantSum := float32(nElems) * wantP1 // 4 * 2.6 = 10.4
 
 	if absF32(gotSum-wantSum) > 1e-3 {
-		t.Fatalf("cross-reset: step-2 sum(pLeaf) = %.6f, want %.6f — "+
+		t.Fatalf("cross-reset: step-2 sum(pLeaf) = %.6f, want %.6f - "+
 			"update did not survive arena abandonment (stale=%.1f would give sum=%.1f)",
 			gotSum, wantSum, float32(3.0), float32(nElems)*3.0)
 	}
-	t.Logf("cross-reset: step-2 sum(pLeaf) = %.6f, expected %.6f ✓ — "+
+	t.Logf("cross-reset: step-2 sum(pLeaf) = %.6f, expected %.6f ✓ - "+
 		"updated value (%.6f) loaded correctly from fresh arena", gotSum, wantSum, wantP1)
 
 	// Identity proof: pLeaf1 and pLeaf2 are in different arenas.

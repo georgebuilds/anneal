@@ -42,7 +42,7 @@ type StageData struct {
 }
 
 // StageStats are the compiler-stat counters surfaced for this stage. Zero is a
-// valid value ("not yet meaningful at this stage") — the UI suppresses zero
+// valid value ("not yet meaningful at this stage") - the UI suppresses zero
 // fields.
 type StageStats struct {
 	FwdNodes int `json:"fwdNodes"`
@@ -81,13 +81,13 @@ func (t *TimelineData) ToJSON() ([]byte, error) { return json.Marshal(t) }
 //
 // Stages (canonical order):
 //
-//	0  forward    — loss expression, all teal
-//	1  gradient   — + backward nodes (ember)
-//	2  scheduled  — reduce nodes promoted to gold kernel boundaries
+//	0  forward    - loss expression, all teal
+//	1  gradient   - + backward nodes (ember)
+//	2  scheduled  - reduce nodes promoted to gold kernel boundaries
 //
 // The brief originally specified a separate pre-fusion / post-fusion split.
 // We collapse that into one "scheduled" stage and surface both unfused and
-// post-fusion kernel counts in its Stats (`Kernels`, `Fused`) — fusion now
+// post-fusion kernel counts in its Stats (`Kernels`, `Fused`) - fusion now
 // fires in this codebase, so Fused > 0 is the common case and a separate
 // post-fusion stage would only differ in its stats line, not the visual.
 // See SPEC §1.3 / the AGENTS rule: skip stages that are visually identical
@@ -254,13 +254,13 @@ func buildUnion(a *uop.Arena, topo []uop.UOp, attribution map[uint32]ruleAttribu
 	return nodes, edges
 }
 
-// buildForwardStage shows only forward-construction nodes — everything teal,
+// buildForwardStage shows only forward-construction nodes - everything teal,
 // reduces are still teal diamonds (kernel-boundary semantics haven't been
 // computed yet). Stats: forward count only.
 func buildForwardStage(forwardTopo []uop.UOp, forwardSet map[uint32]bool, a *uop.Arena) StageData {
 	overrides := make(map[uint32]NodeOverride, len(forwardTopo))
 	for _, u := range forwardTopo {
-		// At this stage every visible node is forward, even reduces — the
+		// At this stage every visible node is forward, even reduces - the
 		// "kernel boundary" classification doesn't exist yet.
 		ov := NodeOverride{Class: ClassForward, Kind: kindOf(u, a)}
 		// Demote reduce-shape to default so the visual doesn't pre-claim

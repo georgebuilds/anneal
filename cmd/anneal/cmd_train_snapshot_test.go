@@ -39,7 +39,7 @@ func TestPlainTrainLineFormat(t *testing.T) {
 		"training mlp",
 		"device: ",
 		"steps: 3 ",
-		"done — 3 steps",
+		"done - 3 steps",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plain output missing %q\n%s", want, out)

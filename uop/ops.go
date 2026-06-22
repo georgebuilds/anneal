@@ -6,7 +6,7 @@ import (
 )
 
 // Op is a single opcode in the UOp IR.
-// Numeric values control toposort ordering within the scheduler — do not reorder casually.
+// Numeric values control toposort ordering within the scheduler - do not reorder casually.
 type Op int
 
 const (
@@ -149,7 +149,7 @@ const (
 	OpGather
 	OpScatterAdd
 
-	// The six movement ops — exist only in the tensor graph; never copied.
+	// The six movement ops - exist only in the tensor graph; never copied.
 	OpReshape
 	OpPermute
 	OpExpand
@@ -169,7 +169,7 @@ const (
 	OpCat
 	OpPtrCat
 
-	opCount // sentinel — always last; equals the total number of Op values
+	opCount // sentinel - always last; equals the total number of Op values
 )
 
 // OpCount is the total number of Op values. Used for fixed-size dispatch arrays in generated matchers.

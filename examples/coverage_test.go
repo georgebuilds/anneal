@@ -5,7 +5,7 @@ package examples
 //   - pure data helpers (toyDataset, convDataset, dynBatchSlice,
 //     heInit, copyParam, int32sAsBits, oneHotBits, oneHotBitsViT)
 //   - the forward-graph Build functions for every CPU-buildable example
-//     (mlp, conv, dynmlp, vit). Build constructs UOp nodes only — no
+//     (mlp, conv, dynmlp, vit). Build constructs UOp nodes only - no
 //     Realize, no executor, no kernel dispatch.
 //   - the nanoGPT config helper and the in-memory dataset path.
 //
@@ -187,7 +187,7 @@ func TestInt32sAsBitsRoundtrip(t *testing.T) {
 	if len(out) != len(in) {
 		t.Fatalf("len mismatch")
 	}
-	// Compare at bit level — int32(-1) maps to NaN as float32 and NaN != NaN.
+	// Compare at bit level - int32(-1) maps to NaN as float32 and NaN != NaN.
 	for i, v := range in {
 		gotBack := int32(math.Float32bits(out[i]))
 		if gotBack != v {

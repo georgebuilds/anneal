@@ -107,7 +107,7 @@ describe('renderGenerateView', () => {
   });
 });
 
-describe('generateStart — prompt guard', () => {
+describe('generateStart - prompt guard', () => {
   it('refuses to start with an empty/whitespace prompt and announces', () => {
     vi.useFakeTimers();
     document.getElementById('gen-prompt').value = '   ';
@@ -120,7 +120,7 @@ describe('generateStart — prompt guard', () => {
   });
 });
 
-describe('generateStart — happy path streaming', () => {
+describe('generateStart - happy path streaming', () => {
   it('opens an EventSource with model/prompt/tokens/compare/bundle params', () => {
     document.getElementById('gen-model').value = 'gpt2';
     document.getElementById('gen-prompt').value = 'Hello world';
@@ -369,7 +369,7 @@ describe('generateCancel', () => {
   });
 });
 
-describe('generateStart — no EventSource / error branch', () => {
+describe('generateStart - no EventSource / error branch', () => {
   it('falls back to idle UI when EventSource construction throws', () => {
     vi.useFakeTimers();
     function ThrowingES() { throw new Error('SSE unavailable'); }

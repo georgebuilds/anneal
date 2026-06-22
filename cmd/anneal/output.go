@@ -39,12 +39,12 @@ func formatError(summary string, details ...string) string {
 // Other commands use this when they fail to open the WebGPU adapter.
 func noAdapterError() string {
 	return formatError(
-		"no WebGPU adapter found — anneal needs a Vulkan, Metal, or D3D12 backend at runtime.",
+		"no WebGPU adapter found - anneal needs a Vulkan, Metal, or D3D12 backend at runtime.",
 		"",
 		"anneal requires one of the following GPU backends to be available:",
-		"  Metal    — macOS 10.14+ with a Metal-capable GPU (most Apple hardware)",
-		"  Vulkan   — Linux/Windows with a Vulkan-capable GPU and drivers installed",
-		"  D3D12    — Windows 10+ with a DirectX 12-capable GPU",
+		"  Metal    - macOS 10.14+ with a Metal-capable GPU (most Apple hardware)",
+		"  Vulkan   - Linux/Windows with a Vulkan-capable GPU and drivers installed",
+		"  D3D12    - Windows 10+ with a DirectX 12-capable GPU",
 		"",
 		fmt.Sprintf("run '%s' to see what's available.", bold("anneal doctor")),
 	)
@@ -56,7 +56,7 @@ func noAdapterError() string {
 func doctorFailureMsg() string {
 	return formatError(
 		"no WebGPU adapter found",
-		"anneal needs a Vulkan, Metal, or D3D12 backend — none was detected.",
+		"anneal needs a Vulkan, Metal, or D3D12 backend - none was detected.",
 		"",
 		"to get started:",
 		"  macOS    ensure Xcode command-line tools are installed (provides Metal)",

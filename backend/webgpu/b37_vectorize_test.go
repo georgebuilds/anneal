@@ -37,7 +37,7 @@ func TestB37_ValueOracle_VectorizeMatmul(t *testing.T) {
 		// Regular shapes
 		{"matmul_64x64x64_TS16_MR4_NR4_W4", 64, 64, 64, 16, 4, 4, 4},
 		{"matmul_128x128x128_TS16_MR4_NR4_W4", 128, 128, 128, 16, 4, 4, 4},
-		// Existing B3 irregular shapes — B37 must pass all of these too.
+		// Existing B3 irregular shapes - B37 must pass all of these too.
 		{"matmul_irregular_M17_TS16_MR4_NR4_W4", 17, 32, 32, 16, 4, 4, 4},
 		{"matmul_irregular_N30_TS16_MR4_NR4_W4", 32, 30, 32, 16, 4, 4, 4},
 		{"matmul_irregular_M17N30K35_TS16_MR4_NR4_W4", 17, 30, 35, 16, 4, 4, 4},
@@ -254,7 +254,7 @@ func TestB37_GeometryRegression_WorkgroupShrink(t *testing.T) {
 		t.Errorf("b3 LocalSize = %v, want [%d %d 1] (256 threads)", b3, TS, TS)
 	}
 	if b37 != [3]int{TS / W, TS, 1} {
-		t.Errorf("b37 LocalSize = %v, want [%d %d 1] (64 threads — the regression)", b37, TS/W, TS)
+		t.Errorf("b37 LocalSize = %v, want [%d %d 1] (64 threads - the regression)", b37, TS/W, TS)
 	}
 	b3Threads := b3[0] * b3[1] * b3[2]
 	b37Threads := b37[0] * b37[1] * b37[2]
@@ -306,7 +306,7 @@ func TestB37_Timing_Matmul_Vectorize(t *testing.T) {
 
 		if N == 2048 {
 			if speedup < 1.5 {
-				fmt.Printf("  [FINDING] 2048³ speedup %.2fx < 1.5x — expected: OptVectorize shrinks the workgroup 256->64 threads (occupancy collapse, see TestB37_GeometryRegression_WorkgroupShrink). Use OptVec4Load on the b3 stack instead.\n", speedup)
+				fmt.Printf("  [FINDING] 2048³ speedup %.2fx < 1.5x - expected: OptVectorize shrinks the workgroup 256->64 threads (occupancy collapse, see TestB37_GeometryRegression_WorkgroupShrink). Use OptVec4Load on the b3 stack instead.\n", speedup)
 			} else {
 				fmt.Printf("  [PASS] 2048³ speedup %.2fx >= 1.5x target\n", speedup)
 			}

@@ -2,7 +2,7 @@ package schedule
 
 // CompilerStats holds per-Realize compiler metrics emitted to the dashboard.
 // UOps and Kernels are always live numbers from the current schedule run.
-// Fused is 0 in v1 — it becomes meaningful once Pass 5 (removeBufferize) elides
+// Fused is 0 in v1 - it becomes meaningful once Pass 5 (removeBufferize) elides
 // cross-boundary BUFFERIZE nodes; see CreateSchedule and removeBufferize.
 type CompilerStats struct {
 	UOps    int    // arena node count at SINK construction (tensor-level graph size)

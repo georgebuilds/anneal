@@ -11,7 +11,7 @@ package onnx
 //   - Run() refuses to execute (the contract: visualize, don't run).
 //   - The structure-only path allocates dramatically less host memory than
 //     the full path on the same model.
-//   - Constant and ConstantOfShape handlers honour the StructureOnly flag —
+//   - Constant and ConstantOfShape handlers honour the StructureOnly flag -
 //     they return a zero-filled leaf of the right shape without faulting on
 //     missing payload bytes.
 
@@ -27,7 +27,7 @@ import (
 )
 
 // TestImport_StructureOnly_ResNet9 loads the committed ResNet-9 fixture and
-// imports it twice — once normally, once structure-only — then pins:
+// imports it twice - once normally, once structure-only - then pins:
 //   - both runs produce the same node count;
 //   - both runs produce the same initializer count;
 //   - structure-only initializers carry correct shapes + dtypes but Data() is
@@ -121,7 +121,7 @@ func TestImport_StructureOnly_ResNet9(t *testing.T) {
 // TestImport_StructureOnly_BytesNotMaterialized compares host-side allocation
 // between the full import and the structure-only import on the same ResNet-9
 // fixture. The structure-only path must allocate dramatically less (we pin a
-// 4x ratio floor — empirically ~10x on this fixture; the floor stays gentle
+// 4x ratio floor - empirically ~10x on this fixture; the floor stays gentle
 // to avoid flakes on noisy CI).
 func TestImport_StructureOnly_BytesNotMaterialized(t *testing.T) {
 	modelPath := filepath.Join("testdata", "resnet9.onnx")
@@ -170,7 +170,7 @@ func TestImport_StructureOnly_BytesNotMaterialized(t *testing.T) {
 	// floor so the gate catches a "SetData skip is a no-op" regression
 	// without being noisy on small fixtures.
 	if soDelta >= fullDelta {
-		t.Errorf("structure-only allocated >= full import (%d >= %d) — payload skip is broken", soDelta, fullDelta)
+		t.Errorf("structure-only allocated >= full import (%d >= %d) - payload skip is broken", soDelta, fullDelta)
 	}
 	if delta < 100_000 {
 		t.Errorf("structure-only saved only %d B (< 100 KB floor); SetData skip may be ineffective", delta)

@@ -30,7 +30,7 @@ func init() {
 // remain the load-bearing correctness gate; see notes/resnet9_progress.md
 // for the workstream status.
 const (
-	resnet9Batch     = int64(2) // tiny by default — scalar-WGSL ceiling bites hard
+	resnet9Batch     = int64(2) // tiny by default - scalar-WGSL ceiling bites hard
 	resnet9AdamLR    = float32(1e-3)
 	resnet9InitScale = float32(0.05)
 )

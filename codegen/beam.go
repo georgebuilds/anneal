@@ -1,4 +1,4 @@
-// beam.go — BEAM search: beam-of-k over Opt sequences for kernel autotuning.
+// beam.go - BEAM search: beam-of-k over Opt sequences for kernel autotuning.
 //
 // Realize-path integration (tensor/realize.go → BeamApplyToItems):
 //   - Default mode (ANNEAL_BEAM unset): O(1) disk-cache lookup; identity on miss; zero
@@ -105,9 +105,9 @@ func ActionSpaceBufs(sink uop.UOp, bufs []schedule.Buffer) []Opt {
 	tryKind(OptVectorize, beamVectorizeArgs)
 	// OptVec4Load: one per-kernel action (Axis/Arg unused). The apply-time
 	// eligibility gate inside applyVec4Load doubles as the BEAM prefilter
-	// (localSplitDivides pattern): an ineligible kernel — non-tilable, not
+	// (localSplitDivides pattern): an ineligible kernel - non-tilable, not
 	// yet tiled, symbolic, non-4-aligned extents, non-f32/image params, or
-	// missing buffer info — refuses (returns sink unchanged) and is excluded
+	// missing buffer info - refuses (returns sink unchanged) and is excluded
 	// by the no-op filter. applyVec4Load never panics, so probing is safe.
 	if len(bufs) > 0 {
 		opt := Opt{Kind: OptVec4Load}
@@ -558,7 +558,7 @@ func BeamApplyToItems(items []schedule.ExecItem, exec backend.Executor, bench ba
 
 		switch {
 		case hit && len(entry.Opts) == 0:
-			// Identity won during a prior search — no transformation needed.
+			// Identity won during a prior search - no transformation needed.
 			continue
 
 		case hit:

@@ -101,7 +101,7 @@ func (m *convNet) Forward(x *tensor.Tensor) *tensor.Tensor {
 // Label for each image = mean pixel value in its top-left 3×3 region.
 // The top-left brightness varies across samples [0.2, 0.9]; the remaining
 // 27 pixels carry the complement (1 − tlV) so total image mean is constant.
-// Signal is thus purely spatial, concentrated in the top-left 3×3 — exactly
+// Signal is thus purely spatial, concentrated in the top-left 3×3 - exactly
 // the receptive field covered by the Shrink-cropped output positions.
 func convToyDataset() (images, labels []float32) {
 	const (
@@ -308,7 +308,7 @@ func TestConvNetGradientCheck(t *testing.T) {
 			i, ag, fd, d, mark)
 		if !pass {
 			t.Fatalf("FAIL conv.Weight[%d]: analytic=%.6f  fd=%.6f  diff=%.2e > tol=%.2e\n"+
-				"Conv backward is INCORRECT — gradient does not match finite differences.\n"+
+				"Conv backward is INCORRECT - gradient does not match finite differences.\n"+
 				"Check: Shrink.backward=Pad, Permute.backward=InvPermute, "+
 				"Expand.backward=ReduceSum across broadcast axes.",
 				i, ag, fd, d, tol)
@@ -373,26 +373,26 @@ func TestConvNetConvergence(t *testing.T) {
 	t.Logf("─── MaxPool2D(k=2,s=2) assessment ───────────────────────────────────")
 	t.Logf("  Conv output: [N,4,4,4]. MaxPool2D(k=2,s=2) → [N,4,2,2]: 4 pooled features.")
 	t.Logf("  Dataset signal (top-left 3×3) is fully within the pooled receptive field.")
-	t.Logf("  MaxPool2D backward = rangeify decomposition + ReduceAxis(OpMax) (split-equally) — differentiable.")
+	t.Logf("  MaxPool2D backward = rangeify decomposition + ReduceAxis(OpMax) (split-equally) - differentiable.")
 	t.Logf("  All 16 conv spatial positions contribute to pooled output via max selection.")
 
 	// ── Diagnose convergence quality ──────────────────────────────────────────
 	switch {
 	case ratio < 0.03:
-		t.Logf("  Convergence: STRONG ✓ — comparable to MLP baseline (0.11%%)")
+		t.Logf("  Convergence: STRONG ✓ - comparable to MLP baseline (0.11%%)")
 	case ratio < 0.20:
-		t.Logf("  Convergence: MODERATE — %.2f%% of initial vs MLP 0.11%%.", ratio*100)
+		t.Logf("  Convergence: MODERATE - %.2f%% of initial vs MLP 0.11%%.", ratio*100)
 		t.Logf("  MaxPool2D exposes 4 pooled spatial features to the linear head;")
 		t.Logf("  the MLP had 8 hidden units serving 16 samples. Capacity difference")
 		t.Logf("  (not the training loop, which is identical) explains the gap.")
 	default:
-		t.Logf("  Convergence: WEAK — %.2f%% of initial (MLP baseline 0.11%%).", ratio*100)
+		t.Logf("  Convergence: WEAK - %.2f%% of initial (MLP baseline 0.11%%).", ratio*100)
 		t.Logf("  MaxPool2D(k=2,s=2) aggregates 4 positions per feature;")
 		t.Logf("  this may be the convergence bottleneck if the task requires fine spatial detail.")
 	}
 
 	if ratio >= 0.50 {
-		t.Fatalf("conv net did not converge: ratio=%.4f ≥ 0.50 — "+
+		t.Fatalf("conv net did not converge: ratio=%.4f ≥ 0.50 - "+
 			"loss is at %.2f%% of initial after %d steps. "+
 			"Check that conv backward is correct (run TestConvNetGradientCheck).",
 			ratio, ratio*100, nSteps)

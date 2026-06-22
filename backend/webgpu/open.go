@@ -12,7 +12,7 @@ import (
 
 // Device holds an open WebGPU device and its associated queue.
 //
-// ── Threading model (load-bearing — do not bypass) ───────────────────────────
+// ── Threading model (load-bearing - do not bypass) ───────────────────────────
 //
 // Every Metal-touching operation MUST run on the single GPU-owner goroutine,
 // which is locked to one OS thread for its entire lifetime (see gpuOwnerLoop).
@@ -23,7 +23,7 @@ import (
 //
 // Why this is required: gogpu/wgpu's Metal HAL drives every native call inside
 // an NSAutoreleasePool that is created and drained within a single HAL function
-// (e.g. Device.WaitIdle). An ObjC autorelease pool is thread-affine — it must be
+// (e.g. Device.WaitIdle). An ObjC autorelease pool is thread-affine - it must be
 // drained on the OS thread that created it. Go's scheduler freely migrates a
 // goroutine across OS threads at blocking syscalls (Metal's waitUntilCompleted
 // is one), so a pool created on thread A can be drained on thread B → SIGSEGV in
@@ -73,7 +73,7 @@ type gpuJob struct {
 // On non-darwin platforms (Vulkan, DX12), wgpu does not need this thread
 // pinning: there are no autorelease pools, and Vulkan worker threads spawned
 // by wgpu are independent of any goroutine's OS thread. Locking on Linux is
-// actively harmful — terminating the locked OS thread on Close() leaves
+// actively harmful - terminating the locked OS thread on Close() leaves
 // Vulkan worker threads (e.g. Mesa llvmpipe's workers) racing process exit,
 // which manifests as a SIGSEGV in native code with no Go traceback.
 func (d *Device) gpuOwnerLoop() {
@@ -109,12 +109,12 @@ func Open() (*Device, error) {
 	err := d.onGPU(func() error {
 		inst, err := wgpu.CreateInstance(nil)
 		if err != nil {
-			return fmt.Errorf("webgpu: CreateInstance: %w — is a native GPU runtime available? Metal on macOS, Vulkan on Linux", err)
+			return fmt.Errorf("webgpu: CreateInstance: %w - is a native GPU runtime available? Metal on macOS, Vulkan on Linux", err)
 		}
 		adapter, err := inst.RequestAdapter(nil)
 		if err != nil {
 			inst.Release()
-			return fmt.Errorf("webgpu: no GPU adapter found: %w — run `anneal doctor` for hardware diagnostics", err)
+			return fmt.Errorf("webgpu: no GPU adapter found: %w - run `anneal doctor` for hardware diagnostics", err)
 		}
 		var devDesc *wgpu.DeviceDescriptor
 		if adapter.Features().Contains(gputypes.FeatureShaderF16) {

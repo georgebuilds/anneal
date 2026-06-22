@@ -1,6 +1,6 @@
 //go:build !js
 
-// W7 — /sse/generate: stream TokenSnapshot frames from a real generation
+// W7 - /sse/generate: stream TokenSnapshot frames from a real generation
 // run to the browser generate view. Spec: notes/anneal_web_spec.md §5.6 +
 // §7.
 //
@@ -10,7 +10,7 @@
 //   - Server-side throttle: a min-interval floor (~60 Hz) on the wire so a
 //     pathologically chatty model can't flood the browser; for generate
 //     the natural rate is one frame per token, which is already well
-//     under 60 Hz for any model on this stack — the floor is defensive.
+//     under 60 Hz for any model on this stack - the floor is defensive.
 //   - Backpressure: when the client disconnects (r.Context() cancelled)
 //     the token send is dropped; the generation goroutine continues so a
 //     bundle finalises cleanly even if the tab closed mid-run.

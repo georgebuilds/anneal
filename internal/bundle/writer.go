@@ -18,7 +18,7 @@ import (
 // schedule.json, config.json, kernels/*.wgsl) are written atomically via
 // a temp-and-rename pattern.
 //
-// Concurrent calls are safe — a single mutex guards the streaming file
+// Concurrent calls are safe - a single mutex guards the streaming file
 // handles and the manifest stub. The writer is single-bundle: open one
 // Writer per run.
 type Writer struct {
@@ -210,7 +210,7 @@ func (w *Writer) AppendEvent(e Event) error {
 }
 
 // WriteGraph atomically writes graphJSON to graph.json. The caller owns
-// the marshalling — viz already produces this JSON and the bundle stores
+// the marshalling - viz already produces this JSON and the bundle stores
 // the exact bytes for byte-equal replay.
 func (w *Writer) WriteGraph(graphJSON []byte) error {
 	return w.atomicWrite("graph.json", graphJSON)
@@ -310,7 +310,7 @@ func (w *Writer) writeManifest() error {
 
 // atomicWrite is the locked wrapper around atomicWriteFile used by the
 // per-artifact writers (graph, schedule, config, kernels). Caller must NOT
-// hold w.mu — the writes themselves do not need the streaming-sink mutex,
+// hold w.mu - the writes themselves do not need the streaming-sink mutex,
 // and serializing them would block streaming writes unnecessarily.
 func (w *Writer) atomicWrite(relpath string, data []byte) error {
 	w.mu.Lock()

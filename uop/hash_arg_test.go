@@ -7,7 +7,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// hash_arg_test.go — adversarial coverage for hashArg/equalArg, the structural-key
+// hash_arg_test.go - adversarial coverage for hashArg/equalArg, the structural-key
 // primitives that back the schedule cache and the BEAM disk cache.
 //
 // Methodology: hashArg and equalArg are private, but the interning path exercises
@@ -29,7 +29,7 @@ import (
 
 // internsEqual builds two nodes with the given args on a fresh arena and reports
 // whether they interned to the same UOp (i.e. equalArg returned true AND hashes
-// matched). dtype must be the same for both — we vary only the arg.
+// matched). dtype must be the same for both - we vary only the arg.
 func internsEqual(t *testing.T, arg1, arg2 any) (same bool, a *uop.Arena) {
 	t.Helper()
 	a = uop.NewArena(8)
@@ -38,7 +38,7 @@ func internsEqual(t *testing.T, arg1, arg2 any) (same bool, a *uop.Arena) {
 	return u1 == u2, a
 }
 
-// ── BufferizeArg — load-bearing for BEAM cache (Removable flag) ─────────────
+// ── BufferizeArg - load-bearing for BEAM cache (Removable flag) ─────────────
 
 // TestEqualArgBufferizeRemovableDistinct is the headline case for B5: a hard
 // (Removable=false) and a soft (Removable=true) Bufferize must NEVER alias.
@@ -50,7 +50,7 @@ func TestEqualArgBufferizeRemovableDistinct(t *testing.T) {
 		uop.BufferizeArg{Removable: true},
 	)
 	if same {
-		t.Fatal("BufferizeArg{Removable:false} and {Removable:true} interned to the same node — " +
+		t.Fatal("BufferizeArg{Removable:false} and {Removable:true} interned to the same node - " +
 			"this would collapse hard and soft bufferize boundaries in the schedule/BEAM cache")
 	}
 	if a.Len() != 2 {
@@ -70,7 +70,7 @@ func TestEqualArgBufferizeSameInterns(t *testing.T) {
 	}
 }
 
-// ── RangeArg — every field participates in the key ───────────────────────────
+// ── RangeArg - every field participates in the key ───────────────────────────
 
 // TestEqualArgRangeAllFields walks every RangeArg field; for each, two values that
 // differ in only that field must produce distinct interned nodes. RangeArg backs
@@ -93,7 +93,7 @@ func TestEqualArgRangeAllFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			same, a := internsEqual(t, base, tc.mutated)
 			if same {
-				t.Errorf("RangeArg differing only in field %s interned to the same node — "+
+				t.Errorf("RangeArg differing only in field %s interned to the same node - "+
 					"%s is dropped from the intern key", tc.name, tc.name)
 			}
 			if a.Len() != 2 {
@@ -111,7 +111,7 @@ func TestEqualArgRangeIdenticalInterns(t *testing.T) {
 	}
 }
 
-// ── ReduceArg — Op + sorted Axes ────────────────────────────────────────────
+// ── ReduceArg - Op + sorted Axes ────────────────────────────────────────────
 
 func TestEqualArgReduceAllFields(t *testing.T) {
 	base := uop.ReduceArg{Op: uop.OpAdd, Axes: []int{0, 1}}
@@ -137,10 +137,10 @@ func TestEqualArgReduceAllFields(t *testing.T) {
 	t.Run("axes order matters", func(t *testing.T) {
 		// Axes are documented as sorted; the equalArg code compares index-by-index.
 		// If the scheduler ever produces unsorted axes, two semantically-equivalent
-		// reduces would not alias — this test pins the index-by-index contract.
+		// reduces would not alias - this test pins the index-by-index contract.
 		same, _ := internsEqual(t, base, uop.ReduceArg{Op: uop.OpAdd, Axes: []int{1, 0}})
 		if same {
-			t.Error("ReduceArg with reordered Axes interned together — equalArg does NOT canonicalise order")
+			t.Error("ReduceArg with reordered Axes interned together - equalArg does NOT canonicalise order")
 		}
 	})
 	t.Run("nil vs empty axes", func(t *testing.T) {
@@ -149,12 +149,12 @@ func TestEqualArgReduceAllFields(t *testing.T) {
 			uop.ReduceArg{Op: uop.OpAdd, Axes: []int{}},
 		)
 		if !same {
-			t.Error("ReduceArg with nil vs empty axes did NOT intern — both length-0 axes should alias")
+			t.Error("ReduceArg with nil vs empty axes did NOT intern - both length-0 axes should alias")
 		}
 	})
 }
 
-// ── ShapeSintArg — concrete + symbolic dims ─────────────────────────────────
+// ── ShapeSintArg - concrete + symbolic dims ─────────────────────────────────
 
 func TestEqualArgShapeSintAllFields(t *testing.T) {
 	base := uop.ShapeSintArg{
@@ -188,19 +188,19 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "m", Mul: 1}
 		same, _ := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different VarName on symbolic dim interned together — " +
+			t.Error("ShapeSintArg with different VarName on symbolic dim interned together - " +
 				"two different DefineVars would alias in the reshape arg")
 		}
 	})
 	t.Run("Mul differs (symbolic dim)", func(t *testing.T) {
 		// Slice 4 hygiene: Mul is part of the structural key. Two ShapeSintArgs with
-		// the same VarName but different multipliers must not alias — they represent
+		// the same VarName but different multipliers must not alias - they represent
 		// different bound expressions (n vs 4n).
 		mut := append(uop.ShapeSintArg(nil), base...)
 		mut[0] = uop.ShapeDim{V: 0, Sym: true, VarName: "n", Mul: 4}
 		same, _ := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different Mul on symbolic dim interned together — " +
+			t.Error("ShapeSintArg with different Mul on symbolic dim interned together - " +
 				"multiplier dropped from the intern key")
 		}
 	})
@@ -223,7 +223,7 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		// Net effect at the cache: two ShapeSintArgs with same (VarName, Mul) but
 		// different V on a Sym dim hash to the SAME bucket but compare UNEQUAL,
 		// producing two arena nodes in one bucket. SAFE for intern correctness (no
-		// false alias) but only because production code never reaches this case —
+		// false alias) but only because production code never reaches this case -
 		// toShapeSintArg (tensor/movement.go) and NewSymbolicBatchInput
 		// (tensor/tensor.go) both panic if Sym=true is constructed with V≠0, per
 		// the SPEC §10 invariant.
@@ -231,13 +231,13 @@ func TestEqualArgShapeSintAllFields(t *testing.T) {
 		// This test directly constructs the V≠0 / Sym=true case (the only path that
 		// reaches it) to pin the asymmetric behaviour. If either side is changed
 		// (hashArg starts mixing V on Sym=true OR equalArg starts ignoring it), this
-		// test will flip — and the SPEC §10 invariant should be revisited at the same
+		// test will flip - and the SPEC §10 invariant should be revisited at the same
 		// time, since the asymmetry it pins down would be gone.
 		mut := append(uop.ShapeSintArg(nil), base...)
 		mut[0] = uop.ShapeDim{V: 999, Sym: true, VarName: "n", Mul: 1}
 		same, a := internsEqual(t, base, mut)
 		if same {
-			t.Error("ShapeSintArg with different V on Sym=true dim aliased — " +
+			t.Error("ShapeSintArg with different V on Sym=true dim aliased - " +
 				"equalArg used to distinguish them; if you intended to ignore V on Sym, " +
 				"update both hashArg and equalArg together AND revisit SPEC §10 invariant")
 		}
@@ -281,14 +281,14 @@ func TestEqualArgFloat64NaNBits(t *testing.T) {
 	t.Run("different NaN bits distinct", func(t *testing.T) {
 		same, _ := internsEqual(t, nan1, nan3)
 		if same {
-			t.Error("NaNs with different bit patterns aliased — Float64bits not consulted")
+			t.Error("NaNs with different bit patterns aliased - Float64bits not consulted")
 		}
 	})
 	t.Run("+0.0 vs -0.0 distinct", func(t *testing.T) {
 		// +0.0 == -0.0 as floats but their bit patterns differ; the intern key uses bits.
 		same, _ := internsEqual(t, float64(0), math.Copysign(0, -1))
 		if same {
-			t.Error("+0.0 and -0.0 aliased — intern uses Float64bits, these have different bits")
+			t.Error("+0.0 and -0.0 aliased - intern uses Float64bits, these have different bits")
 		}
 	})
 }
@@ -312,7 +312,7 @@ func TestEqualArgInt64Slice(t *testing.T) {
 		// Length is mixed into the hash, so a prefix should NOT alias with the full.
 		same, _ := internsEqual(t, []int64{1, 2, 3}, []int64{1, 2})
 		if same {
-			t.Error("[]int64 prefix aliased with full slice — length not mixed into key")
+			t.Error("[]int64 prefix aliased with full slice - length not mixed into key")
 		}
 	})
 	t.Run("nil vs empty", func(t *testing.T) {
@@ -320,7 +320,7 @@ func TestEqualArgInt64Slice(t *testing.T) {
 		// hashed identically, equal under index-by-index loop (no iterations).
 		same, _ := internsEqual(t, []int64(nil), []int64{})
 		if !same {
-			t.Error("[]int64(nil) and []int64{} did NOT intern — both are length-0 of same type")
+			t.Error("[]int64(nil) and []int64{} did NOT intern - both are length-0 of same type")
 		}
 	})
 }
@@ -404,10 +404,10 @@ func TestEqualArgVarArg(t *testing.T) {
 		}
 	})
 	t.Run("prefix collision", func(t *testing.T) {
-		// "n" should not alias with "nn" — strings are length-prefixed.
+		// "n" should not alias with "nn" - strings are length-prefixed.
 		same, _ := internsEqual(t, uop.VarArg{Name: "n"}, uop.VarArg{Name: "nn"})
 		if same {
-			t.Error("VarArg name prefix aliased — string length leaked")
+			t.Error("VarArg name prefix aliased - string length leaked")
 		}
 	})
 }
@@ -471,7 +471,7 @@ func TestEqualArgCrossTypeDiscriminators(t *testing.T) {
 	for _, tc := range zeroArgs {
 		u := a.New(uop.OpConst, uop.Dtypes.Index, nil, tc.arg, nil)
 		if prev, ok := indexOf[u.Index()]; ok {
-			t.Errorf("cross-type alias: %s and %s both intern at arena idx %d — "+
+			t.Errorf("cross-type alias: %s and %s both intern at arena idx %d - "+
 				"discriminator collision in hashArg/equalArg", prev, tc.name, u.Index())
 		}
 		indexOf[u.Index()] = tc.name
@@ -510,7 +510,7 @@ func TestEqualArgNilTagVsTypedTag(t *testing.T) {
 	u1 := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), nil)
 	u2 := a.New(uop.OpConst, uop.Dtypes.Index, nil, int64(0), int64(0))
 	if u1 == u2 {
-		t.Error("nil tag and int64(0) tag aliased — tag-side nil discriminator broken")
+		t.Error("nil tag and int64(0) tag aliased - tag-side nil discriminator broken")
 	}
 }
 
@@ -520,7 +520,7 @@ func TestEqualArgNilTagVsTypedTag(t *testing.T) {
 // hashArg's panic is covered by TestUnsupportedArgPanics in uop_test.go; here we
 // ensure that even if hashArg were extended (or a hash collision arose), the
 // equalArg default panic fires. We can only trigger this through a public API
-// that hits a hash collision on an unsupported type — not reachable directly.
+// that hits a hash collision on an unsupported type - not reachable directly.
 // Instead, we document the contract: any new arg type MUST be added to BOTH
 // hashArg and equalArg, and the unsupported-type test in uop_test.go pins the
 // hashArg side. This test pins that the same enforcement exists at New time.
@@ -531,6 +531,6 @@ func TestEqualArgUnsupportedTypePanics(t *testing.T) {
 			t.Error("expected panic for unsupported arg type via tag, got none")
 		}
 	}()
-	// Same as TestUnsupportedArgPanics but via tag — both fields go through hashArg.
+	// Same as TestUnsupportedArgPanics but via tag - both fields go through hashArg.
 	a.New(uop.OpConst, uop.Dtypes.Void, nil, nil, []int{1, 2, 3})
 }

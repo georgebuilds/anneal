@@ -1,10 +1,10 @@
 package webgpu_test
 
-// Slice 7d — emitIndex multi-dim stride math under sym non-outermost.
+// Slice 7d - emitIndex multi-dim stride math under sym non-outermost.
 //
 // The Slice 7b report flagged a latent in emitIndex's OpIndex multi-dim
 // lowering: strides were computed from Buffer.Shape []int64 (with 0-sentinels
-// for sym dims), so strides left of a sym dim silently became 0 — same shape
+// for sym dims), so strides left of a sym dim silently became 0 - same shape
 // as STOP-2 but on the input-load path instead of the final-store path.
 //
 // The Slice 7b C2/C3/C4 tests sidestepped this by hand-flattening the input
@@ -32,7 +32,7 @@ import (
 
 // buildEmitIndex2D builds c[i,j] = a[i,j] + b[i,j] with shape [shape0, n],
 // where shape0 is concrete (or 0 for sym), n is symbolic. Each OpIndex carries
-// the dim ranges as separate sources — driving emitIndex's multi-dim path.
+// the dim ranges as separate sources - driving emitIndex's multi-dim path.
 func buildEmitIndex2D(a *uop.Arena, dim0 int64, varN string) schedule.ExecItem {
 	defN := a.DefineVar(varN, 1, 100)
 	r0Bound := a.New(uop.OpConst, uop.Dtypes.Index, nil, dim0, nil)
@@ -43,7 +43,7 @@ func buildEmitIndex2D(a *uop.Arena, dim0 int64, varN string) schedule.ExecItem {
 	paramA := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(1), nil)
 	paramB := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(2), nil)
 
-	// Multi-dim OpIndex: paramA, dim0, dim1 — exercises emitIndex's multi-dim
+	// Multi-dim OpIndex: paramA, dim0, dim1 - exercises emitIndex's multi-dim
 	// branch (the path the Slice 7b report flagged).
 	indexA := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{paramA, r0, r1}, nil, nil)
 	indexB := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{paramB, r0, r1}, nil, nil)
@@ -236,7 +236,7 @@ func TestEmitIndexSym_NxM(t *testing.T) {
 }
 
 // buildEmitIndex3DSymMid builds c[i,j,k] = a[i,j,k] + b[i,j,k] with shape
-// [4, n, 4] — sym in the middle. emitIndex must produce stride[0] = n*4 and
+// [4, n, 4] - sym in the middle. emitIndex must produce stride[0] = n*4 and
 // stride[1] = 4. Without the fix stride[0] would resolve to shape[1]*shape[2]
 // = 0*4 = 0 and all i-rows would collapse.
 func buildEmitIndex3DSymMid(a *uop.Arena, varN string) schedule.ExecItem {
@@ -365,7 +365,7 @@ func TestEmitIndexWGSLSpotCheck_4xN(t *testing.T) {
 	}
 	// Pre-fix would have a literal `* 0)` term in the load expression.
 	if strings.Contains(loadLine, "* 0)") {
-		t.Errorf("WGSL spot-check: load line still contains `* 0)` — sym-stride sentinel leaked\n  got: %s", loadLine)
+		t.Errorf("WGSL spot-check: load line still contains `* 0)` - sym-stride sentinel leaked\n  got: %s", loadLine)
 	}
 	// Surface the full WGSL on -v so the bound expression is auditable.
 	t.Logf("--- full WGSL for [4, n] ---\n%s", indent(wgsl, "  "))

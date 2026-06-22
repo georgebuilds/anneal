@@ -1,10 +1,10 @@
 // Package schedule implements the ten-pass rangeify pipeline: realize-map,
 // bufferize, kernel split, toposort, and memory plan.
 //
-// schedule.go implements passes 1–6 (GetKernelGraph): from a SINK-rooted tensor
+// schedule.go implements passes 1-6 (GetKernelGraph): from a SINK-rooted tensor
 // graph to a kernel-segmented graph with explicit BUFFER+STORE+AFTER boundaries.
-// kernels.go implements passes 7–10 (split_kernels, create_schedule,
-// linear_to_schedule, memory_planner) — see CreateSchedule.
+// kernels.go implements passes 7-10 (split_kernels, create_schedule,
+// linear_to_schedule, memory_planner) - see CreateSchedule.
 package schedule
 
 import (
@@ -35,7 +35,7 @@ func DebugBufRangesFlush(path string) {
 	DebugBufRanges = nil
 }
 
-// GetKernelGraph runs passes 1–6 of the rangeify scheduler.
+// GetKernelGraph runs passes 1-6 of the rangeify scheduler.
 //
 // Input:  SINK-rooted tensor-level UOp graph as produced by tensor.Realize.
 // Output: Kernel-segmented graph where each realized buffer is represented by
@@ -46,7 +46,7 @@ func DebugBufRangesFlush(path string) {
 //
 // device is the target device string (e.g. "cpu", "webgpu").
 func GetKernelGraph(sink uop.UOp, device string) uop.UOp {
-	// Pass 1: early rewrites (no-op in v1 — identity ops already eliminated
+	// Pass 1: early rewrites (no-op in v1 - identity ops already eliminated
 	// at tensor-construction time).
 	sink = earlyRewrites(sink)
 
@@ -58,7 +58,7 @@ func GetKernelGraph(sink uop.UOp, device string) uop.UOp {
 	// sprinkled through tensor/nn/ to dodge the same limit.
 	sink = enforceBufferBudget(sink)
 
-	// Passes 2–4: compute realize map, thread range indices through each kernel
+	// Passes 2-4: compute realize map, thread range indices through each kernel
 	// subgraph (dissolving movement ops into range arithmetic), insert BUFFERIZE.
 	sink = runRangeify(sink)
 
@@ -572,7 +572,7 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 		}
 
 		// Output buffer shape = per-dim sizes of the AxisLoop ranges.
-		// Symbolic ranges contribute 0 — the actual size is resolved at dispatch
+		// Symbolic ranges contribute 0 - the actual size is resolved at dispatch
 		// time from the binding (see backend/webgpu/executor.go:symElemCount).
 		outShape := make([]int64, len(outRanges))
 		for ri, r := range outRanges {
@@ -603,7 +603,7 @@ func addBuffers(a *uop.Arena, sink uop.UOp, device string) uop.UOp {
 		var bufArg any = outShape
 		if hasDerivedBound {
 			// Decide between ShapeSintArg (single-term encoding from Slice 4)
-			// and the richer BoundExprArg (Option B Slice 5 — affine sums for
+			// and the richer BoundExprArg (Option B Slice 5 - affine sums for
 			// the pad/shrink output case where bounds are Add(var, const) or
 			// Add(var, var)). Try the narrow encoding first; if any symbolic
 			// range carries a bound shape SymBoundFactor can't decompose

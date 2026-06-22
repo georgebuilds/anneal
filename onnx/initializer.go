@@ -47,7 +47,7 @@ func onnxDType(dt int32) (annealDT *uop.DType, srcWidth int, downcast bool, ok b
 	case onnxpb.TensorProto_BFLOAT16:
 		return uop.Dtypes.BFloat16, 2, false, true
 	case onnxpb.TensorProto_DOUBLE:
-		// Decoded width is 8 (f64), but we materialise as f32 — warn the
+		// Decoded width is 8 (f64), but we materialise as f32 - warn the
 		// caller so the downcast is visible.
 		return uop.Dtypes.Float32, 8, true, true
 	case onnxpb.TensorProto_INT8:
@@ -85,7 +85,7 @@ func onnxDType(dt int32) (annealDT *uop.DType, srcWidth int, downcast bool, ok b
 // Decoding rules (plan §3):
 //   - All raw_data is little-endian per the ONNX spec; we decode via
 //     encoding/binary.LittleEndian, which is correct on both LE and BE hosts.
-//     (The optional unsafe.Slice fast path is deliberately NOT the default —
+//     (The optional unsafe.Slice fast path is deliberately NOT the default -
 //     it requires both LE-host and natural-alignment checks; we defer it.)
 //   - Each TensorProto must populate exactly one data field: raw_data, OR a
 //     type-matched typed field (float_data, int32_data, int64_data,

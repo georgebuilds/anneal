@@ -1,4 +1,4 @@
-# anneal studio — foundation (W0) developer notes
+# anneal studio - foundation (W0) developer notes
 
 This directory is the static surface for `anneal web`. Files are embedded into
 the `anneal` binary via `//go:embed` from `cmd/anneal/cmd_web.go`; the studio is

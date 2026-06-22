@@ -518,7 +518,7 @@ describe('worker RPC client', () => {
       const mod = await loadWithWorker();
       const w = workerInstances[0];
       const p = mod.wasm.call('keep');
-      // Stray reply for an id nobody is waiting on — must not throw.
+      // Stray reply for an id nobody is waiting on - must not throw.
       w.onmessage({ data: { id: 999, ok: true, result: 1 } });
       // The real reply still resolves the pending call.
       w.onmessage({ data: { id: 1, ok: true, result: 'ok' } });

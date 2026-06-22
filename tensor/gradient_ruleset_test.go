@@ -45,7 +45,7 @@ func assertEquivGrad(t *testing.T, op string, got1, got2 []*Tensor) {
 // TestGradientRulesetEquivalence asserts that Gradient.Dispatch produces
 // bit-identical UOp graph structure to applyGradRule for every op category.
 // Both paths run on the same arena, so interning makes structurally-identical
-// expressions share the same index — divergence means structural difference.
+// expressions share the same index - divergence means structural difference.
 func TestGradientRulesetEquivalence(t *testing.T) {
 	type gradCase struct {
 		name     string

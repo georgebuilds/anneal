@@ -10,7 +10,7 @@ import "github.com/georgebuilds/anneal/schedule"
 //
 // Renderer is a thin contract over the per-backend kernel rendering function in
 // the codegen package: the backend's Renderer implementation forwards to e.g.
-// codegen.RenderWGSL — the codegen package owns the rendering logic.
+// codegen.RenderWGSL - the codegen package owns the rendering logic.
 type Renderer interface {
 	Render(item schedule.ExecItem) schedule.RenderResult
 }

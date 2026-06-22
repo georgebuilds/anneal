@@ -61,7 +61,7 @@ func (a *allocator) Reset() {
 // newBuffer creates a host-resident Buffer of elems × dt. Defaults to f32
 // when dt is nil (a few schedule paths leave dt unset on AllocSlot first
 // calls; the orchestrator then overrides via the writer kernel's dtype on
-// the buffer-level dtype map — matching the WebGPU allocator's behavior).
+// the buffer-level dtype map - matching the WebGPU allocator's behavior).
 func newBuffer(elems int64, dt *uop.DType) (*Buffer, error) {
 	if elems < 0 {
 		return nil, fmt.Errorf("cpu.allocator: negative elems %d", elems)

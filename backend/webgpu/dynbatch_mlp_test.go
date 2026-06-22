@@ -130,7 +130,7 @@ func TestDynBatchMLP(t *testing.T) {
 		}
 	}
 
-	// ── Run n=8 (same compiled kernels — compile-once proof) ──────────────
+	// ── Run n=8 (same compiled kernels - compile-once proof) ──────────────
 	const batch8 = 8
 	x8 := randSlice(batch8 * 4)
 	ref8 := cpuForward(x8, batch8, 4, 8, 2)
@@ -219,7 +219,7 @@ func staticMLPForward(t *testing.T, dev *webgpu.Device, x, w1, b1, w2, b2 []floa
 }
 
 // TestDynBatchScheduleStructure proves the schedule properties for a symbolic
-// batch MLP without touching the GPU — pure structure validation.
+// batch MLP without touching the GPU - pure structure validation.
 func TestDynBatchScheduleStructure(t *testing.T) {
 	a := uop.NewArena(512)
 	const device = "cpu"
@@ -249,7 +249,7 @@ func TestDynBatchScheduleStructure(t *testing.T) {
 		t.Errorf("no symbolic kernels in schedule (want at least 1)")
 	}
 
-	// Output shape of the final item must be [n, 8] — 2D with a symbolic first dim.
+	// Output shape of the final item must be [n, 8] - 2D with a symbolic first dim.
 	last := items[len(items)-1]
 	if len(last.Bufs) == 0 {
 		t.Fatal("last ExecItem has no bufs")

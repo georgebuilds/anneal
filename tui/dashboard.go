@@ -310,7 +310,7 @@ func (m Model) renderMetrics(w int) string {
 	_ = w
 
 	if !m.snap.HasLoss {
-		return "  " + t.muted.Render("loss  —")
+		return "  " + t.muted.Render("loss  -")
 	}
 
 	// Loss value in teal: it is a forward-pass metric (forward=teal per DD1).
@@ -321,18 +321,18 @@ func (m Model) renderMetrics(w int) string {
 }
 
 // renderLegend renders the DD1 color semantics inline.
-// This section is the lossless NO_COLOR carrier: shapes (—, ╌, ▪) plus labels
+// This section is the lossless NO_COLOR carrier: shapes (-, ╌, ▪) plus labels
 // always distinguish the three states regardless of color support.
 func (m Model) renderLegend(w int) string {
 	t := m.theme
 	_ = w
 
 	// Each entry: shape (colored in mode; label always present) + description.
-	// forward: solid line — teal
+	// forward: solid line - teal
 	fwd := t.forward.Render(SymForward) + " " + t.muted.Render("forward")
-	// backward: dashed line — ember
+	// backward: dashed line - ember
 	bwd := t.backward.Render(SymBackward) + " " + t.muted.Render("backward")
-	// fused: filled box — gold
+	// fused: filled box - gold
 	fus := t.fused.Render(SymFused) + " " + t.muted.Render("fused")
 
 	sep := t.faint.Render("   ")

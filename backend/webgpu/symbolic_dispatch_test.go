@@ -1,11 +1,11 @@
 package webgpu
 
-// Slice 7c — direct verification of the executor's symbolic dispatch-thread
+// Slice 7c - direct verification of the executor's symbolic dispatch-thread
 // computation.
 //
 // The 7b end-to-end C1/C2/C3/C4 tests prove the *dispatch result* is correct
 // (max-abs-diff = 0 across the whole output), but they don't isolate the
-// per-call value coming out of symElemCount for the output buffer — that's
+// per-call value coming out of symElemCount for the output buffer - that's
 // what `outElems` becomes at executor.go:929, which determines the workgroup
 // count. This file pins that value directly for each C-case so any regression
 // that breaks the multi-dim-correct path is caught even when it would otherwise
@@ -28,7 +28,7 @@ import (
 // Output buffers constructed below mirror exactly the buildC{1,2,3,4}Kernel
 // helpers in slice7b_ccase_test.go (which lives in package webgpu_test). They
 // are duplicated here because slice7b's helpers aren't exported and live in a
-// different package; the shape of the duplication is intentionally minimal —
+// different package; the shape of the duplication is intentionally minimal -
 // only the output buffer (Bufs[0]) is materialised, since symElemCount only
 // reads buf.Shape + per-dim sym metadata.
 
@@ -168,7 +168,7 @@ func TestSymElemCountCCases(t *testing.T) {
 				t.Fatalf("symElemCount=%d want %d", got, c.want)
 			}
 			if got == 0 {
-				t.Fatalf("symElemCount returned 0 — would route through the "+
+				t.Fatalf("symElemCount returned 0 - would route through the "+
 					"SymVars[0] fallback at executor.go:931; want %d", c.want)
 			}
 		})

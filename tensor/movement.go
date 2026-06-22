@@ -195,7 +195,7 @@ func (t *Tensor) ExpandSints(newShape []shape.Sint) *Tensor {
 }
 
 // toShapeSintArg converts a []shape.Sint to a uop.ShapeSintArg for use as a
-// UOp arg. SymInt dims encode their DefineVar by name in VarName (Mul=1 — the
+// UOp arg. SymInt dims encode their DefineVar by name in VarName (Mul=1 - the
 // tensor-side construction path produces only bare-DefineVar bounds; derived
 // bounds are introduced later by the scheduler).
 //

@@ -105,7 +105,7 @@ func TestMergeBindingsConflict(t *testing.T) {
 }
 
 func TestNewSymbolicShapeNonOutermostSym(t *testing.T) {
-	// [4, n, 8] — sym in the middle.
+	// [4, n, 8] - sym in the middle.
 	a := uop.NewArena(64)
 	n := tensor.NewVariable(a, "seq", 1, 256)
 	x := tensor.NewSymbolicShape(a, []shape.Sint{
@@ -142,7 +142,7 @@ func TestNewSymbolicShapeNonOutermostSym(t *testing.T) {
 		t.Errorf("dim 2 ShapeDim = %+v, want concrete V=8", arg[2])
 	}
 
-	// BUFFER node should have exactly one src — the DefineVar for "seq".
+	// BUFFER node should have exactly one src - the DefineVar for "seq".
 	if x.Node().NSrc() != 1 {
 		t.Fatalf("BUFFER NSrc = %d, want 1", x.Node().NSrc())
 	}
@@ -187,7 +187,7 @@ func TestNewSymbolicShapeAllConcreteFallsBackToLeaf(t *testing.T) {
 	a := uop.NewArena(64)
 	x := tensor.NewSymbolicShape(a, []shape.Sint{shape.Const(2), shape.Const(3)},
 		uop.Dtypes.Float32, "webgpu")
-	// All-concrete shape: should be a normal NewLeaf — arg is []int64, NSrc=0.
+	// All-concrete shape: should be a normal NewLeaf - arg is []int64, NSrc=0.
 	if x.Node().NSrc() != 0 {
 		t.Errorf("all-concrete shape should have NSrc=0; got %d", x.Node().NSrc())
 	}
@@ -200,7 +200,7 @@ func TestNewSymbolicShapeRejectsExpressionSymInt(t *testing.T) {
 	// Slice 4 surface accepts only bare DefineVars at construction time.
 	a := uop.NewArena(64)
 	v := tensor.NewVariable(a, "n", 1, 64)
-	// Build a Mul(n, 2) expression — not a bare DefineVar.
+	// Build a Mul(n, 2) expression - not a bare DefineVar.
 	expr := shape.Mul(v.Sint(), shape.Const(2))
 	defer func() {
 		if r := recover(); r == nil {

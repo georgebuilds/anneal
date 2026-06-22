@@ -18,7 +18,7 @@ func TestDtypeImage_Interning(t *testing.T) {
 
 	if img == scalar {
 		t.Fatalf("ImageFloat32 and Float32 should be distinct interned singletons, " +
-			"got identical pointers — isImage field is not in the intern key")
+			"got identical pointers - isImage field is not in the intern key")
 	}
 	if !img.IsImage() {
 		t.Errorf("Dtypes.ImageFloat32.IsImage() = false, want true")
@@ -45,7 +45,7 @@ func TestDtypeImage_StructuralHash_Distinct(t *testing.T) {
 	hImg := uop.Dtypes.ImageFloat32.StructuralHash()
 	hScalar := uop.Dtypes.Float32.StructuralHash()
 	if hImg == hScalar {
-		t.Fatalf("StructuralHash(ImageFloat32)=0x%016x == StructuralHash(Float32) — "+
+		t.Fatalf("StructuralHash(ImageFloat32)=0x%016x == StructuralHash(Float32) - "+
 			"isImage flag was dropped from the hash; BEAM disk cache would collide image and scalar kernels",
 			hImg)
 	}
@@ -65,7 +65,7 @@ func TestDtypeImage_StructuralHash_CrossArena(t *testing.T) {
 	k2 := uop.StructuralKeys(a2)[c2.Index()]
 	if k1 != k2 {
 		t.Fatalf("cross-arena structural-key divergence for image-typed const: "+
-			"arena1=0x%016x arena2=0x%016x — SPEC §10 portability broken", k1, k2)
+			"arena1=0x%016x arena2=0x%016x - SPEC §10 portability broken", k1, k2)
 	}
 	// And the image-typed key must differ from the scalar-typed key (otherwise
 	// BEAM disk cache would silently misroute image kernels through scalar
@@ -74,7 +74,7 @@ func TestDtypeImage_StructuralHash_CrossArena(t *testing.T) {
 	c3 := a3.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1.5), nil)
 	kScalar := uop.StructuralKeys(a3)[c3.Index()]
 	if k1 == kScalar {
-		t.Fatalf("image-typed and scalar-typed const share structural key 0x%016x — "+
+		t.Fatalf("image-typed and scalar-typed const share structural key 0x%016x - "+
 			"isImage missing from the structural key path", k1)
 	}
 }
@@ -127,7 +127,7 @@ func TestDtypeImage_Vec_Panics(t *testing.T) {
 }
 
 // TestDtypeImage_Vec_IdentityPath verifies that Vec(1) returns the dtype
-// unchanged for image — same as the scalar peer's identity early-exit — so
+// unchanged for image - same as the scalar peer's identity early-exit - so
 // callers that pass sz=1 don't hit the panic. This is the documented
 // no-op contract for Vec.
 func TestDtypeImage_Vec_IdentityPath(t *testing.T) {

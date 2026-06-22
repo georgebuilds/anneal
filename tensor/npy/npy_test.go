@@ -20,7 +20,7 @@ func requireFixture(t *testing.T, name string) string {
 	t.Helper()
 	path := testdataDir + "/" + name
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("fixture %q missing — regenerate with:\n\tpython3 tensor/npy/testdata/gen_fixtures.py\nRequires: pip install numpy", path)
+		t.Fatalf("fixture %q missing - regenerate with:\n\tpython3 tensor/npy/testdata/gen_fixtures.py\nRequires: pip install numpy", path)
 	}
 	return path
 }
@@ -85,7 +85,7 @@ func TestLoad_Float64_Exact(t *testing.T) {
 	}
 
 	assertShape(t, ten.Shape(), []int64{4})
-	// Fixture: [0.0, 1.0, 2.0, 100.0] as float64 — all exactly representable in float32.
+	// Fixture: [0.0, 1.0, 2.0, 100.0] as float64 - all exactly representable in float32.
 	want := []float32{0.0, 1.0, 2.0, 100.0}
 	assertData(t, ten.Data(), want)
 
@@ -236,7 +236,7 @@ func TestLoad_BigEndian(t *testing.T) {
 	}
 
 	assertShape(t, ten.Shape(), []int64{4})
-	// Fixture: [1.0, 2.0, 3.0, 4.0] stored big-endian — logical values unchanged.
+	// Fixture: [1.0, 2.0, 3.0, 4.0] stored big-endian - logical values unchanged.
 	want := []float32{1.0, 2.0, 3.0, 4.0}
 	assertData(t, ten.Data(), want)
 

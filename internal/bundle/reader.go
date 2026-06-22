@@ -74,7 +74,7 @@ func OpenBundle(path string) (*Reader, error) {
 
 // OpenBundleIn opens a bundle id inside rootDir, enforcing that the
 // resolved path is contained within rootDir. This is the safe API for
-// HTTP handlers that take an id from a URL — it refuses path-traversal
+// HTTP handlers that take an id from a URL - it refuses path-traversal
 // (e.g. "../etc/passwd") before any file I/O.
 func OpenBundleIn(rootDir string, id string) (*Reader, error) {
 	if !IsValidBundleID(id) {

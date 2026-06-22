@@ -5,9 +5,9 @@ package onnx
 // The value-oracle gate compares two execution paths over identical weights
 // and inputs:
 //
-//   path A — direct Tensor API: build the model via tensor / nn primitives,
+//   path A - direct Tensor API: build the model via tensor / nn primitives,
 //     get the output tensor.
-//   path B — importer: build a ModelProto with the same weights as
+//   path B - importer: build a ModelProto with the same weights as
 //     initializers, the same op attributes, and identical opset; Import +
 //     Run; collect the named graph output.
 //
@@ -212,7 +212,7 @@ func applyBatchNorm(arena *uop.Arena, x *tensor.Tensor, w *cnnWeights, prefix st
 	variance := leafParam(arena, w, prefix+"_var").T
 
 	xSh := x.ShapeSints()
-	// Reshape per-channel vectors to [1, C, 1, 1] — matches the handler's
+	// Reshape per-channel vectors to [1, C, 1, 1] - matches the handler's
 	// broadcast layout.
 	bc := make([]int64, len(xSh))
 	for i := range bc {
@@ -498,8 +498,8 @@ func floatAttr(name string, v float32) *onnxpb.AttributeProto {
 // initializers attached to g. The FLOAT data format keeps bytes deterministic
 // across runs.
 func addInitsFromWeights(g *onnxpb.GraphProto, w *cnnWeights) {
-	// Iterate in registration order is not needed for correctness — the
-	// runner indexes by name — but stable iteration matters for diff. Go's
+	// Iterate in registration order is not needed for correctness - the
+	// runner indexes by name - but stable iteration matters for diff. Go's
 	// map iteration is undefined; we iterate but the produced order is
 	// irrelevant since interning is by hash.
 	for name, vals := range w.values {

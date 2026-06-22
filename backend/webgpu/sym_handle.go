@@ -38,7 +38,7 @@ func (k *SymKernelHandle) Release() {}
 // reusable handle. item must contain at least one symbolic OpRange node.
 //
 // The bind group layout always has an extra read-only params_n binding at slot
-// ki.NumParams, immediately after all data bindings — this matches what
+// ki.NumParams, immediately after all data bindings - this matches what
 // codegen.RenderWGSL emits for symbolic kernels.
 func (d *Device) CompileSymKernel(item schedule.ExecItem) (*SymKernelHandle, error) {
 	var handle *SymKernelHandle
@@ -252,7 +252,7 @@ func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3
 		}
 		extent := dd.Const
 		if extent <= 0 {
-			panic(fmt.Sprintf("webgpu: SymDispatch[%d].Const=%d (must be >=1) — lowerer invariant violated", axis, extent))
+			panic(fmt.Sprintf("webgpu: SymDispatch[%d].Const=%d (must be >=1) - lowerer invariant violated", axis, extent))
 		}
 		for fi, be := range dd.SymBounds {
 			v, err := be.Eval(binding)
@@ -260,7 +260,7 @@ func computeSymDispatchWC(handle *SymKernelHandle, binding map[string]int64) ([3
 				return wc, fmt.Errorf("webgpu: SymDispatch[%d].SymBounds[%d]: %w", axis, fi, err)
 			}
 			if v <= 0 {
-				panic(fmt.Sprintf("webgpu: SymDispatch[%d].SymBounds[%d] evaluates to %d (binding %v) — non-positive sym extent",
+				panic(fmt.Sprintf("webgpu: SymDispatch[%d].SymBounds[%d] evaluates to %d (binding %v) - non-positive sym extent",
 					axis, fi, v, binding))
 			}
 			extent *= v

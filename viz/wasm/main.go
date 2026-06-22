@@ -23,28 +23,28 @@ import (
 func main() {
 	// Expose annealGetGraph(name string) string (JSON) on the global JS object.
 	js.Global().Set("annealGetGraph", js.FuncOf(getGraph))
-	// Expose annealGetTimeline(name string) string (JSON) — multi-stage scrub.
+	// Expose annealGetTimeline(name string) string (JSON) - multi-stage scrub.
 	js.Global().Set("annealGetTimeline", js.FuncOf(getTimeline))
-	// W2: kernels view — annealGetKernels(name string) string (JSON).
+	// W2: kernels view - annealGetKernels(name string) string (JSON).
 	// Returns kernel set: id, op_count, buffers_in/out, shape, wgsl, fusion_spans.
 	// Spec: notes/anneal_web_spec.md §4, §5.3.
 	js.Global().Set("annealGetKernels", js.FuncOf(getKernels))
-	// W4: node-inspector backend — annealNodeDetail(graphId, nodeId) → JSON.
+	// W4: node-inspector backend - annealNodeDetail(graphId, nodeId) → JSON.
 	// Returns op/dtype/shape/parents/children/arg for one node of one
 	// rendered graph. Spec: notes/anneal_web_spec.md §4, §5.2.
 	js.Global().Set("annealNodeDetail", js.FuncOf(getNodeDetail))
-	// W3: explain view — annealExplainOp(opName string) string (JSON).
+	// W3: explain view - annealExplainOp(opName string) string (JSON).
 	// Returns the explain payload: description, symbolic rules from
 	// rewrite/rules/symbolic.upat, gradient rule from tensor.Gradient, and a
 	// before/after mini-graph. Spec: notes/anneal_web_spec.md §4, §5.4.
 	js.Global().Set("annealExplainOp", js.FuncOf(explainOp))
-	// W9: tensor-inspect dropzone — annealInspectTensor(bytes Uint8Array,
+	// W9: tensor-inspect dropzone - annealInspectTensor(bytes Uint8Array,
 	// format string) string (JSON). Returns shape, dtype, numel, byte size,
 	// and a 16-element preview for every tensor in a .npy / .npz /
 	// .safetensors file. Bytes never leave the tab (WASM-tier only, no
 	// server endpoint). Spec: notes/anneal_web_spec.md §4, §5.1.
 	js.Global().Set("annealInspectTensor", js.FuncOf(inspectTensor))
-	// W8: ONNX dropzone — annealImportONNX(bytes Uint8Array) string (JSON).
+	// W8: ONNX dropzone - annealImportONNX(bytes Uint8Array) string (JSON).
 	// Runs the importer in structure-only mode and returns the dropzone
 	// summary (graph_id, graph JSON, inputs/outputs, node + initializer
 	// count, unsupported-op list). The bytes never leave the tab; there is
@@ -180,7 +180,7 @@ func getKernels(_ js.Value, args []js.Value) any {
 }
 
 // inspectTensor is the JS-facing wrapper for viz.BuildInspect. The studio's
-// home dropzone passes (Uint8Array bytes, string format) — the bytes are
+// home dropzone passes (Uint8Array bytes, string format) - the bytes are
 // copied out of the JS Uint8Array via js.CopyBytesToGo (no shared buffer,
 // no SharedArrayBuffer) so the Go parser sees an immutable snapshot. The
 // return value is a JSON string the renderer parses.

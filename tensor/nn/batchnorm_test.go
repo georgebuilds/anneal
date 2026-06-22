@@ -212,7 +212,7 @@ func TestBatchNorm2dForwardEval(t *testing.T) {
 			t.Fatalf("eval-mode RunningMean[%d] mutated to %f", c, bn.RunningMean[c])
 		}
 	}
-	t.Logf("Eval-mode forward PASS — running stats drove normalisation")
+	t.Logf("Eval-mode forward PASS - running stats drove normalisation")
 }
 
 // ── 3. PostStep EMA rule ─────────────────────────────────────────────────────
@@ -308,7 +308,7 @@ func TestBatchNorm2dGradCheck(t *testing.T) {
 		nCheck = 4
 	)
 
-	// Stable input with mean ~0 and small spread per channel — chosen so
+	// Stable input with mean ~0 and small spread per channel - chosen so
 	// the batch-norm statistics don't degenerate.
 	rng := rand.New(rand.NewSource(7))
 	xData := make([]float32, int(N*C*H*W))

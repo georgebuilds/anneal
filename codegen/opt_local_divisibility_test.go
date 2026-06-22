@@ -10,7 +10,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// elemwiseItem builds a [6, 6] elementwise add kernel — the minimal stand-in
+// elemwiseItem builds a [6, 6] elementwise add kernel - the minimal stand-in
 // for the conv-spray shape class (6-extent axes, no tilable Mul(Index, Index)
 // reduce) that exposed the OptLocal non-divisible padding bug.
 func elemwiseItem(t *testing.T) schedule.ExecItem {
@@ -44,7 +44,7 @@ func matmulItem(t *testing.T, M, K, N int64) schedule.ExecItem {
 
 // TestApplyLocal_RefusesNonDivisibleOnNonTilable pins the divisibility gate:
 // OptLocal with L ∤ S on a kernel WITHOUT the tilable Mul(Index, Index)
-// reduce shape must refuse (return the sink unchanged — the applyTile
+// reduce shape must refuse (return the sink unchanged - the applyTile
 // inapplicability convention). The static store path indexes the output with
 // the padded ceil(S/L)*L strides and has no tail mask, so applying the split
 // would scatter values into a wrong layout (the conv-spray bug: L∈{4,16} on
@@ -84,14 +84,14 @@ func TestApplyLocal_AllowsNonDivisibleOnTilableMatmul(t *testing.T) {
 // TestActionSpace_OnlyDivisibleLocal verifies BEAM's probe never proposes a
 // non-divisible OptLocal split. On tilable matmuls applyLocal ALLOWS the
 // padding split (for the hand-composed tile pipeline), but BEAM cannot
-// guarantee OptTile lands in a later ply — an un-tiled padded kernel panics
-// at the unmasked static store — so the action space pre-filters it.
+// guarantee OptTile lands in a later ply - an un-tiled padded kernel panics
+// at the unmasked static store - so the action space pre-filters it.
 func TestActionSpace_OnlyDivisibleLocal(t *testing.T) {
 	// M=17, N=30, K=35: no beamLocalArgs entry (8/16/32) divides 17 or 30.
 	actions := codegen.ActionSpace(matmulItem(t, 17, 35, 30).Ast)
 	for _, act := range actions {
 		if act.Kind == codegen.OptLocal {
-			t.Errorf("ActionSpace proposed OptLocal %+v on a 17×30 output — no beamLocalArgs value divides either extent", act)
+			t.Errorf("ActionSpace proposed OptLocal %+v on a 17×30 output - no beamLocalArgs value divides either extent", act)
 		}
 	}
 	// 6-extent elementwise: 8/16/32 never divide 6 → no OptLocal proposals.
@@ -110,7 +110,7 @@ func TestActionSpace_OnlyDivisibleLocal(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("ActionSpace proposed no OptLocal for a 64³ matmul — divisibility pre-filter is over-rejecting")
+		t.Errorf("ActionSpace proposed no OptLocal for a 64³ matmul - divisibility pre-filter is over-rejecting")
 	}
 }
 

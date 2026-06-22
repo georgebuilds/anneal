@@ -2,7 +2,7 @@ package shape
 
 import "testing"
 
-// shapeEq64 compares two []int64 slices — used for ShapeTracker.Shape() comparisons.
+// shapeEq64 compares two []int64 slices - used for ShapeTracker.Shape() comparisons.
 func shapeEq64(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false

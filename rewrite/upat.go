@@ -22,7 +22,7 @@ type UPat struct {
 	// capture name; "" = no capture
 	name string
 
-	// src matching — exactly one mode active:
+	// src matching - exactly one mode active:
 	srcWild     bool      // no constraint on srcs
 	srcRepeat   *UPat     // all srcs must match this single pattern
 	srcVariants [][]*UPat // ordered/permutation variants
@@ -139,7 +139,7 @@ func (p *UPat) Match(u uop.UOp, store map[string]uop.UOp) []map[string]uop.UOp {
 		return nil
 	}
 
-	// name capture — if already bound, the bound UOp must match u
+	// name capture - if already bound, the bound UOp must match u
 	curStore := store
 	if p.name != "" {
 		if existing, ok := store[p.name]; ok {

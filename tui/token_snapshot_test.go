@@ -65,7 +65,7 @@ func TestTokenSnapshotJSONRoundtrip(t *testing.T) {
 }
 
 // TestTokenSnapshotRefMatchPointerSemantics pins that a nil RefMatch is
-// omitted from the JSON (omitempty) — the studio reads "field absent" as
+// omitted from the JSON (omitempty) - the studio reads "field absent" as
 // "no oracle was configured", distinct from "oracle disagreed".
 func TestTokenSnapshotRefMatchPointerSemantics(t *testing.T) {
 	in := TokenSnapshot{
@@ -95,7 +95,7 @@ func TestTokenSnapshotRefMatchPointerSemantics(t *testing.T) {
 }
 
 // TestTokenSnapshotPhaseEnum pins that the Phase field uses the same wire
-// vocabulary as Snapshot — the studio routes on these strings.
+// vocabulary as Snapshot - the studio routes on these strings.
 func TestTokenSnapshotPhaseEnum(t *testing.T) {
 	for _, tc := range []struct {
 		phase Phase

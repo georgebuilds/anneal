@@ -1,6 +1,6 @@
 package webgpu_test
 
-// OptVec4Load GPU verification: value oracles (bit-exact vs identity — the
+// OptVec4Load GPU verification: value oracles (bit-exact vs identity - the
 // load width never changes the per-output FMA order), refusal-path identity,
 // BEAM integration, and the slice timing table (Logf/Printf only; no perf
 // gates per the timing-harness contract in b0_test.go).
@@ -27,7 +27,7 @@ func tileVec4Opts(TS int) []codegen.Opt {
 	}
 }
 
-// vec4MatmulOracle runs an M×K·K×N matmul twice — identity and opts — with
+// vec4MatmulOracle runs an M×K·K×N matmul twice - identity and opts - with
 // identical seeded inputs and requires bit-exact agreement (max-abs-diff 0).
 // requireApplied asserts the opt sequence actually transformed the kernel
 // (guards against a silent refusal turning the oracle vacuous).
@@ -58,7 +58,7 @@ func vec4MatmulOracle(t *testing.T, dev *webgpu.Device, M, K, N int64, opts []co
 		}
 	}
 	if requireApplied && !applied {
-		t.Fatal("opt sequence did not transform any kernel — oracle would be vacuous")
+		t.Fatal("opt sequence did not transform any kernel - oracle would be vacuous")
 	}
 	resOpt, err := dev.Run(itemsOpt, seededLeafInputs(itemsOpt, seed))
 	if err != nil {
@@ -83,7 +83,7 @@ func vec4MatmulOracle(t *testing.T, dev *webgpu.Device, M, K, N int64, opts []co
 	}
 	t.Logf("matmul %dx%dx%d: max-abs-diff vs identity = %g", M, K, N, maxd)
 	if maxd != 0 {
-		t.Errorf("not bit-exact: max-abs-diff=%g at i=%d (def=%g opt=%g) — vec4 loads must not change FMA order",
+		t.Errorf("not bit-exact: max-abs-diff=%g at i=%d (def=%g opt=%g) - vec4 loads must not change FMA order",
 			maxd, idx, gotDef[idx], gotOpt[idx])
 	}
 }
@@ -108,7 +108,7 @@ func TestVec4Load_ValueOracle_TileMatmul(t *testing.T) {
 // lowering paths, plus alignment-edge shapes:
 //   - M=17: M is NOT 4-aligned (only the stride-1 extents K and N are gated);
 //     padded rows exercise the slot-load row mask.
-//   - K=20 with TS=16: 4-aligned K that the tile sweep overshoots — the tail
+//   - K=20 with TS=16: 4-aligned K that the tile sweep overshoots - the tail
 //     vec4 slots are fully out-of-range and must be masked whole.
 func TestVec4Load_ValueOracle_Composition(t *testing.T) {
 	dev := requireDevice(t)
@@ -147,7 +147,7 @@ func TestVec4Load_Refusal_K17(t *testing.T) {
 	items := schedule.CreateSchedule(makeSink(a, A.Matmul(B)), "webgpu")
 	item := codegen.ApplyOpts(items[len(items)-1], tileVec4Opts(16))
 	if got := codegen.Vec4LoadParams(item.Ast); len(got) != 0 {
-		t.Fatalf("K=17 kernel has vec4-tagged params %v — refusal gate failed", got)
+		t.Fatalf("K=17 kernel has vec4-tagged params %v - refusal gate failed", got)
 	}
 
 	// Values still bit-exact vs identity through the scalar tiled fallback.
@@ -194,8 +194,8 @@ func TestVec4Load_Refusal_ConvSpray(t *testing.T) {
 }
 
 // TestVec4Load_BeamSearch verifies OptVec4Load inside a real beam run on a
-// 256³ matmul: the search completes, and the winning sequence — whatever it
-// is — stays bit-exact vs identity (the beam value guard plus an external
+// 256³ matmul: the search completes, and the winning sequence - whatever it
+// is - stays bit-exact vs identity (the beam value guard plus an external
 // re-check here). Logs whether the winner picked OptVec4Load.
 func TestVec4Load_BeamSearch(t *testing.T) {
 	dev := requireDevice(t)
@@ -226,7 +226,7 @@ func TestVec4Load_BeamSearch(t *testing.T) {
 	}
 }
 
-// TestVec4Load_Timing — THE slice timing table (report-only, min-of-N):
+// TestVec4Load_Timing - THE slice timing table (report-only, min-of-N):
 // identity vs best-known stacks without OptVec4Load vs with it, 1024³ and
 // 2048³. This is also the first REAL tiled-matmul baseline after the smem fix
 // (all prior B-series numbers were identity-vs-identity artifacts).
@@ -254,7 +254,7 @@ func TestVec4Load_Timing(t *testing.T) {
 		{"b37+vec4", append(append([]codegen.Opt{}, b37...), codegen.Opt{Kind: codegen.OptVec4Load})},
 	}
 
-	fmt.Printf("\n=== OptVec4Load TIMING TABLE — min-of-%d, warmup=%d, TS=%d MR=NR=4 W=4 ===\n", iters, warmup, TS)
+	fmt.Printf("\n=== OptVec4Load TIMING TABLE - min-of-%d, warmup=%d, TS=%d MR=NR=4 W=4 ===\n", iters, warmup, TS)
 	for _, N := range []int64{1024, 2048} {
 		a := uop.NewArena(1 << 17)
 		A := tensor.NewLeaf(a, []int64{N, N}, uop.Dtypes.Float32, "webgpu")

@@ -135,7 +135,7 @@ func handleClip(ctx *HandlerCtx) ([]Value, error) {
 	}
 	minT := tensor.FullSints(ctx.Arena, x.ShapeSints(), minVal, x.DType(), x.Device())
 	maxT := tensor.FullSints(ctx.Arena, x.ShapeSints(), maxVal, x.DType(), x.Device())
-	// min(max(x, minVal), maxVal) — use Maximum and a negated-Maximum-of-neg
+	// min(max(x, minVal), maxVal) - use Maximum and a negated-Maximum-of-neg
 	// for Minimum (anneal Tensor has no direct .Minimum).
 	clipped := x.Maximum(minT)
 	// min(a, b) = -max(-a, -b)

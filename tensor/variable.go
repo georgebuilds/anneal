@@ -16,7 +16,7 @@ import (
 // Construct via NewVariable(arena, name, min, max). Two Variables created
 // with the same (name, min, max) in the same arena alias to the same
 // underlying DefineVar (intern). Two Variables created with the same name
-// but different bounds in the same arena panic — the downstream
+// but different bounds in the same arena panic - the downstream
 // FindDefineVar lookup is name-keyed, so a same-name collision would
 // silently route shape/binding to the wrong bounds.
 //
@@ -100,7 +100,7 @@ func (v Variable) Sint() shape.Sint { return shape.SymInt{Node: v.defVar} }
 // val. Use shape.MergeBindings (or plain map composition) to combine
 // multiple variable bindings before passing to RealizeWithBinding.
 //
-// Bind does not check val against [min, max] — RealizeWithBinding's
+// Bind does not check val against [min, max] - RealizeWithBinding's
 // dispatch path performs the bound check (returns an error if out of
 // range). This keeps Bind allocation-free and side-effect-free.
 func (v Variable) Bind(val int64) map[string]int64 {

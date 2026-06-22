@@ -55,7 +55,7 @@ func NewArena(capacity int) *Arena {
 }
 
 // Reset discards all UOp nodes and clears the intern cache.
-// Every UOp handle previously issued by this arena becomes invalid after Reset —
+// Every UOp handle previously issued by this arena becomes invalid after Reset -
 // the arena resets at the realize boundary and nothing holds indices across it.
 func (a *Arena) Reset() {
 	a.nodes = a.nodes[:0]
@@ -131,7 +131,7 @@ func (a *Arena) At(idx uint32) UOp { return UOp{a: a, idx: idx} }
 
 // SetPhase sets the current construction phase used by all subsequent New calls
 // and returns the previous phase so callers can restore it with defer.
-// Cache-hit nodes are not affected — first-construction wins.
+// Cache-hit nodes are not affected - first-construction wins.
 func (a *Arena) SetPhase(p Phase) Phase {
 	prev := a.phase
 	a.phase = p
@@ -168,7 +168,7 @@ func (a *Arena) intern(node uopNode) UOp {
 // UOp is a lightweight, comparable handle for a node in an Arena.
 // The zero value is invalid; always construct via Arena.New.
 //
-// Within one arena, u1 == u2 iff they reference the same node — which, by the
+// Within one arena, u1 == u2 iff they reference the same node - which, by the
 // interning invariant, equals structural equality. This makes UOp safe as a map key.
 type UOp struct {
 	a   *Arena
@@ -298,7 +298,7 @@ const (
 // ID is a scheduler-assigned counter that uniquely identifies this loop variable
 // within a kernel; Type classifies the axis kind.
 //
-// The exclusive upper bound lives in src[0] as a UOp expression — a Const for
+// The exclusive upper bound lives in src[0] as a UOp expression - a Const for
 // concrete sizes, a DefineVar (or expression over DefineVars) for symbolic.
 // This matches tinygrad's master rangeify representation. Variable-slot
 // assignment for the WGSL params_n uniform is computed per-kernel at codegen
@@ -400,10 +400,10 @@ type VarArg struct{ Name string }
 // ShapeDim is one element of a ShapeSintArg.
 // Sym=false: V is a concrete dimension size (VarName, Mul are zero).
 // Sym=true: V must be 0 (SPEC §10); VarName is the DefineVar's name and Mul is
-// the per-dim multiplier — actual dim size = Mul * binding[VarName].
+// the per-dim multiplier - actual dim size = Mul * binding[VarName].
 // Mul=1 encodes a bare DefineVar bound; Mul>1 encodes a derived bound such as
 // Mul(DefineVar, Const). Identity is structural (name + multiplier), not arena
-// position, so the encoding is portable across arenas (SPEC §10 — fix in
+// position, so the encoding is portable across arenas (SPEC §10 - fix in
 // Option B Slice 4 of the recurring identity-as-allocation-position bug class).
 type ShapeDim struct {
 	V       int64
@@ -458,7 +458,7 @@ type BoundDim struct {
 // against the runtime binding map.
 //
 // Cross-arena structural identity is preserved by mixing (Terms, Offset)
-// into hashArg/equalArg — same approach as ShapeSintArg uses for ShapeDim.
+// into hashArg/equalArg - same approach as ShapeSintArg uses for ShapeDim.
 type BoundExprArg []BoundDim
 
 // BoundToAffine decomposes a symbolic-dim bound expression UOp into an
@@ -615,7 +615,7 @@ func mergeAffineTerms(a, b []AffineTerm) []AffineTerm {
 //   - OpMul(OpDefineVar, OpConst)  → (Name, const)
 //   - OpMul(OpConst, OpDefineVar)  → (Name, const)
 //
-// Panics on any other shape — richer bound expressions require widening
+// Panics on any other shape - richer bound expressions require widening
 // the ShapeDim encoding (VarName + Mul) and this helper together.
 func SymBoundFactor(u UOp) (varName string, mul int64) {
 	switch u.Op() {
@@ -641,7 +641,7 @@ func SymBoundFactor(u UOp) (varName string, mul int64) {
 // DefineVar node (e.g. shapeSintArgToSints rebuilds bound expression UOps
 // from arena-portable VarName + Mul encoding). Linear scan over arena nodes;
 // O(arena.Len()). Two arenas with the same logical graph will return UOps
-// with the same VarArg.Name but distinct arena indices — that's the point.
+// with the same VarArg.Name but distinct arena indices - that's the point.
 func (a *Arena) FindDefineVar(name string) (UOp, bool) {
 	for i := range a.nodes {
 		n := &a.nodes[i]

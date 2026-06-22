@@ -73,7 +73,7 @@ fn main(
 	// Metal compiles MSL with fast-math: `in[j] + f32(j) + 1.0` may be
 	// reassociated as `in[j] + (f32(j) + 1.0)`, which rounds differently from
 	// the CPU's left-to-right f32 evaluation by 1 ULP on a few lanes. A broken
-	// smem path returns 0 (or garbage) — orders of magnitude beyond 1e-5 — so
+	// smem path returns 0 (or garbage) - orders of magnitude beyond 1e-5 - so
 	// the tolerance keeps full diagnostic power.
 	bad := 0
 	for i := 0; i < 64; i++ {
@@ -84,7 +84,7 @@ fn main(
 		}
 	}
 	if bad > 0 {
-		t.Errorf("smem passthrough wrong for %d/64 lanes (out[0..4]=%v) — var<workgroup> broken in the GPU stack", bad, out[:4])
+		t.Errorf("smem passthrough wrong for %d/64 lanes (out[0..4]=%v) - var<workgroup> broken in the GPU stack", bad, out[:4])
 	}
 }
 
@@ -174,7 +174,7 @@ func TestSmem_TiledMatmulVsCPU(t *testing.T) {
 // ApplyOpts must clear it (so executors re-render from the opted Ast), the
 // opted render must differ from the identity render, and two renders of the
 // same opted Ast must agree (what Run/Benchmark will execute). A no-op opt
-// sequence must keep the pre-render — the schedule-cache fast path.
+// sequence must keep the pre-render - the schedule-cache fast path.
 func TestApplyOpts_InvalidatesPrerenderedWGSL(t *testing.T) {
 	a := uop.NewArena(65536)
 	A := tensor.NewLeaf(a, []int64{64, 64}, uop.Dtypes.Float32, "webgpu")
@@ -189,27 +189,27 @@ func TestApplyOpts_InvalidatesPrerenderedWGSL(t *testing.T) {
 
 	opted := codegen.ApplyOpts(item, b37Opts(16, 4, 4, 4))
 	if opted.WGSL != "" {
-		t.Fatalf("ApplyOpts left the pre-rendered WGSL in place — executors would run the identity kernel (Defect A)")
+		t.Fatalf("ApplyOpts left the pre-rendered WGSL in place - executors would run the identity kernel (Defect A)")
 	}
 	if opted.Ast.Index() == item.Ast.Index() {
-		t.Fatalf("b37 opts did not transform the matmul Ast — test premise broken")
+		t.Fatalf("b37 opts did not transform the matmul Ast - test premise broken")
 	}
 
 	fresh := codegen.RenderWGSL(opted).WGSL
 	if fresh == identityWGSL {
-		t.Errorf("opted render identical to identity render — opts not reflected in WGSL")
+		t.Errorf("opted render identical to identity render - opts not reflected in WGSL")
 	}
 	// Lowering appends arena nodes, so a second render of the same Ast gets
 	// different index-derived variable names; compare via the normalized hash
 	// (the same normalization the beam SK-collision guard relies on).
 	if again := codegen.RenderWGSL(opted).WGSL; codegen.BeamWGSLHash(again) != codegen.BeamWGSLHash(fresh) {
-		t.Errorf("re-render of the same opted Ast differs structurally — executor would compile a different kernel")
+		t.Errorf("re-render of the same opted Ast differs structurally - executor would compile a different kernel")
 	}
 
 	// Cache fast path: a no-op sequence keeps the pre-rendered WGSL.
 	ident := codegen.ApplyOpts(item, []codegen.Opt{{Kind: codegen.OptIdentity}})
 	if ident.WGSL != identityWGSL {
-		t.Errorf("no-op opt sequence cleared the pre-rendered WGSL — schedule-cache fast path lost")
+		t.Errorf("no-op opt sequence cleared the pre-rendered WGSL - schedule-cache fast path lost")
 	}
 
 	// Zeroed-Ast items (schedule-cache hits release the arena reference) pass

@@ -1,4 +1,4 @@
-// anneal studio — Web Worker scaffold.
+// anneal studio - Web Worker scaffold.
 //
 // Loads wasm_exec.js, instantiates anneal.wasm, listens for {id, fn, args}
 // messages from the main thread, and dispatches to globalThis[fn](...args).

@@ -5,7 +5,7 @@
 // in ./onnxpb are pure Go; CGO_ENABLED=0 builds and tests must remain green).
 //
 // v1 scope: inference-only with static shapes (symbolic dims supported via
-// anneal's existing Variable / shape.Sint seam — dim_param survives import as
+// anneal's existing Variable / shape.Sint seam - dim_param survives import as
 // a symbolic dimension). Operator coverage targets the CNN core (ResNet-50,
 // ResNet-9, MobileNetV2) and the transformer core (GPT-2-small, distilgpt2,
 // BERT-base). Quantized ops, training graphs, control flow (If/Loop/Scan),

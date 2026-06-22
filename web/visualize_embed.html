@@ -15,7 +15,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>anneal visualize embed</title>
-  <meta name="description" content="W4 visualize embed — the viz artifact wrapped with the node-inspector postMessage protocol.">
+  <meta name="description" content="W4 visualize embed - the viz artifact wrapped with the node-inspector postMessage protocol.">
   <!-- Theme tokens + viz CSS come from the same /visualize/static/ mount the
        standalone viz serves; we are not duplicating them here. -->
   <link rel="stylesheet" href="/visualize/static/style.css">
@@ -44,11 +44,11 @@
     <div id="status" class="status" role="status" aria-live="polite">loading…</div>
     <section class="timeline" aria-label="compiler pipeline timeline">
       <div class="timeline-header">
-        <span class="stage-label" id="stageLabel" aria-live="polite">—</span>
+        <span class="stage-label" id="stageLabel" aria-live="polite">-</span>
         <span class="stage-desc"  id="stageDesc"></span>
       </div>
       <div class="timeline-track" id="timelineTrack" role="group"
-           aria-label="pipeline stage scrubber — left / right arrows to step"></div>
+           aria-label="pipeline stage scrubber - left / right arrows to step"></div>
       <input type="range" id="timelineSlider" class="timeline-slider"
              min="0" max="0" step="1" value="0"
              aria-label="scrub through pipeline stages">
@@ -96,7 +96,7 @@
   <script>
     (function () {
       // Rewrite the anneal.wasm fetch app.js uses (`fetch('anneal.wasm')`).
-      // Same-origin only — passes through everything else unchanged.
+      // Same-origin only - passes through everything else unchanged.
       const _fetch = window.fetch.bind(window);
       window.fetch = function (input, init) {
         if (typeof input === 'string' && input === 'anneal.wasm') {

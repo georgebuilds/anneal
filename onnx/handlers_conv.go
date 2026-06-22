@@ -149,7 +149,7 @@ func handleConv(ctx *HandlerCtx) ([]Value, error) {
 	// 1-D rollback: drop the trailing singleton spatial dim.
 	if is1D {
 		osh := out.Shape()
-		// shape should be [N, Cout, Ho, 1] — drop the last dim
+		// shape should be [N, Cout, Ho, 1] - drop the last dim
 		out = out.Reshape([]int64{osh[0], osh[1], osh[2]})
 	}
 

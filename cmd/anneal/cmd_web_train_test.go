@@ -1,6 +1,6 @@
 //go:build !js
 
-// Tests for W6 — the train view markup + /sse/train wire contract.
+// Tests for W6 - the train view markup + /sse/train wire contract.
 //
 // Markup tests (TestWebTrain_*) pin the studio.html surface (controls,
 // progressbar role, live region, sparkline, bundle checkbox, deep link).

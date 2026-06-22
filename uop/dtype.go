@@ -31,7 +31,7 @@ func (a AddrSpace) String() string {
 // DType is an interned, immutable data-type descriptor.
 //
 // All instances are obtained through the Dtypes singletons or the Vec / Ptr
-// methods — never constructed directly. Because all instances are interned,
+// methods - never constructed directly. Because all instances are interned,
 // pointer equality (==) is structural equality. *DType is therefore safe as a
 // map key and as a field inside a struct used as a map key (the UOp interning
 // key in a later step relies on this property).
@@ -46,7 +46,7 @@ type DType struct {
 	// per-lane element dtype.
 	scalar *DType
 
-	// Pointer-type fields — only meaningful when isPtr is true.
+	// Pointer-type fields - only meaningful when isPtr is true.
 	isPtr     bool
 	base      *DType    // element dtype (what is being pointed to)
 	addrSpace AddrSpace // address space of the pointer
@@ -322,7 +322,7 @@ var Dtypes = struct {
 	Int64  *DType
 	UInt64 *DType
 
-	// FP8 variants (OCP FP8: e4m3fn and e5m2) — storage-only dtypes with f32
+	// FP8 variants (OCP FP8: e4m3fn and e5m2) - storage-only dtypes with f32
 	// compute, on the bf16 decoded-storage scheme. Conversion helpers below;
 	// WGSL store narrowing in codegen/wgsl.go (SPEC §11.3).
 	FP8E4M3 *DType
@@ -333,7 +333,7 @@ var Dtypes = struct {
 	Float32  *DType
 	Float64  *DType
 
-	// Image-storage variants — behave as their scalar peer for ALU, autodiff,
+	// Image-storage variants - behave as their scalar peer for ALU, autodiff,
 	// and promotion. The only difference is GPU buffer storage layout (the
 	// buffer is bound as array<vec4<f32>> rather than array<f32>; logical
 	// element i lives at buffer[i/4][i%4]). See DType.IsImage and SPEC §1.3.
@@ -382,7 +382,7 @@ var Dtypes = struct {
 }
 
 func init() {
-	// Aliases — set after primary singletons are initialised.
+	// Aliases - set after primary singletons are initialised.
 	Dtypes.Float = Dtypes.Float32
 	Dtypes.Half = Dtypes.Float16
 	Dtypes.Double = Dtypes.Float64
@@ -632,10 +632,10 @@ func float32ToFP8(f float32, manBits uint32, bias int32, maxCode, overflowCode, 
 // Float32ToFP8E4M3 narrows a float32 to its nearest fp8 e4m3fn bit pattern
 // (OCP FP8: bias 7, 3 mantissa bits, no infinities, NaN = S.1111.111, max
 // finite ±448) using round-to-nearest-even. Finite overflow and ±Inf both
-// saturate to ±448 — CUDA's satfinite conversion mode, which is what
+// saturate to ±448 - CUDA's satfinite conversion mode, which is what
 // Transformer Engine and production fp8 training stacks use. (PyTorch's CPU
 // converter instead maps overflow to NaN; saturation was chosen here as the
-// deliberate, documented behaviour — see notes/fp8_preflight.md.)
+// deliberate, documented behaviour - see notes/fp8_preflight.md.)
 func Float32ToFP8E4M3(f float32) uint8 {
 	// maxCode 0x7E = 448; overflowCode 0x7E saturates; nanCode 0x7F canonical.
 	return float32ToFP8(f, 3, 7, 0x7E, 0x7E, 0x7F)

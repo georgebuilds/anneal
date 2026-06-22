@@ -1,4 +1,4 @@
-// Tests for viz.BuildExplain — the WASM-buildable path that drives the W3
+// Tests for viz.BuildExplain - the WASM-buildable path that drives the W3
 // explain view. These tests run on native (no build tag); the same call
 // applies in the WASM environment via the annealExplainOp bridge.
 
@@ -32,7 +32,7 @@ func TestBuildExplain_Add(t *testing.T) {
 		t.Errorf("Add: no symbolic rules returned (expected >= 1)")
 	}
 	// Pin specific rule presence. The .upat file declares at least:
-	//   - additive identity (hReturnX) — Add(*, Const !int64(0)) and float64(0)
+	//   - additive identity (hReturnX) - Add(*, Const !int64(0)) and float64(0)
 	//   - constant folding (hFoldBinary)
 	//   - commutative canonicalization (hCanonicalize)
 	//   - boolean algebra (hBoolAdd)

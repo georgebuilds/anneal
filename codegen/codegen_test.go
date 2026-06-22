@@ -100,7 +100,7 @@ func TestRender_Elementwise(t *testing.T) {
 	verifyWGSLStructure(t, wgsl, item)
 
 	// Elementwise: exactly 1 binding (output) and 1 input (the leaf buffer).
-	// No reduce loops — no "for (" in the body.
+	// No reduce loops - no "for (" in the body.
 	assertContains(t, wgsl, "exp2(")
 	assertNotContains(t, wgsl, "for (")
 	// Bounds guard references the output size (32).

@@ -1,13 +1,13 @@
-// anneal studio — main thread ES module.
+// anneal studio - main thread ES module.
 //
 // Responsibilities (DESIGN.md §3, §5, §7, §11; spec §10; web/A11Y.md):
 //   1. History API routing for every studio view (no hash routing).
 //   2. Theme controller: system | dark | light cycle, persisted, with a live
 //      matchMedia listener so OS theme changes apply without a page reload.
-//   3. View renderer dispatch — stubs in W0, real renderers land in W1+.
+//   3. View renderer dispatch - stubs in W0, real renderers land in W1+.
 //   4. Keyboard handlers: `/` focuses search; `g <dest>` chord jumps view;
 //      `?` opens the keyboard-help modal; `Esc` closes it.
-//   5. Worker RPC client — gated behind a <meta name="anneal-worker"> tag so
+//   5. Worker RPC client - gated behind a <meta name="anneal-worker"> tag so
 //      W0 (no anneal.wasm shipped yet) does not 404. Once a real WASM build
 //      lands, flip the meta tag on and `wasm.call(fn, ...args)` lights up.
 //   6. Ignite-once wordmark animation on first page load only.
@@ -60,7 +60,7 @@ function applyTheme(theme) {
   if (btn) {
     const next = nextTheme(theme);
     btn.title = 'theme: ' + theme + ' (click to cycle)';
-    // aria-label update on theme cycle — describes current state AND the
+    // aria-label update on theme cycle - describes current state AND the
     // next state (so a screen-reader user always knows what a press does).
     btn.setAttribute(
       'aria-label',
@@ -496,15 +496,15 @@ function initIgnite() {
 // elements. No regex backtracking, no JS deps.
 //
 // Token kinds emitted:
-//   keyword   — control flow + storage classes (fn, var, let, for, if, …)
-//   type      — primitive scalar + vector + matrix types
-//   builtin   — main, gid, lid, wid, the @builtin identifiers
-//   attribute — @compute, @workgroup_size, @binding, @group, @builtin, …
-//   number    — int, float, hex literals (123, 12.5, 0xCAFE, 64u, 1.0f, ...)
-//   string    — "..." literals (rare in WGSL but tokenized for safety)
-//   comment   — // line comments AND /* block comments */
-//   ident     — everything else that starts with a letter/underscore
-//   punct     — every other single-char token (operators, braces, semi, …)
+//   keyword   - control flow + storage classes (fn, var, let, for, if, …)
+//   type      - primitive scalar + vector + matrix types
+//   builtin   - main, gid, lid, wid, the @builtin identifiers
+//   attribute - @compute, @workgroup_size, @binding, @group, @builtin, …
+//   number    - int, float, hex literals (123, 12.5, 0xCAFE, 64u, 1.0f, ...)
+//   string    - "..." literals (rare in WGSL but tokenized for safety)
+//   comment   - // line comments AND /* block comments */
+//   ident     - everything else that starts with a letter/underscore
+//   punct     - every other single-char token (operators, braces, semi, …)
 //
 // Reduced-motion + forced-colors are CSS concerns; the tokenizer is pure
 // structure. Token boundaries are byte-offset into the input string.
@@ -552,7 +552,7 @@ function tokenizeWGSL(text) {
   while (i < N) {
     const c = text[i];
 
-    // Whitespace — skipped (not emitted as a token).
+    // Whitespace - skipped (not emitted as a token).
     if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
       i++;
       continue;
@@ -699,7 +699,7 @@ async function renderKernelsView() {
     listEl.innerHTML = '';
     const li = document.createElement('li');
     li.className = 'kernel-list-error';
-    li.textContent = 'wasm not loaded — build anneal.wasm to populate this view';
+    li.textContent = 'wasm not loaded - build anneal.wasm to populate this view';
     listEl.appendChild(li);
     announce('kernels view: wasm not loaded');
     return;
@@ -972,7 +972,7 @@ function initKernelsDiffToggle() {
     const pressed = btn.getAttribute('aria-pressed') === 'true';
     const next = !pressed;
     btn.setAttribute('aria-pressed', next ? 'true' : 'false');
-    announce(next ? 'tuned compile pending — native backend not yet wired'
+    announce(next ? 'tuned compile pending - native backend not yet wired'
                   : 'showing default WGSL');
   });
 }
@@ -987,7 +987,7 @@ function initKernelsDiffToggle() {
 //   - Every control is labelled (model select, steps input, buttons,
 //     checkbox).
 //   - The progressbar updates aria-valuenow as it animates.
-//   - The stat region is aria-live="polite" — every value change is
+//   - The stat region is aria-live="polite" - every value change is
 //     announced without stealing focus.
 //   - The loss SVG's <desc> is rewritten on each step ("loss decreased
 //     from X to Y over N steps") as a textual fallback.
@@ -1091,10 +1091,10 @@ function trainStart() {
 
   // Reset display.
   setTrainText('t-step', '0 / ' + nSteps);
-  setTrainText('t-loss', '—');
-  setTrainText('t-uops', '—');
-  setTrainText('t-kernels', '—');
-  setTrainText('t-fused', '—');
+  setTrainText('t-loss', '-');
+  setTrainText('t-uops', '-');
+  setTrainText('t-kernels', '-');
+  setTrainText('t-fused', '-');
   setProgress(0, nSteps);
   drawSparkline();
 
@@ -1245,7 +1245,7 @@ function getLossWindow() {
 }
 
 function formatLoss(loss) {
-  if (typeof loss !== 'number' || !isFinite(loss)) return '—';
+  if (typeof loss !== 'number' || !isFinite(loss)) return '-';
   const a = Math.abs(loss);
   if (a !== 0 && (a < 1e-3 || a >= 1e4)) return loss.toExponential(3);
   return loss.toFixed(6);
@@ -1328,7 +1328,7 @@ function cssEscapeID(s) {
 // opens an EventSource against /sse/generate?model=...&prompt=...&tokens=...
 // and pushes each TokenSnapshot into the DOM. Every emitted token is a
 // focusable <span class="tok"> the user can click (or Enter on while
-// focused) to navigate to /k/<model>?kernel=<lastKernelID> — the
+// focused) to navigate to /k/<model>?kernel=<lastKernelID> - the
 // click-through to the producing fused kernel per spec §5.6.
 //
 // a11y (web/A11Y.md §3e):
@@ -1356,7 +1356,7 @@ const _genState = {
   tokenCount: 0,
   lastKernelID: '',
   // Batched announcement: collect token texts, flush every 5 OR after
-  // 500ms — whichever comes first — to avoid screen-reader spam.
+  // 500ms - whichever comes first - to avoid screen-reader spam.
   pendingAnnounce: [],
   announceTimer: null,
 };
@@ -1444,10 +1444,10 @@ function generateStart() {
   // Reset UI.
   if (out) out.textContent = '';
   if (echo) echo.textContent = promptText;
-  if (lastText) lastText.textContent = '—';
-  if (lastId) lastId.textContent = '—';
-  if (lastLogit) lastLogit.textContent = '—';
-  if (lastRef) lastRef.textContent = wantCompare ? 'pending' : '—';
+  if (lastText) lastText.textContent = '-';
+  if (lastId) lastId.textContent = '-';
+  if (lastLogit) lastLogit.textContent = '-';
+  if (lastRef) lastRef.textContent = wantCompare ? 'pending' : '-';
   if (status) status.textContent = 'starting…';
   if (warming) warming.hidden = false;
 
@@ -1566,7 +1566,7 @@ function onTokenSnapshot(tok) {
     return;
   }
 
-  // PhaseTraining (used as "generating") — append a token span.
+  // PhaseTraining (used as "generating") - append a token span.
   const text = typeof tok.token_text === 'string' ? tok.token_text : '';
   appendTokenSpan(tok, text);
   _genState.tokenCount++;
@@ -1574,14 +1574,14 @@ function onTokenSnapshot(tok) {
 
   // Update last-token panel.
   setGenText('gen-last-text', text === '' ? '(empty)' : JSON.stringify(text));
-  setGenText('gen-last-id', String(tok.token_id != null ? tok.token_id : '—'));
-  setGenText('gen-last-logit', tok.logit_summary || '—');
+  setGenText('gen-last-id', String(tok.token_id != null ? tok.token_id : '-'));
+  setGenText('gen-last-logit', tok.logit_summary || '-');
   if (typeof tok.ref_match === 'boolean') {
     setGenText('gen-last-ref', tok.ref_match ? '✓ match' : '✗ no match');
   } else if (_genState.compare) {
     setGenText('gen-last-ref', 'pending');
   } else {
-    setGenText('gen-last-ref', '—');
+    setGenText('gen-last-ref', '-');
   }
 
   // Update click-through href to the producing kernel.
@@ -1597,7 +1597,7 @@ function onTokenSnapshot(tok) {
   }
 
   // Compiler pulse: the train view's kernel-thumb is reused if visible
-  // (best-effort — typically not present in the generate DOM, so guard).
+  // (best-effort - typically not present in the generate DOM, so guard).
   if (tok.last_kernel_id) {
     try { pulseKernelDot(tok.last_kernel_id); } catch (_) {}
   }
@@ -1684,11 +1684,11 @@ function flushGenAnnounce() {
 // ── visualize view (W4) ───────────────────────────────────────────────────
 // Spec: notes/anneal_web_spec.md §5.2.
 // Two pieces share this section:
-//   1. renderVisualizeView()  — runs every time we navigate to /v/<model>;
+//   1. renderVisualizeView()  - runs every time we navigate to /v/<model>;
 //      reads the URL, sets the iframe src to /visualize/embed (or sends an
 //      inbound nodeSelected for a pre-opened deep link), and ensures the
 //      message + Escape handlers are armed exactly once.
-//   2. The drawer state machine — open / close / focus management. The
+//   2. The drawer state machine - open / close / focus management. The
 //      drawer is `role="region"` + `aria-label`; opening it captures focus,
 //      Escape closes it and returns focus to the iframe (per A11Y.md §3c).
 
@@ -1749,7 +1749,7 @@ function wireVisualizeListeners() {
   }
 
   // Escape on the visualize view closes the drawer if open. We attach to
-  // document so the iframe focus does not block the key path — the iframe
+  // document so the iframe focus does not block the key path - the iframe
   // itself runs in a sandbox and will not capture Escape from the parent.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -2059,7 +2059,7 @@ function drawExplainDetail() {
 
   if (_explainState.error) {
     nameEl.textContent = _explainState.selectedOp || '';
-    descEl.textContent = 'wasm not loaded — build anneal.wasm to populate this view';
+    descEl.textContent = 'wasm not loaded - build anneal.wasm to populate this view';
     rulesEl.innerHTML = '';
     gradEl.textContent = '';
     const svg = miniEl.querySelector('svg');
@@ -2449,7 +2449,7 @@ async function inspectFile(file) {
   tbody.innerHTML = '';
 
   if (!format) {
-    metaEl.textContent = 'unknown extension — expected .npy, .npz, or .safetensors';
+    metaEl.textContent = 'unknown extension - expected .npy, .npz, or .safetensors';
     announce('tensor inspect: unknown extension');
     return;
   }
@@ -2468,7 +2468,7 @@ async function inspectFile(file) {
   try {
     raw = await wasm.call('annealInspectTensor', bytes, format);
   } catch (e) {
-    metaEl.textContent = 'wasm not loaded — build anneal.wasm to use the inspector';
+    metaEl.textContent = 'wasm not loaded - build anneal.wasm to use the inspector';
     announce('tensor inspect: wasm not loaded');
     return;
   }
@@ -2642,7 +2642,7 @@ async function importONNXFile(file) {
   try {
     raw = await wasm.call('annealImportONNX', bytes);
   } catch (e) {
-    sumEl.textContent = 'wasm not loaded — build anneal.wasm to import ONNX models';
+    sumEl.textContent = 'wasm not loaded - build anneal.wasm to import ONNX models';
     announce('import error: wasm not loaded');
     return;
   }
@@ -2695,7 +2695,7 @@ function renderONNXSummary(payload, displayName) {
         name.textContent = u.op_type + (u.count > 1 ? ' (' + u.count + ')' : '');
         const reason = document.createElement('span');
         reason.className = 'op-reason';
-        reason.textContent = ' — ' + (u.reason || 'no handler registered');
+        reason.textContent = ' - ' + (u.reason || 'no handler registered');
         li.appendChild(name);
         li.appendChild(reason);
         unsupList.appendChild(li);
@@ -2732,7 +2732,7 @@ function renderONNXSummary(payload, displayName) {
 //
 // Two cards: the native binary's adapter via GET /api/device, and the
 // browser's own navigator.gpu.requestAdapter() probe run in-page. The
-// browser card carries a binding caveat — the two adapters are independent
+// browser card carries a binding caveat - the two adapters are independent
 // enumerations on the same machine; anneal kernels do NOT run in the
 // browser's WebGPU. The caveat is a real <p>, not aria-hidden, because it
 // is important context.
@@ -2885,7 +2885,7 @@ if (document.readyState === 'loading') {
 export const __studio = {
   navigate, applyTheme, cycleTheme, viewIdForPath, announce,
   helpOpen, helpClose,
-  // W2 hooks (kernels view) — exported so manual console tests can drive them.
+  // W2 hooks (kernels view) - exported so manual console tests can drive them.
   tokenizeWGSL, renderKernelsView, selectKernel, modelFromPath,
   // W6 hooks (train view).
   renderTrainView, trainStart, trainCancel, modelFromTrainPath,

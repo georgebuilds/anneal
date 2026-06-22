@@ -10,7 +10,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// coverage_test.go — white-box (package schedule) direct unit coverage for the
+// coverage_test.go - white-box (package schedule) direct unit coverage for the
 // pure scheduling/index/symbolic helpers that production exercises only through
 // full end-to-end graphs. These pin the helpers' semantics so a regression
 // cannot ship silently, and they raise statement coverage of the cheap-to-test
@@ -136,7 +136,7 @@ func TestShapeSintArgToSints(t *testing.T) {
 	if v, ok := got[0].ConstValue(); !ok || v != 4 {
 		t.Errorf("got[0] concrete = (%d,%v), want 4,true", v, ok)
 	}
-	// Dim 1: bare symbolic — must be a SymInt aliased to nNode.
+	// Dim 1: bare symbolic - must be a SymInt aliased to nNode.
 	sym1, ok := got[1].(shape.SymInt)
 	if !ok {
 		t.Fatalf("got[1] is %T, want shape.SymInt", got[1])
@@ -144,7 +144,7 @@ func TestShapeSintArgToSints(t *testing.T) {
 	if sym1.Node != nNode {
 		t.Errorf("got[1].Node not interned to original DefineVar")
 	}
-	// Dim 2: symbolic * 3 — symbolic and not equal to the bare var node.
+	// Dim 2: symbolic * 3 - symbolic and not equal to the bare var node.
 	if _, ok := got[2].(shape.SymInt); !ok {
 		t.Fatalf("got[2] is %T, want shape.SymInt", got[2])
 	}
@@ -555,7 +555,7 @@ func TestBufSymDimMul(t *testing.T) {
 
 	// Symbolic dims → parallel (mul, var) slices in dim order.
 	arg := uop.ShapeSintArg{
-		{V: 4},                            // concrete — skipped
+		{V: 4},                            // concrete - skipped
 		{Sym: true, VarName: "n", Mul: 1}, // bare
 		{Sym: true, VarName: "k", Mul: 3}, // merged ×3
 	}
@@ -578,7 +578,7 @@ func TestBufSymDimAffine(t *testing.T) {
 
 	// BoundExprArg with one concrete + one symbolic affine dim.
 	arg := uop.BoundExprArg{
-		{V: 4}, // concrete — skipped
+		{V: 4}, // concrete - skipped
 		{Sym: true, Terms: []uop.AffineTerm{{Mul: 1, VarName: "n"}, {Mul: 1, VarName: "p"}}, Offset: 2},
 	}
 	out := bufSymDimAffine(mkBuf(a, arg))

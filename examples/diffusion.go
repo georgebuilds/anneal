@@ -286,7 +286,7 @@ type diffusionSampleStats struct {
 
 // diffusionSampleSmoke runs the reverse process from x_T ~ N(0, I) for
 // diffSampleSteps iterations and returns finite-stats on the final sample.
-// Skipped from the main test budget — gated on cfg.LogText (the same way
+// Skipped from the main test budget - gated on cfg.LogText (the same way
 // nanoGPT gates its final sample).
 func diffusionSampleSmoke(
 	model *nn.DDPMDenoiser,

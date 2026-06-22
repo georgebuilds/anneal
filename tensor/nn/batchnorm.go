@@ -19,7 +19,7 @@ import (
 //	   var_b  = mean((x - mu_b)^2, axes=[0, 2, 3])            shape [C]
 //	   xhat   = (x - mu_b) / sqrt(var_b + eps)
 //	   y      = xhat * Weight + Bias
-//	   (RunningMean, RunningVar update via EMA — host-side after Realize)
+//	   (RunningMean, RunningVar update via EMA - host-side after Realize)
 //
 //	eval mode:
 //	   xhat   = (x - RunningMean) / sqrt(RunningVar + eps)
@@ -27,7 +27,7 @@ import (
 //
 // Weight (scale, init ones) and Bias (init zeros) are learnable parameters of
 // shape [C]. RunningMean (init zeros) and RunningVar (init ones) are stateful
-// non-differentiated buffers stored as []float32 alongside the module — they
+// non-differentiated buffers stored as []float32 alongside the module - they
 // survive arena resets exactly like Adam's m and v moment buffers in optim.go.
 //
 // State-update contract (training mode): caller invokes PostStep on the live
@@ -182,7 +182,7 @@ func (bn *BatchNorm2d) PostStep() error {
 }
 
 // Params returns the trainable parameters (Weight, Bias) in deterministic order.
-// RunningMean and RunningVar are NOT in this set — they are non-differentiated
+// RunningMean and RunningVar are NOT in this set - they are non-differentiated
 // state buffers updated via PostStep.
 func (bn *BatchNorm2d) Params() []*Parameter {
 	return []*Parameter{bn.Weight, bn.Bias}

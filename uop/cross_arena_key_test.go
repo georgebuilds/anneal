@@ -6,7 +6,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// cross_arena_key_test.go — proves the Option B Slice 4 hygiene: ShapeSintArg
+// cross_arena_key_test.go - proves the Option B Slice 4 hygiene: ShapeSintArg
 // no longer encodes symbolic dims by raw arena index (the recurring §10 bug
 // class of construction-order identity), so the StructuralKey of a sink built
 // in two distinct arenas from the same logical graph is byte-identical.
@@ -45,7 +45,7 @@ func TestCrossArenaStructuralKey(t *testing.T) {
 	t.Logf("arena 2 sink key: %#x", k2)
 
 	if k1 != k2 {
-		t.Fatalf("cross-arena structural keys diverged: arena1=%#x arena2=%#x — "+
+		t.Fatalf("cross-arena structural keys diverged: arena1=%#x arena2=%#x - "+
 			"ShapeSintArg encoding leaked construction-order identity (SPEC §10 bug class)", k1, k2)
 	}
 }
@@ -65,7 +65,7 @@ func TestCrossArenaStructuralKeyDifferentVarNamesDistinct(t *testing.T) {
 	kM := keys2[sinkM.Index()]
 
 	if kN == kM {
-		t.Fatalf("structural keys for VarName=%q and %q collided (%#x) — "+
+		t.Fatalf("structural keys for VarName=%q and %q collided (%#x) - "+
 			"the variable's name dropped from the structural key", "n", "m", kN)
 	}
 }
@@ -115,7 +115,7 @@ func TestCrossArenaStructuralKeyMulDistinct(t *testing.T) {
 
 	keys := uop.StructuralKeys(a)
 	if keys[sinkBare.Index()] == keys[sinkMul4.Index()] {
-		t.Fatalf("Mul=1 and Mul=4 produced identical structural keys — " +
+		t.Fatalf("Mul=1 and Mul=4 produced identical structural keys - " +
 			"multiplier dropped from the structural key")
 	}
 }

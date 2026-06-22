@@ -1,4 +1,4 @@
-// bytes.go — byte-based inspection API for the WASM tensor-inspect view (W9).
+// bytes.go - byte-based inspection API for the WASM tensor-inspect view (W9).
 //
 // LoadTensors takes a path; the studio holds the file in a Uint8Array and
 // needs the raw dtype string ("F32", "BF16", "I64") preserved in the result.

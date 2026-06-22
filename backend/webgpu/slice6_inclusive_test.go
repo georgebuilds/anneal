@@ -1,6 +1,6 @@
 package webgpu_test
 
-// Option B Slice 6 — INV-A inclusive-bounds edge-value test.
+// Option B Slice 6 - INV-A inclusive-bounds edge-value test.
 //
 // Declares a DefineVar with (min, max) inclusive bounds and binds the var
 // to each endpoint (n=min and n=max). Both bindings must produce bit-exact

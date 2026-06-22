@@ -229,7 +229,7 @@ func requireShaderF16(d *Device, items []schedule.ExecItem) error {
 	for _, item := range items {
 		for _, buf := range item.Bufs {
 			if buf.DType != nil && buf.DType.Scalar() == uop.Dtypes.Float16 {
-				return fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it — enable the extension at device open time or use f32")
+				return fmt.Errorf("webgpu: kernel requires shader-f16 but adapter does not support it - enable the extension at device open time or use f32")
 			}
 		}
 	}
@@ -373,7 +373,7 @@ func (d *Device) allocateBuffers(items []schedule.ExecItem, alloc *allocator, ec
 // uploadInputs writes leaf input data to GPU buffers, encoding host float32
 // data into the per-dtype layout (f16 / bf16 / f32) via EncodeFloat32Input.
 // Inputs for UOpIdx values not present in gpuBufs (e.g. for buffers not in
-// this schedule) are silently skipped — same as the original behaviour.
+// this schedule) are silently skipped - same as the original behaviour.
 func uploadInputs(gpuBufs map[uint32]backend.DeviceBuffer, inputs map[uint32][]float32, bufDType map[uint32]*uop.DType) error {
 	for uopIdx, data := range inputs {
 		db, ok := gpuBufs[uopIdx]
@@ -521,7 +521,7 @@ func symElemCount(buf schedule.Buffer, binding map[string]int64, symVars []strin
 // computeSymDispatchWCFromItem is the in-Run dispatch-WC evaluator used by
 // runSymbolicLocked. It mirrors computeSymDispatchWC (which operates on a
 // SymKernelHandle) but reads the per-dim DimDispatch straight off the
-// ExecItem — the inputs are equivalent because RenderWGSL populates both.
+// ExecItem - the inputs are equivalent because RenderWGSL populates both.
 func computeSymDispatchWCFromItem(item schedule.ExecItem, binding map[string]int64) ([3]int, error) {
 	wc := item.WorkgroupCount
 	for axis := 0; axis < 3; axis++ {
@@ -531,7 +531,7 @@ func computeSymDispatchWCFromItem(item schedule.ExecItem, binding map[string]int
 		}
 		extent := dd.Const
 		if extent <= 0 {
-			panic(fmt.Sprintf("webgpu: SymDispatch[%d].Const=%d (must be >=1) — lowerer invariant violated", axis, extent))
+			panic(fmt.Sprintf("webgpu: SymDispatch[%d].Const=%d (must be >=1) - lowerer invariant violated", axis, extent))
 		}
 		for fi, be := range dd.SymBounds {
 			v, err := be.Eval(binding)
@@ -539,7 +539,7 @@ func computeSymDispatchWCFromItem(item schedule.ExecItem, binding map[string]int
 				return wc, fmt.Errorf("webgpu: SymDispatch[%d].SymBounds[%d]: %w", axis, fi, err)
 			}
 			if v <= 0 {
-				panic(fmt.Sprintf("webgpu: SymDispatch[%d].SymBounds[%d] evaluates to %d (binding %v) — non-positive sym extent",
+				panic(fmt.Sprintf("webgpu: SymDispatch[%d].SymBounds[%d] evaluates to %d (binding %v) - non-positive sym extent",
 					axis, fi, v, binding))
 			}
 			extent *= v

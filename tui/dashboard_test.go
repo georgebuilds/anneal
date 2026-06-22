@@ -88,7 +88,7 @@ func TestColorTokenValues(t *testing.T) {
 // ── Shape symbol tests ────────────────────────────────────────────────────────
 
 // TestShapeSymbolsDistinct verifies the three DD1 shape symbols are present,
-// non-empty, and distinct — they are the lossless NO_COLOR carriers (§9).
+// non-empty, and distinct - they are the lossless NO_COLOR carriers (§9).
 func TestShapeSymbolsDistinct(t *testing.T) {
 	syms := map[string]string{
 		"forward":  tui.SymForward,
@@ -97,7 +97,7 @@ func TestShapeSymbolsDistinct(t *testing.T) {
 	}
 	for name, sym := range syms {
 		if sym == "" {
-			t.Errorf("Sym%s is empty — must be a non-empty shape character", name)
+			t.Errorf("Sym%s is empty - must be a non-empty shape character", name)
 		}
 	}
 	if tui.SymForward == tui.SymBackward || tui.SymForward == tui.SymFused || tui.SymBackward == tui.SymFused {
@@ -109,7 +109,7 @@ func TestShapeSymbolsDistinct(t *testing.T) {
 // ── NO_COLOR lossless legend tests ────────────────────────────────────────────
 
 // TestNoColorLegendLossless verifies that in NO_COLOR mode the legend still
-// contains all three shape symbols AND labels — color loss is truly lossless
+// contains all three shape symbols AND labels - color loss is truly lossless
 // (DESIGN.md §9, §3.3).
 func TestNoColorLegendLossless(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
@@ -118,12 +118,12 @@ func TestNoColorLegendLossless(t *testing.T) {
 
 	for _, sym := range []string{tui.SymForward, tui.SymBackward, tui.SymFused} {
 		if !strings.Contains(view, sym) {
-			t.Errorf("NO_COLOR view missing shape symbol %q — shape must survive color removal", sym)
+			t.Errorf("NO_COLOR view missing shape symbol %q - shape must survive color removal", sym)
 		}
 	}
 	for _, label := range []string{"forward", "backward", "fused"} {
 		if !strings.Contains(view, label) {
-			t.Errorf("NO_COLOR view missing label %q — label must pair with shape (§9)", label)
+			t.Errorf("NO_COLOR view missing label %q - label must pair with shape (§9)", label)
 		}
 	}
 }
@@ -133,13 +133,13 @@ func TestNoColorNoANSI(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 
 	if strings.Contains(baseModel().View(), "\033[") {
-		t.Error("NO_COLOR mode produced ANSI escape codes — color must be fully suppressed")
+		t.Error("NO_COLOR mode produced ANSI escape codes - color must be fully suppressed")
 	}
 }
 
 // ── Sentence case tests ───────────────────────────────────────────────────────
 
-// TestSentenceCase verifies labels use sentence case — no Title Case, no ALL
+// TestSentenceCase verifies labels use sentence case - no Title Case, no ALL
 // CAPS (DESIGN.md §9).
 func TestSentenceCase(t *testing.T) {
 	view := stripANSI(baseModel().View())
@@ -151,7 +151,7 @@ func TestSentenceCase(t *testing.T) {
 	}
 	for _, phrase := range banned {
 		if strings.Contains(view, phrase) {
-			t.Errorf("view contains title-case/ALL-CAPS phrase %q — want sentence case", phrase)
+			t.Errorf("view contains title-case/ALL-CAPS phrase %q - want sentence case", phrase)
 		}
 	}
 }
@@ -178,7 +178,7 @@ func TestLayout80Col(t *testing.T) {
 // ── Compiler stats wiring tests ───────────────────────────────────────────────
 
 // TestCompilerStatsInView verifies that real stats from a StatsMsg appear in
-// the rendered output — counts must not be hardcoded constants.
+// the rendered output - counts must not be hardcoded constants.
 func TestCompilerStatsInView(t *testing.T) {
 	view := stripANSI(viewWith(
 		baseModel(),
@@ -193,7 +193,7 @@ func TestCompilerStatsInView(t *testing.T) {
 }
 
 // TestCompilerStatsNotHardcoded verifies that different stat values produce
-// different output — rules out any hardcoded constant in the renderer.
+// different output - rules out any hardcoded constant in the renderer.
 func TestCompilerStatsNotHardcoded(t *testing.T) {
 	view1 := stripANSI(viewWith(baseModel(),
 		tui.StatsMsg{Stats: schedule.CompilerStats{UOps: 100, Kernels: 3, Pass: "rangeify"}},
@@ -203,7 +203,7 @@ func TestCompilerStatsNotHardcoded(t *testing.T) {
 	))
 
 	if view1 == view2 {
-		t.Error("different CompilerStats produced identical views — stats may be hardcoded")
+		t.Error("different CompilerStats produced identical views - stats may be hardcoded")
 	}
 	if !strings.Contains(view1, "100") {
 		t.Errorf("UOps=100 not found in view1:\n%s", view1)

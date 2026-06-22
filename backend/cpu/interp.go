@@ -89,7 +89,7 @@ func interpret(item schedule.ExecItem, bufs map[uint32]*Buffer) error {
 		case uop.AxisReduce:
 			// Reduce loops live inside OpReduce.Src[1:]; the rangeified
 			// kernel also lists them in End.Src[1:] for bookkeeping. Skip
-			// them at the outer level — OpReduce handles them.
+			// them at the outer level - OpReduce handles them.
 			continue
 		default:
 			return fmt.Errorf("interp: unknown axis type %d", ra.Type)
@@ -212,7 +212,7 @@ type state struct {
 }
 
 // evalFloat evaluates u as a scalar float32. Handles Index loads, ALU,
-// constants, ranges (rare — usually wrapped in Cast), and OpReduce.
+// constants, ranges (rare - usually wrapped in Cast), and OpReduce.
 // bothIntOperands reports whether both srcs of a binary node carry an
 // integer (or index) dtype, in which case comparisons must run in int64
 // rather than float32 (exact only below 2^24).
@@ -419,7 +419,7 @@ func (st *state) evalFloat(u uop.UOp) (float32, error) {
 		}
 		return 0, nil
 	case uop.OpAnd:
-		// Boolean conjunction — the pad validity mask is a chain of OpAnd
+		// Boolean conjunction - the pad validity mask is a chain of OpAnd
 		// over Bool (schedule/index.go), evaluated here as 0/1 floats.
 		a, err := st.evalFloat(u.Src(0))
 		if err != nil {
@@ -608,9 +608,9 @@ func (st *state) evalIndexLoadFloat(u uop.UOp) (float32, error) {
 // clampFlat mirrors naga/WGSL storage-buffer robustness: an out-of-bounds
 // element index is clamped into [0, n-1] rather than faulting. The GPU
 // computes the same (possibly out-of-range) flat offset for broadcast-param
-// loads in masked or reduced lanes — e.g. a [C] BatchNorm param or a 4-D conv
+// loads in masked or reduced lanes - e.g. a [C] BatchNorm param or a 4-D conv
 // weight whose leading broadcast dim carries a non-zero index with a
-// full-buffer stride, producing an offset exactly one past the end — and
+// full-buffer stride, producing an offset exactly one past the end - and
 // clamps the read. The interp must match so it stays a faithful value oracle
 // for the GPU backend. Callers guarantee n > 0.
 func clampFlat(flat int64, n int) int64 {
@@ -657,7 +657,7 @@ func (st *state) evalIntIndex(u uop.UOp) (int64, error) {
 	shape := st.paramShape(paramIdx)
 	// stride[d] = product of factor(d+1..nDims-1), mirroring codegen's
 	// paramDimFactor: a dim index beyond the buffer's recorded shape
-	// contributes a stride factor of 1. This is the broadcast case — e.g. a
+	// contributes a stride factor of 1. This is the broadcast case - e.g. a
 	// [C] BatchNorm param indexed in a 4-D [N,C,H,W] context, where rangeify
 	// zeroes the broadcast dims' index sources and the missing leading shape
 	// dims must fold to factor 1, not error. Without this the interp diverges

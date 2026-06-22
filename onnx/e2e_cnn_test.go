@@ -258,7 +258,7 @@ func TestE2E_TinyCNN_SymbolicBatch(t *testing.T) {
 	// For each concrete N, build (a) a fresh-arena direct path and (b) realise
 	// the importer's graph at that N by supplying a fresh leaf input of shape
 	// [N, Cin, H, W] (the importer's input shape contains the dim_param so the
-	// passed-in concrete tensor's shape is compatible at the runner level —
+	// passed-in concrete tensor's shape is compatible at the runner level -
 	// the runner stores it as a Device Value and never reasons about its
 	// symbolic dim during cpuEval).
 	for _, n := range []int64{1, 3, 8} {
@@ -384,7 +384,7 @@ func TestE2E_TinyCNN_F16_AccumulatorPattern(t *testing.T) {
 	const tol = float32(5e-3) // see comment block above
 	t.Logf("TinyCNN_F16 vs f32 baseline: max-abs-diff = %g (tol=%g, n=%d)", m, tol, len(f32Data))
 	if m > tol {
-		t.Errorf("f16 drift %g exceeds tol %g — possible accumulator overflow", m, tol)
+		t.Errorf("f16 drift %g exceeds tol %g - possible accumulator overflow", m, tol)
 	}
 }
 

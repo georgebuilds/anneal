@@ -21,7 +21,7 @@ func TestBPEEmptyToken(t *testing.T) {
 
 // TestSampleFromLogitsAllNegInf drives the degenerate all-(-inf) input. With
 // every logit -inf the stable-softmax computes v-maxV = (-inf)-(-inf) = NaN,
-// so exp() is NaN, sum is NaN (the `sum == 0` guard does NOT fire — NaN != 0),
+// so exp() is NaN, sum is NaN (the `sum == 0` guard does NOT fire - NaN != 0),
 // and the cumulative-sample comparison r <= acc is never true (NaN compares
 // false), so the function returns the trailing FP-slack index len-1. This
 // pins the documented fall-through behavior for pathological inputs.

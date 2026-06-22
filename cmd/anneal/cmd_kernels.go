@@ -47,12 +47,12 @@ func kernelsCmdW(args []string, w io.Writer) int {
 		return 1
 	}
 
-	// Build SINK and run schedule — no GPU required.
+	// Build SINK and run schedule - no GPU required.
 	a := result.Arena
 	sink := a.New(uop.OpSink, uop.Dtypes.Void, []uop.UOp{result.Output.Node()}, nil, nil)
 	items := schedule.CreateSchedule(sink, "webgpu")
 
-	fmt.Fprintf(w, "kernels: %s — %s\n", ex.Name, ex.Summary)
+	fmt.Fprintf(w, "kernels: %s - %s\n", ex.Name, ex.Summary)
 	fmt.Fprintf(w, "device: webgpu\n")
 	fmt.Fprintf(w, "kernels: %d\n", len(items))
 	fmt.Fprintln(w)

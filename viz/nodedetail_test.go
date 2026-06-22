@@ -8,7 +8,7 @@ import (
 
 // TestBuildNodeDetail_MLPNode0 pins the contract for the first rendered
 // node of the mlp example. "first rendered" means topologically first in
-// the union BuildGraph emits — typically the leaf buffer (input). The test
+// the union BuildGraph emits - typically the leaf buffer (input). The test
 // asserts the fields the studio's drawer renders, not bytewise structure
 // (the arena position is construction-order-dependent per SPEC §1.3).
 func TestBuildNodeDetail_MLPNode0(t *testing.T) {

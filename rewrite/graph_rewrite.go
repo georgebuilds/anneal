@@ -47,8 +47,8 @@ func GraphRewrite(sink uop.UOp, pm Matcher, opts ...Option) uop.UOp {
 
 // frame is one entry on the explicit DFS stack.
 // stage 0: apply bpm fixpoint, push children.
-// stage 1: all children resolved — rebuild srcs, apply pm.
-// stage 2: pm fired — wait for the replacement node to be resolved.
+// stage 1: all children resolved - rebuild srcs, apply pm.
+// stage 2: pm fired - wait for the replacement node to be resolved.
 type frame struct {
 	node    uop.UOp
 	stage   int
@@ -107,7 +107,7 @@ func runRewrite(sink uop.UOp, pm, bpm Matcher, ctx any) uop.UOp {
 			// Push children of cur (post-order: children before parent).
 			// Reverse push so first child ends up at top and is processed first.
 			// We skip children already in replace; we do NOT guard against children
-			// already on the stack elsewhere — shared nodes may be pushed multiple
+			// already on the stack elsewhere - shared nodes may be pushed multiple
 			// times and are deduped by the fast-path at the top of the loop.
 			for i := cur.NSrc() - 1; i >= 0; i-- {
 				child := cur.Src(i)

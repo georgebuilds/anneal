@@ -5,10 +5,10 @@ package webgpu_test
 // Sizes 2048+ exceed L2 and expose true DRAM-bandwidth-limited behavior.
 //
 // Configs per size:
-//   (a) Default 1D — no opts
-//   (b) OptLocal alone — workgroup_size 16×16
-//   (c) OptTile only — TS=16, no upcast
-//   (d) OptTile + OptUpcast — TS=16, MR=NR=4 (B3 production config)
+//   (a) Default 1D - no opts
+//   (b) OptLocal alone - workgroup_size 16×16
+//   (c) OptTile only - TS=16, no upcast
+//   (d) OptTile + OptUpcast - TS=16, MR=NR=4 (B3 production config)
 //
 // A failure (resource limit, dispatch overflow) at any cell is reported as a
 // finding without poisoning adjacent rows.
@@ -91,7 +91,7 @@ func TestRebaseline_LargeMatmul(t *testing.T) {
 	}
 
 	// Print table
-	fmt.Printf("\n=== RE-BASELINE TABLE — M3 GPU, >L2 working-set sizes ===\n")
+	fmt.Printf("\n=== RE-BASELINE TABLE - M3 GPU, >L2 working-set sizes ===\n")
 	fmt.Printf("L2 ≈ 12MB; per-operand: 512³=1MB 1024³=4MB 2048³=16MB 4096³=64MB\n")
 	fmt.Printf("warmup=%d  iters=%d  TS=%d  MR=%d  NR=%d\n\n", warmup, iters, TS, MR, NR)
 	fmt.Printf("%-18s  %6s  %10s  %8s  %6s\n", "Config", "N", "Min µs", "GFLOP/s", "vs(a)")
@@ -106,7 +106,7 @@ func TestRebaseline_LargeMatmul(t *testing.T) {
 				fmt.Printf("%-18s  %6d  FAILED: %s\n", name, N, c.err)
 				continue
 			}
-			speedup := "  —   "
+			speedup := "  -   "
 			if ci > 0 && def.err == "" {
 				speedup = fmt.Sprintf("%6.2fx", c.gflops/def.gflops)
 			}

@@ -15,7 +15,7 @@
 // recognisable rewrite for the op (e.g. Add: Add(x, 0) → x). The JSON is
 // shape only; the studio's JS does the rendering and animation.
 //
-// This file is the same on native and js/wasm — no build tags, no
+// This file is the same on native and js/wasm - no build tags, no
 // backend/webgpu import. The compile target check in cmd_web_test.go pins it.
 
 package viz
@@ -477,7 +477,7 @@ func gradientRuleForOp(op uop.Op) *GradientRule {
 //
 // Convention: node ids are stable across before/after when the node carries
 // over (e.g. for Add(x, 0)→x the "x" node has id "x" in both sides). The
-// studio's JS uses id-equality to animate the rewrite — same id stays put,
+// studio's JS uses id-equality to animate the rewrite - same id stays put,
 // removed ids fade out, new ids fade in.
 func miniGraphForOp(opName string) MiniGraph {
 	switch opName {

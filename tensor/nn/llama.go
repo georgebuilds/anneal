@@ -9,8 +9,8 @@ import (
 
 // ── Llama block + model (modern decoder stack) ────────────────────────────────
 //
-// Llama composes the modern small-LM primitive stack — RMSNorm, grouped-query
-// attention with RoPE, and a SwiGLU feed-forward — into a decoder-only
+// Llama composes the modern small-LM primitive stack - RMSNorm, grouped-query
+// attention with RoPE, and a SwiGLU feed-forward - into a decoder-only
 // transformer, the architecture shared by Llama/Qwen/Gemma. It is the
 // "level-up" counterpart to GPT (nn.GPT): same autoregressive shape, but with
 // the four primitives that replaced LayerNorm / learned-absolute-position /

@@ -80,7 +80,7 @@ type Instr struct {
 	// non-outermost symbolic dim). When non-empty, supersedes Stride; the
 	// renderer emits `(base / <StrideExpr>) % rangeSize` (or `base / <StrideExpr>`
 	// when Symbolic). When empty, the renderer falls back to the int64 Stride
-	// path (byte-identical Slice 1–7a output).
+	// path (byte-identical Slice 1-7a output).
 	StrideExpr string
 
 	// InstrBoundsCheck, InstrGIDVar, InstrLoopBegin: true when the range size is
@@ -97,7 +97,7 @@ type Instr struct {
 	// InstrLoopBegin / InstrBoundsCheck (symbolic only): the symbolic bound
 	// rendered as a WGSL u32 expression (e.g. "(params_n.n0 * 4u)" for
 	// reshape-merge derived bounds). When non-empty, supersedes
-	// SymParamIdx — the renderer uses this expression directly as the
+	// SymParamIdx - the renderer uses this expression directly as the
 	// loop bound / dispatch multiplier. Populated by renderSymBoundExpr
 	// in the lowerer for ALU-typed OpRange bounds.
 	SymBoundExpr string
@@ -105,7 +105,7 @@ type Instr struct {
 	// InstrLoopBegin (symbolic only): true when rules.IndexDtypeForBound for
 	// this loop's bound would have selected Int64 (vmax doesn't fit in int32).
 	// WGSL has no i64, so the renderer emits an acknowledging comment but
-	// still produces i32 — mirroring tinygrad PR #8268's WebGPU edge case.
+	// still produces i32 - mirroring tinygrad PR #8268's WebGPU edge case.
 	// On a future non-WebGPU backend the dtype decision would be honored.
 	Int64Downgraded bool
 
@@ -310,7 +310,7 @@ func (l *lowerer) symBoundEmission(r uop.UOp) (slot int, expr string) {
 // strideAcc accumulates a WGSL u32 stride/bound expression as a product of a
 // concrete int64 part and an optional symbolic-WGSL part. Multiplication is
 // commutative; rendering folds the parts into a single u32 expression and
-// preserves byte-identical output for all-concrete accumulators (Slice 1–7a
+// preserves byte-identical output for all-concrete accumulators (Slice 1-7a
 // regression bar).
 //
 // Invariants:
@@ -363,10 +363,10 @@ func (acc strideAcc) isConcrete() bool { return acc.symPart == "" }
 
 // renderU32 returns a WGSL u32 expression for the accumulator. Concrete-only
 // accs render as `Nu`; sym-only as the bare symPart; mixed as
-// `(<symPart> * Nu)` — parenthesised so the expression composes safely when
+// `(<symPart> * Nu)` - parenthesised so the expression composes safely when
 // used as a divisor (e.g. `base / <renderU32()>` in InstrGIDVar). WGSL `*`
 // and `/` are left-associative with equal precedence, so without parens
-// `base / params_n.n0 * 4u` parses as `(base / params_n.n0) * 4u` —
+// `base / params_n.n0 * 4u` parses as `(base / params_n.n0) * 4u` -
 // silently emitting wrong indices for the [4, n, 4] / sym-middle shape.
 // For 1: `1u`.
 func (acc strideAcc) renderU32() string {
@@ -381,10 +381,10 @@ func (acc strideAcc) renderU32() string {
 
 // renderI32StrideFactor returns the multiplicative i32 factor for the
 // accumulator, suitable as the RHS of `(<dim> * <factor>)` in emitIndex's
-// load index. For concrete strides it returns `%d` matching the Slice 1–7a
+// load index. For concrete strides it returns `%d` matching the Slice 1-7a
 // byte-exact format (no `u` suffix). For symbolic strides it casts the u32
 // expression to i32 so the surrounding i32 arithmetic stays well-typed.
-// Returns ("", true) when the factor is exactly 1 — callers omit the
+// Returns ("", true) when the factor is exactly 1 - callers omit the
 // multiplication entirely (mirrors the old `strides[d] == 1` branch).
 func (acc strideAcc) renderI32StrideFactor() (string, bool) {
 	if acc.symPart == "" {
@@ -401,7 +401,7 @@ func (acc strideAcc) renderI32StrideFactor() (string, bool) {
 
 // boundExprFromUOp converts a symbolic-bound UOp expression to the
 // dispatch-time-evaluable schedule.BoundExpr tree. Supports the same op set
-// as renderSymBoundExpr — Const / DefineVar / Add / Sub / Mul / IDiv / Mod —
+// as renderSymBoundExpr - Const / DefineVar / Add / Sub / Mul / IDiv / Mod -
 // so any bound the WGSL renderer can emit, the runtime can evaluate. Panics
 // on any other op so a future codegen extension that introduces a new bound
 // shape gets surfaced immediately rather than silently misdispatching.
@@ -430,7 +430,7 @@ func boundExprFromUOp(u uop.UOp) schedule.BoundExpr {
 }
 
 // rangeBoundFactor returns the strideAcc factor for one OpRange or OpConst
-// loopRange entry — the contribution of that range to a containing product
+// loopRange entry - the contribution of that range to a containing product
 // (e.g. a stride product or the trailingProduct bounds expression). For an
 // OpConst placeholder (size-1 dim already collapsed by freshRanges to const 0)
 // the factor is 1; for a concrete OpRange it's the int64 RangeSize; for a
@@ -521,7 +521,7 @@ func (l *lowerer) lowerSink() []Instr {
 	// loopRanges right-to-left so each stride is the product of all dims to
 	// its right (output-dim convention: outer dims have larger strides). The
 	// stride for dim i is the product of the bounds of dims (i+1)..(n-1); when
-	// any of those bounds is symbolic, the stride carries a symbolic factor —
+	// any of those bounds is symbolic, the stride carries a symbolic factor -
 	// rendered as a WGSL u32 expression via rangeBoundFactor. Slice 7b: fixes
 	// the STOP-2 regression where left-of-sym strides silently defaulted to 0
 	// for non-outermost symbolic dims (preflight §9c.STOP-2).
@@ -542,7 +542,7 @@ func (l *lowerer) lowerSink() []Instr {
 		}
 	}
 
-	// Image-output kernels: deterministic vec4 slot dispatch — one thread per
+	// Image-output kernels: deterministic vec4 slot dispatch - one thread per
 	// vec4 output slot, four logical outputs per thread, whole slot written by
 	// its single owner. Keyed on the output buffer dtype (always on, not an
 	// Opt) so correctness never depends on opt selection; removes the
@@ -552,7 +552,7 @@ func (l *lowerer) lowerSink() []Instr {
 	//     decomposition needs concrete strides, and unaligned image strides
 	//     were never supported symbolically (LIMITATIONS.md);
 	//   - opt-transformed kernels (Workgroup/Local/Upcast/Vectorize ranges or
-	//     tile-tagged reduces) fail loud — ActionSpace (beam.go) filters
+	//     tile-tagged reduces) fail loud - ActionSpace (beam.go) filters
 	//     image-output kernels so BEAM never produces them; reaching here
 	//     means a hand-applied opt that would reintroduce the store race.
 	if l.paramIsImage(0) && !hasSymRange {
@@ -563,7 +563,7 @@ func (l *lowerer) lowerSink() []Instr {
 			}
 		}
 		if opted {
-			panic("codegen: image-output kernel has opt-transformed ranges — vec4 slot dispatch requires the unopted form (image kernels are excluded from the BEAM action space; do not hand-apply opts)")
+			panic("codegen: image-output kernel has opt-transformed ranges - vec4 slot dispatch requires the unopted form (image kernels are excluded from the BEAM action space; do not hand-apply opts)")
 		}
 		return l.lowerImageSlot(body, loopRanges, globalStrides, totalOut)
 	}
@@ -573,7 +573,7 @@ func (l *lowerer) lowerSink() []Instr {
 	// Matmul: [Row, Col] -> Col is X, Row is Y.
 	// The cyclic dimIdx % 3 assignment is structural (depends on loopRanges
 	// position, not arena order) and is shared between static and symbolic
-	// kernels — the legacy `if hasSymRange { targetDim = 0 }` collapse that
+	// kernels - the legacy `if hasSymRange { targetDim = 0 }` collapse that
 	// forced the 1D-flatten layout for sym was the only sym-specific deviation
 	// and is now dropped.
 	dims := [3][]rangeGroup{}
@@ -617,7 +617,7 @@ func (l *lowerer) lowerSink() []Instr {
 	// Pair each AxisUpcast with its outer's dim. The upcast contributes a
 	// per-thread "stripe factor" in that dim but does NOT participate in
 	// dispatch (workgroup_size or workgroup_count). Register a placeholder
-	// expression — emitTiledReduce overrides this per (mr, nr) iteration.
+	// expression - emitTiledReduce overrides this per (mr, nr) iteration.
 	l.upcastFactorByDim = [3]int64{1, 1, 1}
 	for _, p := range upcastPairs {
 		if p.outerLRIx < 0 || p.outerLRIx >= len(loopRanges) {
@@ -642,7 +642,7 @@ func (l *lowerer) lowerSink() []Instr {
 	}
 
 	// Pair each AxisVectorize with its outer's dim. Like upcast, the vector inner
-	// does not participate in dispatch. Register placeholder "0" — emitTiledReduce
+	// does not participate in dispatch. Register placeholder "0" - emitTiledReduce
 	// overrides this with component-indexed expressions in the vec4 path.
 	l.vectorizeFactorByDim = [3]int64{1, 1, 1}
 	for _, p := range vectorizePairs {
@@ -744,7 +744,7 @@ func (l *lowerer) lowerSink() []Instr {
 				}
 				// Slice 7b: when the stride product carries a symbolic factor,
 				// emit a StrideExpr WGSL expression; otherwise use the int64
-				// Stride for byte-identical Slice 1–7a output. Defensive panic:
+				// Stride for byte-identical Slice 1-7a output. Defensive panic:
 				// if a concrete stride for a non-Const range comes out as 0,
 				// that means the old "zero-default" sentinel leaked into the
 				// new path (per design call F).
@@ -759,7 +759,7 @@ func (l *lowerer) lowerSink() []Instr {
 				if strides[i].isConcrete() {
 					instr.Stride = strides[i].constPart
 					if instr.Stride == 0 {
-						panic(fmt.Sprintf("codegen: per-(dim=%d, lvl=%d) stride=0 for RangeID=%d — old zero-default sentinel leaked into Slice 7b path",
+						panic(fmt.Sprintf("codegen: per-(dim=%d, lvl=%d) stride=0 for RangeID=%d - old zero-default sentinel leaked into Slice 7b path",
 							d, lvl, rg.ra.ID))
 					}
 				} else {
@@ -768,12 +768,12 @@ func (l *lowerer) lowerSink() []Instr {
 				// Slice 7b: for a NON-OUTERMOST symbolic range, the WGSL must
 				// apply a mod against the range's bound to extract that dim's
 				// contribution from the flat 1D dispatch index. Outermost-sym
-				// is exempt — its (dim, level) group has no factor above it,
+				// is exempt - its (dim, level) group has no factor above it,
 				// so the gid_x / outer-stride is already in [0, bound).
 				// levelRanges is inmost-first, so the outermost is at index len-1.
 				//
 				// Multi-dim sym dispatch (this slice): per-axis guards mask out
-				// LOCAL-padding when L∤bound — populated for every sym range
+				// LOCAL-padding when L∤bound - populated for every sym range
 				// so the wgsl renderer emits `if (r{N} >= AxisGuardExpr) { return; }`
 				// after the let-binding. Redundant-but-correct when paired with
 				// a mod, since mod constrains r to [0, bound) already.
@@ -833,7 +833,7 @@ func (l *lowerer) lowerSink() []Instr {
 				// as concrete 0 is the old zero-default sentinel that Slice 7b
 				// eliminates; only Const(0) loopRange placeholders (size-1 dims)
 				// reach here, and those are skipped above.
-				panic(fmt.Sprintf("codegen: globalStrides[%d]=0 for non-Const range — old zero-default sentinel leaked into Slice 7b path", i))
+				panic(fmt.Sprintf("codegen: globalStrides[%d]=0 for non-Const range - old zero-default sentinel leaked into Slice 7b path", i))
 			}
 			if stride.constPart > 1 {
 				term = fmt.Sprintf("(%s * %du)", term, stride.constPart)
@@ -852,7 +852,7 @@ func (l *lowerer) lowerSink() []Instr {
 	// (populated above via AxisGuardExpr) supersede the legacy single-flat
 	// `if (gid_x >= trailingProduct)` bound. The bounds-check instr is still
 	// emitted for symmetry with the static path but with Symbolic=false so the
-	// renderer skips it — same effective behavior as static, where per-axis
+	// renderer skips it - same effective behavior as static, where per-axis
 	// guards are the sole padding mask.
 	l.emit(Instr{Kind: InstrBoundsCheck, TotalN: totalOut, Symbolic: false})
 
@@ -935,7 +935,7 @@ func (l *lowerer) lowerSink() []Instr {
 	} else {
 		// Fail-loud guard: a Workgroup/Local split whose size does not
 		// divide the axis extent pads the dispatch space (W = ceil(S/L)),
-		// and this store has no tail mask — the flat index uses the padded
+		// and this store has no tail mask - the flat index uses the padded
 		// strides, scattering values into a wrong layout. applyLocal refuses
 		// the non-divisible split everywhere except the tilable-matmul
 		// shape (rescued by the masked tiled-store branch above), so
@@ -953,7 +953,7 @@ func (l *lowerer) lowerSink() []Instr {
 					}
 					if t := r.Arg().(uop.RangeArg).Type; t == uop.AxisWorkgroup || t == uop.AxisLocal {
 						panic(fmt.Sprintf(
-							"codegen: unmasked static store over a padded dispatch space (loop product %d != output elems %d) — an OptLocal split does not divide its axis and no tile-masked store path rescued it",
+							"codegen: unmasked static store over a padded dispatch space (loop product %d != output elems %d) - an OptLocal split does not divide its axis and no tile-masked store path rescued it",
 							totalOut, sz))
 					}
 				}
@@ -987,15 +987,15 @@ func (l *lowerer) spreadWorkgroupCount() {
 // (lane 0..3) in a lane loop and writes the whole vec4 slot once. Single-
 // thread slot ownership eliminates, by construction, the store race the
 // legacy per-lane cascade has when the output row stride is not a multiple
-// of 4 — a slot that straddles a dim boundary still has exactly one writer.
+// of 4 - a slot that straddles a dim boundary still has exactly one writer.
 //
 // loopRanges/globalStrides are the structures the static path derives; all
 // strides are concrete here (the caller excludes symbolic kernels). Range
 // indices are re-derived per lane from the flat logical index _img_flat via
 // the same (flat / stride) % size decomposition the static InstrGIDVar path
 // uses, so the kernel body lowers unchanged. Tail lanes (flat >= totalOut)
-// are masked by the InstrImgLaneBegin guard: the body — and therefore every
-// load — is skipped and the slot component keeps its 0.0 initialization; the
+// are masked by the InstrImgLaneBegin guard: the body - and therefore every
+// load - is skipped and the slot component keeps its 0.0 initialization; the
 // allocator pads image buffers to whole slots (BufferByteSize), so the full-
 // slot store stays in bounds.
 func (l *lowerer) lowerImageSlot(body uop.UOp, loopRanges []uop.UOp, globalStrides []strideAcc, totalOut int64) []Instr {
@@ -1022,7 +1022,7 @@ func (l *lowerer) lowerImageSlot(body uop.UOp, loopRanges []uop.UOp, globalStrid
 		ra := r.Arg().(uop.RangeArg)
 		stride := globalStrides[i]
 		if !stride.isConcrete() || stride.constPart == 0 {
-			panic(fmt.Sprintf("codegen: lowerImageSlot: non-concrete or zero stride for RangeID=%d — symbolic kernels must not reach the image slot path", ra.ID))
+			panic(fmt.Sprintf("codegen: lowerImageSlot: non-concrete or zero stride for RangeID=%d - symbolic kernels must not reach the image slot path", ra.ID))
 		}
 		var expr string
 		if stride.constPart == 1 {
@@ -1048,22 +1048,22 @@ func (l *lowerer) lowerImageSlot(body uop.UOp, loopRanges []uop.UOp, globalStrid
 // node, so a loop-invariant ALU/index UOp that appears in multiple scopes
 // resolves to the same arena UOp. The default emitExpr walk caches the first
 // emission keyed by arena index; a later emitExpr from a different scope hits
-// the cache and reuses the identifier — producing WGSL that references an
+// the cache and reuses the identifier - producing WGSL that references an
 // out-of-scope `t<N>` (Naga rejects with "unresolved identifier").
 //
 // The pre-pass partitions the body into scope "colors":
 //
-//   - Color 0: the outer (kernel-top + post-reduce) scope — `body` walked with
+//   - Color 0: the outer (kernel-top + post-reduce) scope - `body` walked with
 //     each OpReduce treated as a barrier (don't descend into its elemNode).
 //   - One additional color per top-level OpReduce reachable from body: the
 //     elemNode subtree of that reduce. "Top-level" means reachable from body
-//     without descending through another OpReduce's elemNode — nested reduces
+//     without descending through another OpReduce's elemNode - nested reduces
 //     are NOT colored separately because their let-bindings live INSIDE the
 //     outer reduce's loop, where hoisting to kernel-top would lift them out of
 //     scope of an enclosing reduce-local Range.
 //
 // A UOp is hoist-shared iff it is reached by 2+ distinct colors. We then walk
-// the body topo, filtered to that set, and call emitExpr — emitting InstrLet
+// the body topo, filtered to that set, and call emitExpr - emitting InstrLet
 // at the current emit depth (kernel-top, before any reduce loop opens) and
 // populating l.exprOf so every subsequent emitExpr call (from any scope) hits
 // the cached identifier.
@@ -1085,7 +1085,7 @@ func (l *lowerer) lowerImageSlot(body uop.UOp, loopRanges []uop.UOp, globalStrid
 // Barrier / Reduce / End / Store / Sink / After nodes (those either have no
 // Let or have scope-specific naming that emitExpr handles correctly).
 func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
-	// Color 0: outer scope — walk body, treat OpReduce as a barrier (skip its
+	// Color 0: outer scope - walk body, treat OpReduce as a barrier (skip its
 	// elemNode but still visit its range sources at the outer level).
 	outerReachable := make(map[uint32]bool)
 	// topLevelReduces collected during the same walk: any OpReduce visited at
@@ -1129,7 +1129,7 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 	}
 
 	// Color k (>=1): each top-level reduce's elemNode subtree. We walk WITHOUT
-	// treating nested OpReduce as a barrier — a UOp inside a nested reduce IS
+	// treating nested OpReduce as a barrier - a UOp inside a nested reduce IS
 	// inside its enclosing top-level reduce's color. (Hoisting nested-reduce-
 	// local nodes is suppressed by hoistEligible/Range-dependency: an ALU that
 	// depends on a nested reduce's Range cannot be hoisted to kernel-top, but
@@ -1228,7 +1228,7 @@ func (l *lowerer) hoistCrossScopeShared(body uop.UOp) {
 
 // hoistEligible reports whether u should participate in the cross-scope hoist.
 // Excludes nodes that emitExpr handles specially (no Let, or scope-specific
-// naming the outer caller registers — Ranges/Consts/DefineVars/Params/etc).
+// naming the outer caller registers - Ranges/Consts/DefineVars/Params/etc).
 func hoistEligible(u uop.UOp) bool {
 	switch u.Op() {
 	case uop.OpConst, uop.OpRange, uop.OpDefineVar, uop.OpParam,
@@ -1255,7 +1255,7 @@ func (l *lowerer) emitExpr(u uop.UOp) string {
 		// shrink amounts may be symbolic, so the predicate `r < N + n` and
 		// the offset `r - lo` carry DefineVar nodes inline). params_n.n{slot}
 		// is u32 in WGSL but DefineVar is Index-dtype (i32); cast at the seam
-		// so the surrounding integer arithmetic stays in i32 — matches how
+		// so the surrounding integer arithmetic stays in i32 - matches how
 		// loop indices are cast at register-init time (wgsl.go:178+).
 		slot, ok := l.symSlot[u.Index()]
 		if !ok {
@@ -1314,7 +1314,7 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 		// symbolic dim contributes a WGSL u32 expression (params_n.n{slot} ×
 		// SymDimMul) rather than the 0-sentinel that silently zeroed every
 		// stride to its left. For local tiles and all-concrete input shapes
-		// renderI32StrideFactor emits the bare int literal — byte-identical
+		// renderI32StrideFactor emits the bare int literal - byte-identical
 		// to the pre-Slice-7d format `(<dim> * %d)`.
 		strides := make([]strideAcc, nDims)
 		strides[nDims-1] = newStrideAcc()
@@ -1342,12 +1342,12 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 			dimExpr := l.emitExpr(u.Src(d + 1))
 			// Defensive panic per design call D (Slice 7d closure): a
 			// concrete stride of 0 for a non-trailing dim means the old
-			// shape[i]==0 sentinel leaked into the new strideAcc path —
+			// shape[i]==0 sentinel leaked into the new strideAcc path -
 			// the exact bug class this rewrite eliminates. The trailing
 			// dim's stride is always 1 (newStrideAcc()), so this only
 			// fires on non-trailing dims.
 			if strides[d].isConcrete() && strides[d].constPart == 0 {
-				panic(fmt.Sprintf("codegen: emitIndex stride[d=%d]=0 for paramIdx=%d nDims=%d — sym-shape sentinel leak", d, paramIdx, nDims))
+				panic(fmt.Sprintf("codegen: emitIndex stride[d=%d]=0 for paramIdx=%d nDims=%d - sym-shape sentinel leak", d, paramIdx, nDims))
 			}
 			factor, isOne := strides[d].renderI32StrideFactor()
 			if isOne {
@@ -1364,7 +1364,7 @@ func (l *lowerer) emitIndex(u uop.UOp) string {
 	} else {
 		// Image storage: buffer is bound as array<vec4<f32>>; logical
 		// element idx lives at data{i}[idx / 4u].{x,y,z,w}. The DefineLocal
-		// path above is unaffected — image storage is a GPU buffer
+		// path above is unaffected - image storage is a GPU buffer
 		// concept and workgroup scratchpads stay scalar. We avoid
 		// runtime-indexed component access (data{i}[slot][lane]) because
 		// the naga WGSL→MSL pipeline silently degrades dynamic component
@@ -1496,10 +1496,10 @@ func (l *lowerer) emitReduce(u uop.UOp) string {
 //
 // cond is the slot-granular real-extent mask (row < rowBound && colBase <
 // colBound). OptVec4Load eligibility guarantees colBound ≡ 0 (mod 4) and
-// every colBase ≡ 0 (mod 4), so a slot is never partially in range — one
+// every colBase ≡ 0 (mod 4), so a slot is never partially in range - one
 // select per vec4 replaces the scalar path's per-element masks with no loss
 // of masking power. When cond is false the (clamped, naga-bounds-checked)
-// load result is discarded — the same contract the scalar masked loads
+// load result is discarded - the same contract the scalar masked loads
 // already rely on for padded rows/columns. name is a static stripe-indexed
 // identifier (vA, vB_2, …), deliberately NOT arena-derived, so the
 // normalizeWGSL identifier-stability contract (beam.go) holds without
@@ -1534,7 +1534,7 @@ func (l *lowerer) emitVec4TileFill(
 //
 // Consecutive vflat → consecutive (vrow, vcol) slots, so the fills walk the
 // operands in fully coalesced 128-bit loads with whole simdgroups active.
-// All names are static (normalizeWGSL contract — see emitVec4TileFill).
+// All names are static (normalizeWGSL contract - see emitVec4TileFill).
 func (l *lowerer) emitVec4FillPrelude(TS int, withStripe bool) {
 	l.emit(Instr{Kind: InstrLet, Name: "vflat", WGSLType: "u32", Expr: fmt.Sprintf("lid.y * %du + lid.x", TS)})
 	rem := "vflat"
@@ -1550,7 +1550,7 @@ func (l *lowerer) emitVec4FillPrelude(TS int, withStripe bool) {
 // emitVec4DistributedFill guards one operand's distributed vec4 tile fill by
 // the operand's slot count: the fill is owned by the first `slots` threads in
 // vflat order. slots == threads (e.g. MR=4, TS=16 → 256 loads across 256
-// threads) needs no guard; slots > threads would leave smem cells unfilled —
+// threads) needs no guard; slots > threads would leave smem cells unfilled -
 // a composition the eligibility gate never produces (upcast factors are ≤ 4),
 // so fail loud.
 func (l *lowerer) emitVec4DistributedFill(
@@ -1578,8 +1578,8 @@ func (l *lowerer) emitVec4DistributedFill(
 // suffix set by OptVec4Load) switches the global→smem tile fills in every
 // path (B2 tile-only, B3 upcast, B3.7 vectorize) to whole-vec4 loads from the
 // input params' array<vec4<f32>> bindings; the inner-K compute loops and the
-// final stores are untouched, so the per-output accumulation order — and
-// therefore the bit-exact value bar vs the identity kernel — is unchanged.
+// final stores are untouched, so the per-output accumulation order - and
+// therefore the bit-exact value bar vs the identity kernel - is unchanged.
 func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 	accOp := u.Arg().(uop.Op)
 	elemNode := u.Src(0)
@@ -1684,7 +1684,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 	// arithmetic below would emit fractional strides, so refuse loudly.
 	if vec4Load && (TS%4 != 0 || K_real%4 != 0 || N_real%4 != 0) {
 		panic(fmt.Sprintf(
-			"codegen: vec4-load tiled reduce with unaligned extents (TS=%d K=%d N=%d) — OptVec4Load eligibility was bypassed",
+			"codegen: vec4-load tiled reduce with unaligned extents (TS=%d K=%d N=%d) - OptVec4Load eligibility was bypassed",
 			TS, K_real, N_real))
 	}
 
@@ -1722,12 +1722,12 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 		if vec4Load {
 			// 128-bit distributed tile fill: threads are remapped flat →
 			// (vrow, vcol) so the tile's TS*TS/4 vec4 slots land on the
-			// FIRST TS*TS/4 threads in flat order — consecutive lanes load
+			// FIRST TS*TS/4 threads in flat order - consecutive lanes load
 			// consecutive vec4 slots (coalesced) and whole simdgroups stay
 			// active instead of 4-of-TS lane slivers (the v1 lid.x < TS/4
 			// guard measured 183 vs 217 GFLOP/s at 1024³ against the scalar
 			// fill; see notes/optvec4load_progress.md). All threads
-			// reconverge before the barrier. The k-loop below is untouched —
+			// reconverge before the barrier. The k-loop below is untouched -
 			// accumulation order identical to the scalar fill.
 			rowA4 := fmt.Sprintf("(u32(r%d) * %du + vrow)", mWgID, TS)
 			colA4 := fmt.Sprintf("(u32(r%d) * %du + vcol * 4u)", raOuter.ID, TS)
@@ -1759,7 +1759,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 		// upcast store layout with MR = NR = 1, and the masked store indexes
 		// the output with the REAL row stride bounded by the real extents.
 		// The static store path would use the padded LOCAL strides with no
-		// tail mask — a wrong layout whenever TS ∤ M or TS ∤ N.
+		// tail mask - a wrong layout whenever TS ∤ M or TS ∤ N.
 		l.upcastTileActive = true
 		l.upcastMR = 1
 		l.upcastNR = 1
@@ -1790,7 +1790,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 		// thread cover W consecutive columns in both tile fills; a W that
 		// does not divide TS would leave a fill gap (and overrun the stripe
 		// for the last lid.x). OptVectorize always targets the TS-sized
-		// N_loc range from OptLocal, so this is a composition invariant —
+		// N_loc range from OptLocal, so this is a composition invariant -
 		// fail loud rather than emit a silently-wrong kernel.
 		if TS%W != 0 {
 			panic(fmt.Sprintf(
@@ -1815,7 +1815,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 			// OptVec4Load on the B3.7 path: workgroup_size.x is already TS/W
 			// and each thread already owns W=4 consecutive columns per
 			// stripe, so the W scalar loads collapse into exactly ONE
-			// whole-vec4 load per stripe — no participation guard needed.
+			// whole-vec4 load per stripe - no participation guard needed.
 			// W is pinned to the vec4 width; anything else means a lowerer
 			// extension landed without updating this path.
 			if W != 4 {
@@ -1838,11 +1838,11 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 					func(v int) string { return fmt.Sprintf("(%du + lid.y * %du + lid.x * 4u + %du)", smBase, TS, v) })
 			}
 		} else {
-			// A tile load — MR stripes. workgroup_size.x is TS/W here (not TS as
+			// A tile load - MR stripes. workgroup_size.x is TS/W here (not TS as
 			// in the scalar B3 path), so each thread must fill W consecutive K
 			// columns per stripe: colA = kOuter*TS + lid.x*W + v. A bare lid.x
 			// would fill only columns 0..TS/W-1 and leave the rest of the tile
-			// zero — every output would silently lose (W-1)/W of each K tile.
+			// zero - every output would silently lose (W-1)/W of each K tile.
 			for mr := 0; mr < MR; mr++ {
 				rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
 				colABase := fmt.Sprintf("(u32(r%d) * %du + lid.x * %du)", raOuter.ID, TS, W)
@@ -1861,7 +1861,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 						Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadAv, condAv)})
 				}
 			}
-			// B tile load — NR stripes, each thread loads W consecutive N values.
+			// B tile load - NR stripes, each thread loads W consecutive N values.
 			// colB_base = nWgID*NR*TS + nr*TS + lid.x*W  (contiguous in N for fixed row)
 			for nr := 0; nr < NR; nr++ {
 				rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
@@ -1975,7 +1975,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 		l.emitVec4DistributedFill("vB", paramB, NR*TS*TS/4, TS*TS, rowB4, K_real, K_stride_B/4, colB4, N_real, colBSlot, smB,
 			func(v int) string { return fmt.Sprintf("(vmr * %du + vrow * %du + vcol * 4u + %du)", TS*TS, TS, v) })
 	} else {
-		// A tile load — MR stripes, each thread loads one element per stripe.
+		// A tile load - MR stripes, each thread loads one element per stripe.
 		for mr := 0; mr < MR; mr++ {
 			rowA := fmt.Sprintf("(u32(r%d) * %du + %du + lid.y)", mWgID, MR*TS, mr*TS)
 			colA := fmt.Sprintf("(u32(r%d) * %du + lid.x)", raOuter.ID, TS)
@@ -1986,7 +1986,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 				IndexExpr: fmt.Sprintf("%s[%s]", smA, smIdx),
 				Expr:      fmt.Sprintf("select(%s, %s, %s)", zeroA, loadA, condA)})
 		}
-		// B tile load — NR stripes.
+		// B tile load - NR stripes.
 		for nr := 0; nr < NR; nr++ {
 			rowB := fmt.Sprintf("(u32(r%d) * %du + lid.y)", raOuter.ID, TS)
 			colB := fmt.Sprintf("(u32(r%d) * %du + %du + lid.x)", nWgID, NR*TS, nr*TS)
@@ -2040,7 +2040,7 @@ func (l *lowerer) emitTiledReduce(u uop.UOp, TS int, vec4Load bool) string {
 		return fmt.Sprintf("acc%d", accBase+mr*NR+nr)
 	}
 
-	// Return a sentinel — the final store layer ignores this and emits MR*NR
+	// Return a sentinel - the final store layer ignores this and emits MR*NR
 	// stores by acc name. Any non-store ancestor of u in the body would be a
 	// bug for now (B3 reduces are always the kernel's terminal expression).
 	l.exprOf[u.Index()] = fmt.Sprintf("acc%d", accBase)
@@ -2090,7 +2090,7 @@ func (l *lowerer) paramIsImage(paramIdx int) bool {
 //
 // Slice 7d closure: replaces the implicit `shape[i+1]` int64 multiplication
 // in emitIndex, which silently produced stride=0 when shape[i+1]==0 (sym
-// non-outermost) — the latent flagged in the Slice 7b report.
+// non-outermost) - the latent flagged in the Slice 7b report.
 func (l *lowerer) paramDimFactor(paramIdx int, dim int) strideAcc {
 	if paramIdx >= len(l.item.Bufs) {
 		return newStrideAcc()

@@ -77,7 +77,7 @@ func f16RoundTrip(v float32) float32 {
 
 // TestF16_ElementwiseAdd tests f16 elementwise addition vs a reference that
 // accounts for f16 quantization of inputs during upload.
-// Tolerance: atol=2e-2 — input values in [-10,10] quantize to f16 with ULP up to
+// Tolerance: atol=2e-2 - input values in [-10,10] quantize to f16 with ULP up to
 // 2^-7 ≈ 0.0078 (for |x| ∈ [8,16]); two inputs + output rounding ≤ 3×0.0078 ≈ 0.023.
 // Ref: IEEE 754-2008 §3.3 half-precision ULP table.
 func TestF16_ElementwiseAdd(t *testing.T) {
@@ -372,7 +372,7 @@ func TestBF16_RoundTrip(t *testing.T) {
 }
 
 // TestF16_FailClosed verifies that when HasShaderF16 is false, executing an f16
-// kernel returns an error — not a GPU crash or silent incorrect output.
+// kernel returns an error - not a GPU crash or silent incorrect output.
 // The fail-closed check is in runLocked before any GPU resource allocation.
 func TestF16_FailClosed(t *testing.T) {
 	dev := requireDevice(t)

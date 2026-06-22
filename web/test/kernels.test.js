@@ -79,7 +79,7 @@ describe('modelFromPath', () => {
   });
 });
 
-describe('renderKernelsView — success path', () => {
+describe('renderKernelsView - success path', () => {
   let studio;
   beforeEach(async () => {
     studio = await loadAt('/k/mlp');
@@ -140,7 +140,7 @@ describe('renderKernelsView — success path', () => {
   });
 });
 
-describe('renderKernelsView — deep-link ?kernel=', () => {
+describe('renderKernelsView - deep-link ?kernel=', () => {
   it('pre-selects the kernel named in the query string', async () => {
     const studio = await loadAt('/k/mlp?kernel=K2');
     studio.wasm.call = vi.fn().mockResolvedValue(JSON.stringify(makeSet()));
@@ -161,7 +161,7 @@ describe('renderKernelsView — deep-link ?kernel=', () => {
   });
 });
 
-describe('selectKernel — switching the detail pane', () => {
+describe('selectKernel - switching the detail pane', () => {
   let studio;
   beforeEach(async () => {
     studio = await loadAt('/k/mlp');
@@ -197,7 +197,7 @@ describe('selectKernel — switching the detail pane', () => {
   });
 });
 
-describe('renderKernelsView — loading placeholder', () => {
+describe('renderKernelsView - loading placeholder', () => {
   it('shows the loading placeholder before the worker resolves', async () => {
     const studio = await loadAt('/k/mlp');
     let resolveCall;
@@ -218,7 +218,7 @@ describe('renderKernelsView — loading placeholder', () => {
   });
 });
 
-describe('renderKernelsView — error branches', () => {
+describe('renderKernelsView - error branches', () => {
   it('renders the wasm-not-loaded message when wasm.call rejects', async () => {
     const studio = await loadAt('/k/mlp');
     studio.wasm.call = vi.fn().mockRejectedValue(new Error('worker not loaded'));
@@ -226,7 +226,7 @@ describe('renderKernelsView — error branches', () => {
 
     const err = document.querySelector('#kernel-list-items .kernel-list-error');
     expect(err).not.toBeNull();
-    expect(err.textContent).toBe('wasm not loaded — build anneal.wasm to populate this view');
+    expect(err.textContent).toBe('wasm not loaded - build anneal.wasm to populate this view');
     // Detail pane is untouched / empty.
     expect(document.getElementById('k-id').textContent).toBe('');
   });
@@ -269,7 +269,7 @@ describe('renderKernelsView — error branches', () => {
   });
 });
 
-describe('renderKernelsView — cached re-render (deep-link reselect)', () => {
+describe('renderKernelsView - cached re-render (deep-link reselect)', () => {
   it('reuses cached data and reselects from ?kernel= without refetching', async () => {
     const studio = await loadAt('/k/mlp');
     studio.wasm.call = vi.fn().mockResolvedValue(JSON.stringify(makeSet()));

@@ -182,7 +182,7 @@ func withFixtureDataset(t *testing.T, ds *charDataset, err error, fn func()) {
 // TestTrainNanoGPTWrapperHandoff covers the success branch of the thin
 // trainNanoGPT wrapper (loadDataset -> runNanoGPT). The injected corpus is
 // deliberately shorter than the default block_size+1 so runNanoGPT returns
-// its "corpus too small" guard immediately after the cheap setup — no
+// its "corpus too small" guard immediately after the cheap setup - no
 // Realize, so this stays fast on CPU.
 func TestTrainNanoGPTWrapperHandoff(t *testing.T) {
 	// Default config block_size is 32; a 5-char corpus trips the guard.
@@ -327,7 +327,7 @@ func TestRunViTArchCPUSentinelLR(t *testing.T) {
 // and its post-train forward sampler (diffusionSampleSmoke) both stay GPU-only
 // and remain residual coverage gaps. Two distinct blockers:
 //
-//  1. The backward pass cannot be realized on the pure-Go CPU backend — even
+//  1. The backward pass cannot be realized on the pure-Go CPU backend - even
 //     at the smallest viable denoiser shape the gradient realize hits a
 //     CPU-backend interpreter bug:
 //
@@ -447,7 +447,7 @@ func TestNanoGPTStreamCoreCtxCancel(t *testing.T) {
 // ── dynmlp setup-path coverage ───────────────────────────────────────────────
 //
 // The CPU backend does not implement SymbolicExecutor, so trainDynMLP's
-// symbolic-batch train body (RealizeWithBinding) cannot run here — that path
+// symbolic-batch train body (RealizeWithBinding) cannot run here - that path
 // stays GPU-only. We cover everything up to the first Realize: the lr/batch
 // resolution, seed + persistent model assembly, the dynBatchSlice host prep,
 // and the initial-loss probe closure (evalLoss), which on a no-symbolic
@@ -456,7 +456,7 @@ func TestNanoGPTStreamCoreCtxCancel(t *testing.T) {
 func TestTrainDynMLPSetupWithEvalProbe(t *testing.T) {
 	// LogEvery>0 with Steps=0 runs evalLoss() once (initial-loss probe) then
 	// stops before the train loop. evalLoss's RealizeWithBinding errors (no
-	// executor / no SymbolicExecutor), so it returns 0 — exercising the
+	// executor / no SymbolicExecutor), so it returns 0 - exercising the
 	// closure body without a GPU.
 	var got float32 = -1
 	cfg := TrainConfig{Steps: 0, LR: 0.01, LogEvery: 1, Batch: 4}

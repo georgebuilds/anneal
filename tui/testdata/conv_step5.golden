@@ -4,7 +4,7 @@
 
   loss  0.450000                 █▅▃▂▁
 
-  legend:  — forward   ╌ backward   ▪ fused
+  legend:  ─ forward   ╌ backward   ▪ fused
 
   compiler:  uops 312 · kernels 8 · fused 0 · pass: memory plan
 

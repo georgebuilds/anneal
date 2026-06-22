@@ -18,7 +18,7 @@ import (
 
 // resnet9TestdataPath returns the absolute path to the committed ResNet-9
 // fixture under onnx/testdata/. The viz tests live in viz/; the fixture lives
-// in onnx/testdata/resnet9.onnx — one directory up + into onnx/testdata.
+// in onnx/testdata/resnet9.onnx - one directory up + into onnx/testdata.
 func resnet9TestdataPath(t *testing.T) string {
 	t.Helper()
 	// Tests run with cwd = viz/.

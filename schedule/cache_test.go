@@ -70,7 +70,7 @@ func TestScheduleCache_DifferentDevice(t *testing.T) {
 
 // TestScheduleCache_CrossArenaIsolation verifies that two arenas with structurally
 // identical graphs never share a cache entry.  If they did, the second arena would
-// receive ExecItems whose Buffer.UOpIdx values reference the first arena's nodes —
+// receive ExecItems whose Buffer.UOpIdx values reference the first arena's nodes -
 // a silent wrong-buffer corruption.
 func TestScheduleCache_CrossArenaIsolation(t *testing.T) {
 	schedule.ResetScheduleCache()

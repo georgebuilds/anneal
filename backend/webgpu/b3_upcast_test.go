@@ -158,7 +158,7 @@ func TestB3_ValueOracle_UpcastMLPBackward(t *testing.T) {
 // element node is not a plain Mul of two 2-arg Index nodes), so OptTile returns
 // the sink unchanged; OptLocal REFUSES the non-divisible L=16 split on the
 // conv kernels' small axes (the static store path has no tail mask for the
-// padded dispatch space — applying it scattered 20-28/36 output elements
+// padded dispatch space - applying it scattered 20-28/36 output elements
 // before the divisibility gate landed; see codegen/opt_local_divisibility_test.go);
 // OptUpcast is skipped by the spray helper on untiled kernels. The point:
 // the schedule must remain correct end-to-end with refused opts as no-ops.

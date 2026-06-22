@@ -198,8 +198,8 @@ func evalKernel(after uop.UOp, bufData map[uint32][]float32, bufShape map[uint32
 }
 
 // evalFirstKernel finds the first AFTER node (by arena index) whose output
-// buffer has an LUnique arg matching the AFTER node — i.e. the single kernel
-// produced by a simple single-output graph — and evaluates it.
+// buffer has an LUnique arg matching the AFTER node - i.e. the single kernel
+// produced by a simple single-output graph - and evaluates it.
 func evalFirstKernel(root uop.UOp, bufData map[uint32][]float32, bufShape map[uint32][]int64) ([]float32, []int64) {
 	a := root.Arena()
 	for i := 0; i < a.Len(); i++ {
@@ -332,7 +332,7 @@ func verifyKernel(t *testing.T, after uop.UOp) {
 				t.Errorf("Range(id=%d,type=%d) used in body but not in END loop list",
 					ra.ID, int(ra.Type))
 			}
-			return // leaf — no srcs
+			return // leaf - no srcs
 
 		case uop.OpReduce:
 			// src[0] = element expr; src[1:] = AxisReduce RANGE nodes.
@@ -357,7 +357,7 @@ func verifyKernel(t *testing.T, after uop.UOp) {
 			}
 
 		case uop.OpBuffer:
-			return // leaf boundary — don't recurse into LUNIQUE/DEVICE
+			return // leaf boundary - don't recurse into LUNIQUE/DEVICE
 
 		case uop.OpConst, uop.OpLUnique, uop.OpDevice, uop.OpDefineVar:
 			return // true leaf nodes
@@ -1020,8 +1020,8 @@ func verifyKernelSinkAST(t *testing.T, kernelSink uop.UOp) {
 func TestCreateSchedule_PARAMNumbering(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, "cpu")
-	y := x.Sum([]int{0}, false) // [8] — forces 2 kernels: reduce + scalar
-	z := y.Exp2()               // [8] — fuses with reduce output
+	y := x.Sum([]int{0}, false) // [8] - forces 2 kernels: reduce + scalar
+	z := y.Exp2()               // [8] - fuses with reduce output
 
 	sink := makeSink(a, z)
 	items := schedule.CreateSchedule(sink, "cpu")
@@ -1091,7 +1091,7 @@ func TestCreateSchedule_TopoOrder(t *testing.T) {
 		for n, buf := range item.Bufs[1:] {
 			if writerIdx, ok := writtenAt[buf.UOpIdx]; ok {
 				if writerIdx >= i {
-					t.Errorf("item[%d] input Bufs[%d] (UOpIdx=%d) is written by item[%d] — topo violation",
+					t.Errorf("item[%d] input Bufs[%d] (UOpIdx=%d) is written by item[%d] - topo violation",
 						i, n+1, buf.UOpIdx, writerIdx)
 				}
 			}
@@ -1142,9 +1142,9 @@ func TestCreateSchedule_MemoryPlanner_NoOverlap(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "cpu")
 	// Chain of 3 reduces to force 3 kernels.
-	y := x.Sum([]int{0}, false)                           // scalar — kernel 0
-	y2 := y.Reshape([]int64{1}).Expand([]int64{8}).Exp2() // [8] — fuses, 1 kernel
-	z := y2.Sum([]int{0}, false)                          // scalar — kernel 1
+	y := x.Sum([]int{0}, false)                           // scalar - kernel 0
+	y2 := y.Reshape([]int64{1}).Expand([]int64{8}).Exp2() // [8] - fuses, 1 kernel
+	z := y2.Sum([]int{0}, false)                          // scalar - kernel 1
 
 	sink := makeSink(a, z)
 	items := schedule.CreateSchedule(sink, "cpu")
@@ -1237,7 +1237,7 @@ func TestCreateSchedule_ForwardBackward_EndToEnd(t *testing.T) {
 		for n, buf := range item.Bufs[1:] {
 			if writerIdx, ok := writtenAt[buf.UOpIdx]; ok {
 				if writerIdx >= i {
-					t.Errorf("item[%d] input Bufs[%d] written by item[%d] — topo violation", i, n+1, writerIdx)
+					t.Errorf("item[%d] input Bufs[%d] written by item[%d] - topo violation", i, n+1, writerIdx)
 				}
 			}
 		}
@@ -1292,10 +1292,10 @@ func TestCreateSchedule_DeterminismBuildOrder(t *testing.T) {
 			y = tensor.NewLeaf(a, []int64{8}, uop.Dtypes.Float32, "cpu") // y at lower idx
 			x = tensor.NewLeaf(a, []int64{1}, uop.Dtypes.Float32, "cpu")
 		}
-		// x.Expand([8]) + y  — x is src[0] of Add in both arenas.
+		// x.Expand([8]) + y  - x is src[0] of Add in both arenas.
 		xExp := x.Expand([]int64{8})
 		sum := xExp.Add(y)
-		loss := sum.Sum(nil, false) // scalar reduce — forces kernel boundary
+		loss := sum.Sum(nil, false) // scalar reduce - forces kernel boundary
 		sink := a.New(uop.OpSink, uop.Dtypes.Void, []uop.UOp{loss.Node()}, nil, nil)
 		return extract(schedule.CreateSchedule(sink, "cpu"))
 	}
@@ -1320,7 +1320,7 @@ func TestCreateSchedule_DeterminismBuildOrder(t *testing.T) {
 	for i, sz1 := range ks1.inputSizes {
 		sz2 := ks2.inputSizes[i]
 		if sz1 != sz2 {
-			t.Errorf("inputBuf[%d] Size: %d (xFirst) vs %d (yFirst) — "+
+			t.Errorf("inputBuf[%d] Size: %d (xFirst) vs %d (yFirst) - "+
 				"PARAM numbering is construction-order dependent (BUG)", i, sz1, sz2)
 		}
 	}

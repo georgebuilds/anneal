@@ -141,11 +141,11 @@ func TestDerivedUnary(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{3}, uop.Dtypes.Float32, "cpu")
 
-	// Exp = exp2(x / ln2) — root should be Exp2.
+	// Exp = exp2(x / ln2) - root should be Exp2.
 	exp := x.Exp()
 	assertOp(t, exp, uop.OpExp2)
 
-	// Log = log2(x) * ln2 — root should be Mul.
+	// Log = log2(x) * ln2 - root should be Mul.
 	log := x.Log()
 	assertOp(t, log, uop.OpMul)
 }
@@ -375,7 +375,7 @@ func TestMean(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{4, 5}, uop.Dtypes.Float32, "cpu")
 	m := x.Mean([]int{1}, false)
-	// Mean builds Sum → Div — root is Div (or Mul(Recip)), not REDUCE_AXIS directly.
+	// Mean builds Sum → Div - root is Div (or Mul(Recip)), not REDUCE_AXIS directly.
 	shapeEq(t, m.Shape(), []int64{4})
 	if !m.Node().Valid() {
 		t.Fatal("mean node should be valid")
@@ -467,7 +467,7 @@ func TestLeafRegistry_ArenaIsolation(t *testing.T) {
 	x1 := tensor.NewLeaf(a1, []int64{2}, uop.Dtypes.Float32, "cpu")
 	x1.SetData([]float32{1, 2})
 
-	// x2 is the first node in a2 — same local index as x1 in a1.
+	// x2 is the first node in a2 - same local index as x1 in a1.
 	a2 := uop.NewArena(64)
 	x2 := tensor.NewLeaf(a2, []int64{2}, uop.Dtypes.Float32, "cpu")
 	// SetData NOT called on x2.
@@ -478,7 +478,7 @@ func TestLeafRegistry_ArenaIsolation(t *testing.T) {
 
 	// a2 must not see x1's data.
 	if _, ok := a2.Leaf(x2.Node().Index()); ok {
-		t.Fatal("new arena has stale leaf data — aliasing from prior arena")
+		t.Fatal("new arena has stale leaf data - aliasing from prior arena")
 	}
 
 	// a1 must still have x1's data.

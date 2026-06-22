@@ -1,4 +1,4 @@
-// nodedetail.go — node-inspector backend (W4).
+// nodedetail.go - node-inspector backend (W4).
 //
 // BuildNodeDetail(graphId, nodeId) walks the same compile path BuildGraph
 // uses, then resolves one node from the rendered union graph. The studio's
@@ -63,7 +63,7 @@ func (nd *NodeDetail) ToJSON() ([]byte, error) { return json.Marshal(nd) }
 // The walk reuses BuildGraph so the produced parent/child sets exactly match
 // what the visualize view shows the user. Edges outside the rendered union
 // (scheduler-internal nodes) are not reported as parents or children even if
-// they exist in the arena — this keeps the inspector consistent with what is
+// they exist in the arena - this keeps the inspector consistent with what is
 // visible on screen.
 func BuildNodeDetail(graphID, nodeID string) (*NodeDetail, error) {
 	if graphID == "" {

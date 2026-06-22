@@ -1,6 +1,6 @@
 package shape_test
 
-// TestSymbolicOracle — SLICE 3a proof test.
+// TestSymbolicOracle - SLICE 3a proof test.
 //
 // Proves that symbolic Sint arithmetic builds correct UOp expressions, that
 // GraphRewrite+Symbolic folds them to the same result as concrete arithmetic,

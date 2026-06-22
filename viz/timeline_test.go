@@ -61,7 +61,7 @@ func TestBuildTimeline_MLP(t *testing.T) {
 		}
 	}
 	if reduces == 0 {
-		t.Error("scheduled stage has no KindReduce nodes — expected ≥1 kernel boundary")
+		t.Error("scheduled stage has no KindReduce nodes - expected ≥1 kernel boundary")
 	}
 
 	// Union nodes/edges must be non-empty and self-consistent.

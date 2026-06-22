@@ -33,7 +33,7 @@ func TestStridesForShapeSymbolic(t *testing.T) {
 		if v, ok := strides[1].ConstValue(); !ok || v != 1 {
 			t.Errorf("strides[1] = %v (isConc=%v), want Const(1)", strides[1], ok)
 		}
-		t.Logf("[n, 4] strides: [Const(%v), Const(%v)] — all concrete ✓", mustConst(strides[0]), mustConst(strides[1]))
+		t.Logf("[n, 4] strides: [Const(%v), Const(%v)] - all concrete ✓", mustConst(strides[0]), mustConst(strides[1]))
 	})
 
 	t.Run("n_4_8", func(t *testing.T) {
@@ -51,7 +51,7 @@ func TestStridesForShapeSymbolic(t *testing.T) {
 		if v, ok := strides[2].ConstValue(); !ok || v != 1 {
 			t.Errorf("strides[2] = %v, want Const(1)", strides[2])
 		}
-		t.Logf("[n, 4, 8] strides: [Const(32), Const(8), Const(1)] — all concrete ✓")
+		t.Logf("[n, 4, 8] strides: [Const(32), Const(8), Const(1)] - all concrete ✓")
 	})
 
 	t.Run("4_n", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestStridesForShapeSymbolic(t *testing.T) {
 		if v, ok := strides[1].ConstValue(); !ok || v != 1 {
 			t.Errorf("strides[1] = %v, want Const(1)", strides[1])
 		}
-		t.Logf("[4, n] strides: [SymInt(n), Const(1)] — inner stride is symbolic ✓")
+		t.Logf("[4, n] strides: [SymInt(n), Const(1)] - inner stride is symbolic ✓")
 	})
 
 	t.Run("contiguous_view_n_4", func(t *testing.T) {

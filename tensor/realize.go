@@ -41,11 +41,11 @@ func Realize(tensors ...*Tensor) error {
 	sink := a.New(uop.OpSink, uop.Dtypes.Void, srcs, nil, nil)
 
 	if DefaultExecutor == nil {
-		return fmt.Errorf("tensor: no backend registered — set tensor.DefaultExecutor before calling Realize")
+		return fmt.Errorf("tensor: no backend registered - set tensor.DefaultExecutor before calling Realize")
 	}
 
 	// Run all 10 scheduler passes. outBufBySrc[i] is the output BUFFER arena
-	// index for the i-th requested tensor (caller order) — the durable
+	// index for the i-th requested tensor (caller order) - the durable
 	// attribution that survives the scheduler's structural-key reordering.
 	items, outBufBySrc := schedule.CreateScheduleWithOutputs(sink, device)
 	if len(items) == 0 {
@@ -158,13 +158,13 @@ func leafInputs(tensors []*Tensor) map[uint32][]float32 {
 // This is the durable fix for the multi-output scramble: genuinely isomorphic
 // kernels (same shape AND structure) cannot be told apart by shape or structure,
 // so the only reliable disambiguator is the original tensor node threaded through
-// the schedule — which outBufBySrc carries.
+// the schedule - which outBufBySrc carries.
 //
 // Behaviour by case:
 //   - leaf tensors keep their caller-provided data (outBufBySrc[i] == 0 sentinel);
 //   - duplicate tensors passed twice both resolve to the same buffer index;
 //   - a buffer absent from the outputs map (e.g. consumed only as a later
-//     kernel's input — should not happen for a requested output) leaves the
+//     kernel's input - should not happen for a requested output) leaves the
 //     tensor's data unchanged.
 func assignOutputs(tensors []*Tensor, outBufBySrc []uint32, outputs map[uint32][]float32) {
 	for i, t := range tensors {

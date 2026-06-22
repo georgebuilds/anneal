@@ -143,8 +143,8 @@ func TestSameNameCapture(t *testing.T) {
 		},
 	})
 
-	sameArgs := addN(a, x, x) // Add(x, x) — should fire
-	diffArgs := addN(a, x, y) // Add(x, y) — should NOT fire
+	sameArgs := addN(a, x, x) // Add(x, x) - should fire
+	diffArgs := addN(a, x, y) // Add(x, y) - should NOT fire
 
 	if result := rewrite.GraphRewrite(sameArgs, pm); result != x {
 		t.Errorf("Add(x,x): expected x (%d), got %d", x.Index(), result.Index())
@@ -194,8 +194,8 @@ func TestEarlyReject(t *testing.T) {
 	a := newArena()
 	x := constN(a, 5)
 	y := constN(a, 6)
-	sumXY := addN(a, x, y)             // Add(Const, Const) — Const IS in src ops
-	sumXX := addN(a, x, addN(a, x, x)) // Add(Const, Add) — Mul is NOT in src ops
+	sumXY := addN(a, x, y)             // Add(Const, Const) - Const IS in src ops
+	sumXX := addN(a, x, addN(a, x, x)) // Add(Const, Add) - Mul is NOT in src ops
 
 	callCount := 0
 	// This rule's earlyReject will contain OpMul because the second src is Pat(OpMul).
@@ -219,9 +219,9 @@ func TestEarlyReject(t *testing.T) {
 		t.Errorf("handler called %d times; earlyReject should have blocked all attempts", callCount)
 	}
 
-	// Now build a node with a Mul child — handler should be reached.
+	// Now build a node with a Mul child - handler should be reached.
 	mul := mulN(a, x, y)
-	sumWithMul := addN(a, x, mul) // Add(Const, Mul) — Mul IS in src ops
+	sumWithMul := addN(a, x, mul) // Add(Const, Mul) - Mul IS in src ops
 	rewrite.GraphRewrite(sumWithMul, pm)
 	if callCount == 0 {
 		t.Errorf("handler never called for Add(Const, Mul); earlyReject too aggressive")
@@ -301,7 +301,7 @@ func TestDeepGraphNoStackOverflow(t *testing.T) {
 	leaf := constN(a, 0)
 	cur := leaf
 	for i := 0; i < depth; i++ {
-		// Each node is Add(prev, leaf) — a right-leaning chain depth nodes deep.
+		// Each node is Add(prev, leaf) - a right-leaning chain depth nodes deep.
 		cur = addN(a, cur, leaf)
 	}
 	root := cur
@@ -404,7 +404,7 @@ func TestWildPatMatchesAnyOp(t *testing.T) {
 	mul := mulN(a, x, y)
 	sentinel := constN(a, 0)
 
-	// Rule: WildPat with src constraint — matches any op that has two Const children.
+	// Rule: WildPat with src constraint - matches any op that has two Const children.
 	// Use it at the outer level via a Pats(OpAdd, OpMul) rule instead (WildPat can't
 	// be a top-level pattern; must specify ops).
 	pm := rewrite.NewPatternMatcher([]rewrite.Rule{
@@ -629,7 +629,7 @@ func TestSharedSubtreeProcessedOnce(t *testing.T) {
 // TestDiamondSharedNodeRewrites is the core property Phase 6 autodiff depends on.
 // Every forward node consumed by both forward and backward is a diamond: two parents,
 // one shared child. Here the shared child c = Mul(d,1) rewrites to d; p1 and p2 both
-// hold c. After graph_rewrite both parents must reference d — not the stale c index.
+// hold c. After graph_rewrite both parents must reference d - not the stale c index.
 // TestSubtreeSharingAfterRewrite does NOT cover this: it collapses parents to c but
 // never rewrites c itself.
 func TestDiamondSharedNodeRewrites(t *testing.T) {
@@ -683,7 +683,7 @@ func TestDiamondSharedNodeRewrites(t *testing.T) {
 // TestDiamondLongShortPath is the ordering variant that catches the stale-child bug.
 // The shared node is reachable via a 1-hop path (root.Src(0) = shared directly) AND
 // a 200-hop spine (root.Src(1) → chain → shared at the bottom). The driver must write
-// replace[shared] before any parent rebuilds its srcs — regardless of which DFS path
+// replace[shared] before any parent rebuilds its srcs - regardless of which DFS path
 // reaches shared first. If the replace memo is applied stale, the long path produces a
 // different index than the short path.
 func TestDiamondLongShortPath(t *testing.T) {
@@ -740,7 +740,7 @@ func TestDiamondLongShortPath(t *testing.T) {
 
 	// Both paths must arrive at the same node by index.
 	if shortEnd != longEnd {
-		t.Errorf("short path (idx=%d) and long path (idx=%d) reach different nodes — replace memo stale",
+		t.Errorf("short path (idx=%d) and long path (idx=%d) reach different nodes - replace memo stale",
 			shortEnd.Index(), longEnd.Index())
 	}
 

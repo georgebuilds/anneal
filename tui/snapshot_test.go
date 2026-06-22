@@ -230,7 +230,7 @@ func TestLegacyVsSnapshotPathEquivalent(t *testing.T) {
 			newPath := viewWith(baseModel(), snapMsgs...)
 
 			if legacy != newPath {
-				t.Errorf("legacy vs snapshot path differ — refactor changed visible bytes\nlegacy:\n%s\nsnapshot:\n%s",
+				t.Errorf("legacy vs snapshot path differ - refactor changed visible bytes\nlegacy:\n%s\nsnapshot:\n%s",
 					stripANSI(legacy), stripANSI(newPath))
 			}
 		})
@@ -425,7 +425,7 @@ func TestRenderGoldenSnapshotPathMatches(t *testing.T) {
 }
 
 // TestSnapshotShimBackcompat verifies that a Snapshot synthesized only from
-// (step, loss) — the contract the cmd_train.go back-compat shim implements —
+// (step, loss) - the contract the cmd_train.go back-compat shim implements -
 // drives the renderer to a sensible state, even with all the optional
 // fields blank.
 func TestSnapshotShimBackcompat(t *testing.T) {

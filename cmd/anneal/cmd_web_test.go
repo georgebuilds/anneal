@@ -347,7 +347,7 @@ func contrastRatio(fg, bg string) (float64, error) {
 //   - UI components and large text: 3:1
 //
 // `--faint` is excluded from the text gate because it is documented as
-// "tertiary, dividers" (DESIGN.md §1.1) — it carries decoration only.
+// "tertiary, dividers" (DESIGN.md §1.1) - it carries decoration only.
 // All other tokens must clear their role's threshold.
 //
 // If any token fails, the test reports the measured ratio and STOPS. Do
@@ -360,23 +360,23 @@ func TestWebA11Y_BrandTokenContrast(t *testing.T) {
 		surface string  // "bg" or "surface", purely for the error message
 	}
 	pairs := []pair{
-		// Dark theme — body text on bg (4.5:1) and on surface (4.5:1).
+		// Dark theme - body text on bg (4.5:1) and on surface (4.5:1).
 		{"dark text", "#E8E2DA", "#14110F", 4.5, "bg"},
 		{"dark text", "#E8E2DA", "#1F1A17", 4.5, "surface"},
 		{"dark muted", "#8A817A", "#14110F", 4.5, "bg"},
 		{"dark muted", "#8A817A", "#1F1A17", 4.5, "surface"},
-		// Brand tokens on dark bg — body text threshold (these are used for
+		// Brand tokens on dark bg - body text threshold (these are used for
 		// hero accents and headings; verify the strict 4.5 floor).
 		{"dark teal (forward)", "#00ADD8", "#14110F", 4.5, "bg"},
 		{"dark ember (backward)", "#FF7A45", "#14110F", 4.5, "bg"},
 		{"dark gold (fused)", "#F2C57C", "#14110F", 4.5, "bg"},
 
-		// Light theme — body text on bg (4.5:1) and on surface (4.5:1).
+		// Light theme - body text on bg (4.5:1) and on surface (4.5:1).
 		{"light text", "#14110F", "#FBF8F3", 4.5, "bg"},
 		{"light text", "#14110F", "#EDE9E3", 4.5, "surface"},
 		{"light muted", "#5C544D", "#FBF8F3", 4.5, "bg"},
 		{"light muted", "#5C544D", "#EDE9E3", 4.5, "surface"},
-		// Brand tokens on light bg — body text threshold.
+		// Brand tokens on light bg - body text threshold.
 		{"light teal (forward)", "#006F9E", "#FBF8F3", 4.5, "bg"},
 		{"light ember (backward)", "#B84A16", "#FBF8F3", 4.5, "bg"},
 		{"light gold (fused)", "#7A5800", "#FBF8F3", 4.5, "bg"},
@@ -789,7 +789,7 @@ func TestWebA11Y_VisuallyHiddenUtilityExists(t *testing.T) {
 // tree. It is intentionally NOT embedded (it is dev-facing doc, not
 // shipped); the test reads it from disk at a path relative to this test
 // file's package. If the test is invoked from a different cwd we skip
-// rather than fail — the source-text checks above already cover the
+// rather than fail - the source-text checks above already cover the
 // load-bearing behaviour.
 func TestWebA11Y_A11YMdPresent(t *testing.T) {
 	const path = "../../web/A11Y.md"

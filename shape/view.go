@@ -3,7 +3,7 @@ package shape
 import "fmt"
 
 // View is the per-op stride/offset/mask representation of a tensor's index mapping.
-// All dimensional fields are Sint-typed; in slices 1–2 every Sint is a ConstInt.
+// All dimensional fields are Sint-typed; in slices 1-2 every Sint is a ConstInt.
 // Contiguous is precomputed at construction and never recomputed lazily.
 type View struct {
 	Shape      []Sint
@@ -106,7 +106,7 @@ func (v View) Expand(newShape []Sint) View {
 	}
 	for i, s := range v.Shape {
 		if SintShapesEqual([]Sint{s}, []Sint{newShape[i]}) {
-			continue // same dim — no expansion
+			continue // same dim - no expansion
 		}
 		sv, ok := s.ConstValue()
 		if !ok || sv != 1 {
@@ -201,8 +201,8 @@ func (v View) Pad(arg [][2]Sint) View {
 		return v
 	}
 
-	// zvarg[i] = {-lo, shape[i]+hi}  — the resize bounds in current coordinates
-	// newMask[i] = {lo, shape[i]+lo} — the valid region after padding
+	// zvarg[i] = {-lo, shape[i]+hi}  - the resize bounds in current coordinates
+	// newMask[i] = {lo, shape[i]+lo} - the valid region after padding
 	zvarg := make([][2]Sint, len(arg))
 	newMask := make([][2]Sint, len(arg))
 	for i, ab := range arg {
@@ -366,7 +366,7 @@ func (v View) unsafeResize(arg [][2]Sint, newMask [][2]Sint) View {
 		// All-concrete fast path: produce the same byte-identical Const result
 		// as before Slice 5. Symbolic operands take the Sint-arithmetic path
 		// via SintMax/SintMin/Sub, which builds UOp expressions evaluated at
-		// runtime — mirrors tinygrad's mask transformation under symbolic shrink.
+		// runtime - mirrors tinygrad's mask transformation under symbolic shrink.
 		allConcreteOld := true
 		for i, m := range v.Mask {
 			if !isConcreteMaskOp(arg[i][0]) || !isConcreteMaskOp(arg[i][1]) ||

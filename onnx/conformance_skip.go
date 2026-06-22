@@ -172,7 +172,7 @@ var conformanceSkipList = map[string]string{
 	"test_clip_default_int8_max":      "Clip int8: handler is float-typed (plan §3)",
 	"test_clip_default_int8_min":      "Clip int8: handler is float-typed (plan §3)",
 
-	// ── Constant with sparse/int tensor attribute variants — handler
+	// ── Constant with sparse/int tensor attribute variants - handler
 	//    only reads `value` (TensorProto attr); the *_value_*int and
 	//    *_value_sparse_tensor variants aren't in the corpus we copied
 	//    (filtered at copy time), but reserve the slot. ──

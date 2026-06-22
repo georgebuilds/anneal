@@ -5,7 +5,7 @@ import "github.com/georgebuilds/anneal/uop"
 // Sint is the symbolic-integer seam: either a concrete ConstInt or a SymInt backed
 // by a UOp node. Arithmetic (Add/Sub/Mul/Neg/IDiv/Mod) builds real UOp expressions
 // exercised by every dynamic-batch test. The comparison functions Lt/Le/Eq
-// deliberately panic for symbolic operands — they are the symbolic-comparison fence
+// deliberately panic for symbolic operands - they are the symbolic-comparison fence
 // (SPEC §6.4): comparing two symbolic values arithmetically would require an SMT
 // solver, which §10 forbids on the core indexing path. Do not silently enable these.
 type Sint interface {
@@ -112,7 +112,7 @@ func toUOp(s Sint, ar *uop.Arena) uop.UOp {
 	return ar.New(uop.OpConst, uop.Dtypes.Index, nil, v, nil)
 }
 
-// Sint arithmetic — fast path for ConstInt×ConstInt, symbolic path builds UOp nodes.
+// Sint arithmetic - fast path for ConstInt×ConstInt, symbolic path builds UOp nodes.
 
 func Add(a, b Sint) Sint {
 	va, oka := a.ConstValue()
@@ -120,7 +120,7 @@ func Add(a, b Sint) Sint {
 	if oka && okb {
 		return ConstInt{V: va + vb}
 	}
-	// Identity folds — x + 0 = x, 0 + x = x. Keeps Pad/Shrink intermediate
+	// Identity folds - x + 0 = x, 0 + x = x. Keeps Pad/Shrink intermediate
 	// shapes canonical (otherwise Sub(Add(x, 0), 0) wraps a trivially-x
 	// expression that ResolveLE can't see through via interval arithmetic).
 	if oka && va == 0 {
@@ -231,7 +231,7 @@ func SintMin(a, b Sint) Sint {
 	return SymInt{Node: ar.New(uop.OpWhere, uop.Dtypes.Index, []uop.UOp{cond, ua, ub}, nil, nil)}
 }
 
-// Sint comparisons — panic for symbolic operands (SPEC §6.4 fence).
+// Sint comparisons - panic for symbolic operands (SPEC §6.4 fence).
 
 func Eq(a, b Sint) bool        { return cv(a) == cv(b) }
 func Lt(a, b Sint) bool        { return cv(a) < cv(b) }
@@ -247,11 +247,11 @@ func EqI(a Sint, b int64) bool { return cv(a) == b }
 // validation sites: a "false" answer (provably-false OR unprovable) becomes
 // an "invalid pad/shrink" error at the call site.
 //
-// The walker is intentionally a minimal subset of rewrite/rules.BoundsOf —
+// The walker is intentionally a minimal subset of rewrite/rules.BoundsOf -
 // shape/ cannot import rewrite/rules (cycle), and only DefineVar-based
 // arithmetic appears in SymInt expressions. Bounds for DefineVar come from
 // its (min, max) src Consts (matching DefineVar's construction at
-// uop.Arena.DefineVar — exclusive upper).
+// uop.Arena.DefineVar - exclusive upper).
 
 type sintBounds struct {
 	min, max int64
@@ -272,7 +272,7 @@ func boundsOfUOp(u uop.UOp) sintBounds {
 		}
 		return sintBounds{v, v, true}
 	case uop.OpDefineVar:
-		// DefineVar(name, min, max+1) — exclusive upper in src[1].
+		// DefineVar(name, min, max+1) - exclusive upper in src[1].
 		if u.NSrc() != 2 {
 			return sintBounds{}
 		}
@@ -352,7 +352,7 @@ func boundsOfUOp(u uop.UOp) sintBounds {
 // ResolveNonNeg reports whether s is provably >= 0 without invoking the
 // SymInt-comparison fence. Concrete Sints short-circuit by value; symbolic
 // Sints consult interval bounds on the backing UOp tree. Returns false on
-// "provably negative" OR "unprovable" — both fail the same validation site.
+// "provably negative" OR "unprovable" - both fail the same validation site.
 // Matches tinygrad's resolve(s >= 0) semantics at Pad / Shrink validation.
 func ResolveNonNeg(s Sint) bool {
 	if v, ok := s.ConstValue(); ok {
@@ -373,7 +373,7 @@ func ResolveNonNeg(s Sint) bool {
 //
 // Why an identity short-circuit: boundsOfUOp uses interval arithmetic
 // without dependency tracking, so Sub(n, n) lowers to [n.min - n.max,
-// n.max - n.min] which can be negative — losing the trivially-provable
+// n.max - n.min] which can be negative - losing the trivially-provable
 // a <= a relation. Comparing node identity recovers it without invoking
 // a symbolic simplifier in the validation path.
 func ResolveLE(a, b Sint) bool {

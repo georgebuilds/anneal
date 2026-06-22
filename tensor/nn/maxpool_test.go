@@ -1,8 +1,8 @@
 package nn_test
 
-// TestMaxPool2DForward  — table-driven forward value-identity check vs reference.
-// TestMaxPool2DBackward — FD gradient check on a subset of shapes.
-// TestMaxPool2DTieCoverage — assert winner-take-all tie semantics for binary Maximum.
+// TestMaxPool2DForward  - table-driven forward value-identity check vs reference.
+// TestMaxPool2DBackward - FD gradient check on a subset of shapes.
+// TestMaxPool2DTieCoverage - assert winner-take-all tie semantics for binary Maximum.
 
 import (
 	"testing"
@@ -211,7 +211,7 @@ func TestMaxPool2DBackward(t *testing.T) {
 // which delegates to ReduceAxis(OpMax). ReduceAxis(OpMax) backward splits the
 // adjoint equally among all tied max positions (adj / tieCount per winner).
 //
-// split ties equally, matching ReduceAxis(OpMax) and tinygrad — SPEC §10 canonical policy.
+// split ties equally, matching ReduceAxis(OpMax) and tinygrad - SPEC §10 canonical policy.
 //   - 2-way tie: both tied positions get adj/2 = 0.5; non-max positions get 0
 //   - 3-way tie: all three tied positions get adj/3 ≈ 0.333...; all others get 0
 func TestMaxPool2DTieCoverage(t *testing.T) {

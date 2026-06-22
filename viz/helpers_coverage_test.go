@@ -208,7 +208,7 @@ func TestDescriptionForOp(t *testing.T) {
 		t.Errorf("unknown op desc = %q", got)
 	}
 	// Unary group fallback (Sin is unary; if it has a curated entry that is
-	// also fine — assert only that the description is non-empty and mentions
+	// also fine - assert only that the description is non-empty and mentions
 	// the op).
 	for _, name := range []string{"Sin", "Add", "Reshape", "Sink"} {
 		if got := descriptionForOp(name); got == "" {

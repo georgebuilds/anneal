@@ -2,14 +2,14 @@ package webgpu_test
 
 // GPU-side proofs for the schedule memoization cache (Phase cache).
 //
-// Proof 1 — Hit correctness: the same logical graph scheduled twice returns the
+// Proof 1 - Hit correctness: the same logical graph scheduled twice returns the
 //   cached schedule, and running both produces byte-identical GPU output.
 //
-// Proof 2 — Symbolic one-schedule-two-bindings: a dynamic-batch graph produces
+// Proof 2 - Symbolic one-schedule-two-bindings: a dynamic-batch graph produces
 //   one cache entry (1 miss + 1 hit) and both batch=4 and batch=32 dispatch
 //   correctly from that single cached schedule.
 //
-// Proof 3 — Training-loop hit count: N forward passes over the same graph
+// Proof 3 - Training-loop hit count: N forward passes over the same graph
 //   produce 1 miss + (N-1) hits, demonstrating that re-scheduling is skipped on
 //   every subsequent step.
 
@@ -40,7 +40,7 @@ func TestScheduleCache_HitCorrectness(t *testing.T) {
 
 	a := uop.NewArena(1024)
 
-	// A sum-reduce followed by element-wise exp2 — two kernels.
+	// A sum-reduce followed by element-wise exp2 - two kernels.
 	x := tensor.NewLeaf(a, []int64{4, 8}, uop.Dtypes.Float32, device)
 	y := x.Sum([]int{1}, false) // [4]
 	z := y.Exp2()               // [4]
@@ -51,7 +51,7 @@ func TestScheduleCache_HitCorrectness(t *testing.T) {
 	}
 	x.SetData(xData)
 
-	// First realize — cache miss.
+	// First realize - cache miss.
 	if err := tensor.Realize(z); err != nil {
 		t.Fatalf("first Realize: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestScheduleCache_HitCorrectness(t *testing.T) {
 		t.Fatalf("after first realize: want 1 miss 0 hits, got misses=%d hits=%d", misses1, hits1)
 	}
 
-	// Second realize — cache hit.  Output data must match bit-for-bit.
+	// Second realize - cache hit.  Output data must match bit-for-bit.
 	if err := tensor.Realize(z); err != nil {
 		t.Fatalf("second Realize: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestScheduleCache_HitCorrectness(t *testing.T) {
 
 // TestScheduleCache_SymbolicTwoBindings proves that a symbolic-batch graph
 // produces exactly one cache entry (one miss on the first RealizeWithBinding,
-// one hit on the second) and that both dispatches — with batch=4 and batch=32 —
+// one hit on the second) and that both dispatches - with batch=4 and batch=32 -
 // produce correct results against a CPU reference.
 //
 // This demonstrates that the binding value is NOT baked into the cache key and
@@ -146,14 +146,14 @@ func TestScheduleCache_SymbolicTwoBindings(t *testing.T) {
 		return got, maxErr
 	}
 
-	// Dispatch 1: batch=4 — this is the first schedule call (cache miss).
+	// Dispatch 1: batch=4 - this is the first schedule call (cache miss).
 	got4, err4 := runBatch(4)
 	hits1, misses1 := schedule.ScheduleCacheStats()
 	if misses1 != 1 || hits1 != 0 {
 		t.Fatalf("after batch=4: want 1 miss 0 hits, got misses=%d hits=%d", misses1, hits1)
 	}
 
-	// Dispatch 2: batch=32 — same SINK (interned), same structural hash → cache HIT.
+	// Dispatch 2: batch=32 - same SINK (interned), same structural hash → cache HIT.
 	_, err32 := runBatch(32)
 	hits2, misses2 := schedule.ScheduleCacheStats()
 	if misses2 != 1 || hits2 != 1 {
@@ -163,7 +163,7 @@ func TestScheduleCache_SymbolicTwoBindings(t *testing.T) {
 	t.Logf("=== PROOF 2: symbolic one-schedule-two-bindings ===")
 	t.Logf("batch=4  (miss): max abs error vs CPU = %.2e  (want < 1e-5)", err4)
 	t.Logf("batch=32 (hit):  max abs error vs CPU = %.2e  (want < 1e-5)", err32)
-	t.Logf("cache: %d miss, %d hit — single schedule entry served both batch sizes", misses2, hits2)
+	t.Logf("cache: %d miss, %d hit - single schedule entry served both batch sizes", misses2, hits2)
 	t.Logf("first 4 values (batch=4): %v", got4[:4])
 
 	if err4 > 1e-5 {

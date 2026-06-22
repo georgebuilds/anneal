@@ -9,13 +9,13 @@ package nn_test
 //                       verifies that the MSE loss falls to < 50 % of its initial
 //                       value on the Metal device.
 //
-// Design rationale — convergence tuning:
-//   Loss:  MSE mean = (1/N)·Σ(pred−tgt)² — scale-independent of batch size.
+// Design rationale - convergence tuning:
+//   Loss:  MSE mean = (1/N)·Σ(pred−tgt)² - scale-independent of batch size.
 //   LR:    0.02 (effective step on MSE-sum gradient = lr/N = 0.00125; safe for
 //          He-initialised ReLU nets; prevents divergence at N=16).
 //   Init:  He (std=√(2/fanIn)): sets pre-activation variance to 1, preventing
 //          dead-ReLU starts and gradient vanishing in the first layer.
-//   Steps: 300 — gives ~98 % loss reduction for a linear model at this lr/N;
+//   Steps: 300 - gives ~98 % loss reduction for a linear model at this lr/N;
 //          the MLP converges similarly for this smooth quadratic target.
 //
 // Gradient check uses MSE-sum loss (no 1/N) so the analytic gradient and FD
