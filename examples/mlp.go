@@ -130,14 +130,17 @@ func trainMLP(device string, cfg TrainConfig, logFn func(step int, loss float32)
 		}
 		grads := tensor.Backward(loss, leaves)
 
+		// Realize all grads in ONE pass: Realize is stateless (it runs every kernel
+		// from leaves), so a separate Realize per grad re-runs the whole
+		// forward+backward each time.
+		toRealize := make([]*tensor.Tensor, 0, len(opt.Params))
 		for _, p := range opt.Params {
-			g, ok := grads[p.T]
-			if !ok {
-				continue
+			if g, ok := grads[p.T]; ok {
+				toRealize = append(toRealize, g)
 			}
-			if err := tensor.Realize(g); err != nil {
-				return err
-			}
+		}
+		if err := tensor.Realize(toRealize...); err != nil {
+			return err
 		}
 		opt.Step(grads)
 
