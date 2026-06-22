@@ -131,7 +131,8 @@
                     { "@type": "ListItem", "position": 4, "name": "Llama-style decoder: RMSNorm, RoPE, GQA, SwiGLU", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=llama" },
                     { "@type": "ListItem", "position": 5, "name": "ViT: a vision transformer on RGB patches", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=vit" },
                     { "@type": "ListItem", "position": 6, "name": "ResNet-9: real convolutions, residuals, BatchNorm", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=resnet9" },
-                    { "@type": "ListItem", "position": 7, "name": "GPT-2-small: run and fine-tune the real weights", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=gpt2" }
+                    { "@type": "ListItem", "position": 7, "name": "GPT-2-small: run and fine-tune the real weights", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=gpt2" },
+                    { "@type": "ListItem", "position": 8, "name": "DiT: a Diffusion Transformer with adaLN-zero and classifier-free guidance", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=dit" }
                 ]
             }
         </script>
@@ -224,6 +225,7 @@
                     <button role="tab" id="tab-vit" data-model="vit" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">vit <span class="tab-cost">(seconds)</span></button>
                     <button role="tab" id="tab-resnet9" data-model="resnet9" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">resnet-9 <span class="tab-cost">(CIFAR-10, ~170 MB)</span></button>
                     <button role="tab" id="tab-gpt2" data-model="gpt2" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">gpt-2 <span class="tab-cost">(~550 MB)</span></button>
+                    <button role="tab" id="tab-dit" data-model="dit" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">dit <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
                 </div>
                 <span class="sr-only" id="js-modelannounce" role="status" aria-live="polite"></span>
             </div>
@@ -406,13 +408,28 @@
                             <span class="lesson-go">start lesson &#8594;</span>
                         </a>
 
+                        <a class="lesson-card" data-model="dit" href="#prereqs" aria-label="DiT lesson">
+                            <div class="lesson-top">
+                                <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                                <span class="lesson-level">deep</span>
+                            </div>
+                            <div class="lesson-name">DiT</div>
+                            <p class="lesson-what">A Diffusion Transformer denoises CIFAR-10 with adaLN-zero conditioning.</p>
+                            <ul class="lesson-learn">
+                                <li>patchify + adaLN-zero blocks</li>
+                                <li>classifier-free guidance</li>
+                            </ul>
+                            <div class="lesson-meta"><span class="m"><b>data</b> ~160 MB</span><span class="m"><b>device</b> GPU</span></div>
+                            <span class="lesson-go">start lesson &#8594;</span>
+                        </a>
+
                         <a class="lesson-card soon" href="https://github.com/georgebuilds/anneal" target="_blank" rel="noopener" aria-label="more lessons coming; watch the repo on GitHub">
                             <div class="lesson-top">
                                 <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
                                 <span class="lesson-level">soon</span>
                             </div>
                             <div class="lesson-name">more on the way</div>
-                            <p class="lesson-what">A diffusion transformer (DiT) and a one-step flow map are next on the roadmap. New lessons slot in here as they ship.</p>
+                            <p class="lesson-what">A one-step flow map (MeanFlow) is next on the roadmap. New lessons slot in here as they ship.</p>
                             <span class="lesson-go" style="color:var(--gold-tx)">watch the repo &#8599;</span>
                         </a>
                     </div>
@@ -446,6 +463,9 @@
                     </div>
                     <div class="variant" data-model="gpt2">
                         <div class="compare"><span class="tag">disk / network for GPT-2</span> About 550 MB on first run: <code>model.safetensors</code> (~548 MB), <code>vocab.json</code> (~1 MB), and <code>merges.txt</code> (~445 KB), SHA-pinned and atomically written to <code>$ANNEAL_CACHE_DIR</code>. Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
+                    </div>
+                    <div class="variant" data-model="dit">
+                        <div class="compare"><span class="tag">disk / network for DiT</span> About 160 MB on first run: the CIFAR-10 binary distribution is fetched into <code>$ANNEAL_CACHE_DIR</code>, SHA-pinned and atomically written (the same dataset ResNet-9 uses). Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
                     </div>
 
                     <div class="hw-matrix" aria-label="hardware support matrix">
@@ -600,6 +620,18 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="dit">
+                        <div class="terminal" role="region" aria-label="list models (dit highlighted)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                                <span class="t-out">  <span class="t-fwd">dit</span>       Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10</span>
+                            </div>
+                        </div>
+                    </div>
 
                     <details class="why">
                         <summary>Why <code>go install</code> and not a release binary?</summary>
@@ -624,6 +656,7 @@
                     <div class="variant" data-model="vit"><p class="intent" style="margin-top:0">For ViT, the only line that matters is <code>status: ok</code>. Any backend works; the model fits in any device's buffer limits (about 80K parameters total, dominated by the patch projection and two encoder blocks).</p></div>
                     <div class="variant" data-model="resnet9"><p class="intent" style="margin-top:0">For ResNet-9, check that <code>max buffer size</code> comfortably exceeds the largest activation: at the canonical 64/128/256/512 channels, the layer3 stage produces a [B, 512, 4, 4] tensor (32 KB per sample, 1 MB at B=32). The whole model and its activations fit easily on any discrete GPU; the binding constraint at present is the WGSL codegen on very-deep backward graphs, not buffer pressure.</p></div>
                     <div class="variant" data-model="gpt2"><p class="intent" style="margin-top:0">For GPT-2, check that <code>max buffer size</code> is comfortably above the largest single weight tensor (the FP32 embedding is about 154 MB). On Apple Silicon and most discrete GPUs this is automatic; on low-end integrated GPUs it can be the binding constraint.</p></div>
+                    <div class="variant" data-model="dit"><p class="intent" style="margin-top:0">For DiT, you want <code>status: ok</code> on a real adapter: training runs on the GPU only. The diffusion backward pass does not yet realize on the pure-Go CPU interpreter (a known backend limitation), so <code>--device=cpu</code> covers the forward path but not <code>anneal train dit</code>. The binding constraint is the WGSL backward surface, not buffer size.</p></div>
 
                     <div class="terminal" role="region" aria-label="doctor command">
                         <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal doctor" aria-label="copy doctor command">copy</button></div>
@@ -903,6 +936,31 @@
                         <p class="intent" style="margin-top: 1rem">Want to see the same compiler train a model from scratch? Switch the picker to <em>nanoGPT</em> for the training counterpart, or <em>MLP</em> for the fastest end-to-end demo.</p>
                     </div>
 
+                    <div class="variant" data-model="dit">
+                        <h3 class="step-heading">DiT: denoise CIFAR-10 with a Diffusion Transformer.</h3>
+                        <p class="intent">
+                            <code>anneal train dit</code> trains a class-conditional Diffusion Transformer on CIFAR-10 with epsilon-prediction. Each image is split into patches; every transformer block is modulated by adaLN-zero conditioning assembled from the timestep and the class label; the model predicts the noise that was added. Classifier-free-guidance dropout during training lets sampling trade fidelity against diversity. Training runs on the GPU (the diffusion backward pass does not yet realize on the pure-Go CPU interpreter).
+                        </p>
+                        <div class="terminal" role="region" aria-label="DiT training">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train dit --steps=400 --plain" aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train dit --steps=400 --plain</span></div>
+                                <span class="t-out">training dit: Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10</span>
+                                <span class="t-out">device: Metal (Apple M3)</span>
+                                <span class="t-out">fetch cifar10-binary (162 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">1.0142</span></span>
+                                <span class="t-out">step <span class="t-dim">200</span> loss <span class="t-fwd">0.1471</span></span>
+                                <span class="t-out">step <span class="t-dim">400</span> loss <span class="t-fwd">0.0985</span></span>
+                                <span class="t-out"><span class="t-fwd">dit: CFG sample mean=+0.01 var=0.83</span> (guidance=2.0)</span>
+                            </div>
+                        </div>
+                        <div class="concept">
+                            <div class="c-label">the idea</div>
+                            <div class="c-body"><p>adaLN-zero is what lets a deep DiT train stably: each block's conditioning projection is zero-initialised, so at step 0 every block is the exact identity and the network starts as a no-op predicting zero noise, then learns how much each block should deviate. The unit tests prove this property directly: a freshly built block returns its input unchanged.</p></div>
+                            <p class="c-deeper"><b>paper:</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (2022). <b>source:</b> <a href="https://github.com/georgebuilds/anneal/blob/main/tensor/nn/dit.go">tensor/nn/dit.go</a>, <a href="https://github.com/georgebuilds/anneal/blob/main/examples/dit.go">examples/dit.go</a>.</p>
+                        </div>
+                    </div>
+
                     <div class="checkpoint">
                         <div class="ck-label">checkpoint</div>
                         You just trained a neural network end to end on your own GPU, from one Go binary, and watched the compiler report how many forward and backward UOps it fused into how many kernels. <strong>Next:</strong> open up those kernels and see what the compiler actually wrote.
@@ -1030,6 +1088,21 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="dit">
+                        <div class="terminal" role="region" aria-label="compiler inspection for DiT">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal kernels dit" aria-label="copy kernels command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain reshape</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: patchify is reshape + permute + reshape; pure index math, no copy.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: the inverse movement, also free; unpatchify is its dual.</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels dit</span></div>
+                                <span class="t-out">kernel 0/N patch.embed      <span class="t-dim">// fused: reshape+permute absorbed into linear</span></span>
+                                <span class="t-out">kernel K/N block.adaln+attn <span class="t-dim">// fused: norm + scale/shift + qkv + scaled dot</span></span>
+                                <span class="t-out">kernel N-1 head+unpatchify  <span class="t-dim">// fused: final modulate + linear, then index gather</span></span>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="compare"><span class="tag">vs PyTorch</span> There is no FX graph capture, no <code>torch.compile</code> backend layer, no extra trip through Triton. The CLI is already inside the compiler.</div>
 
@@ -1139,6 +1212,10 @@
                             </div>
                         </div>
                         <div class="crossref"><strong>Or the modern decoder.</strong> Switch the picker to <em>Llama</em> to train the 2024-era primitive stack (RMSNorm, RoPE, GQA, SwiGLU, tied weights) from scratch on the same dataset.</div>
+                    </div>
+                    <div class="variant" data-model="dit">
+                        <div class="crossref"><strong>Compare the transformer.</strong> Switch the picker to <em>ViT</em>: DiT reuses the same patch embedding and non-causal encoder blocks, conditioned on the diffusion timestep and class instead of producing a classification.</div>
+                        <div class="crossref"><strong>Compare the diffusion.</strong> Switch to <em>diffusion</em>, the tiny DDPM denoiser, to see the same linear-beta schedule and epsilon-prediction objective on a conv backbone instead of a transformer. Run <code>anneal train diffusion</code>.</div>
                     </div>
                 </section>
 
