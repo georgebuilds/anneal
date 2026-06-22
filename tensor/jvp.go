@@ -21,10 +21,13 @@ import (
 //
 //	JVP(f, x; v) ≈ (f(x + eps*v) - f(x - eps*v)) / (2*eps).
 //
-// Coverage (this slice): pointwise ALU, the differentiable unary ops, cast, and
-// the shape-movement ops (reshape, expand, permute). Reductions, matmul, where,
-// gather, and pad are the next JVP slice; JVP returns a clear error on any op
-// without a registered rule so callers know exactly what is missing.
+// Coverage: pointwise ALU (add/sub/mul/neg, min/max), the differentiable unary
+// ops (exp2/log2/sin/sqrt/reciprocal/erf), cast, the shape-movement ops
+// (reshape/expand/permute/shrink/pad), reduce (sum/max/min), and where. Matmul,
+// softmax, layernorm, and attention compose from these (matmul lowers to mul +
+// sum-reduce), so a full DiT forward is JVP-able. Still missing: gather, flip,
+// pow, and the integer/bitwise ops. JVP returns a clear error on any op without a
+// registered rule, so callers know exactly what is unsupported (no silent zero).
 
 // JVPRule computes the tangent of a single forward op from its sources' tangents.
 // tanOf(i) returns the tangent of u.Src(i), or nil when that source's tangent is
@@ -268,6 +271,33 @@ func buildJVP() map[uop.Op]JVPRule {
 			tB = z
 		}
 		return Where(cond, tA, tB)
+	}
+
+	// d(max(a,b)) = where(a==node, da, db); ties go to operand 0, matching the
+	// reverse-mode convention. d(min(a,b)) is identical (node = min, a==node means
+	// a is the selected/tied operand). The boolean mask carries no tangent.
+	minMaxJVP := JVPRule(func(u uop.UOp, nodeT *Tensor, tanOf func(int) *Tensor, sc map[uint32][]shape.Sint, dev string) *Tensor {
+		z := FullSints(u.Arena(), sc[u.Index()], 0.0, u.DType(), dev)
+		tA, tB := tanOf(0), tanOf(1)
+		if tA == nil {
+			tA = z
+		}
+		if tB == nil {
+			tB = z
+		}
+		return Where(jvpSrc(u, 0, sc, dev).CmpEq(nodeT), tA, tB)
+	})
+	m[uop.OpMax] = minMaxJVP
+	m[uop.OpMin] = minMaxJVP
+
+	// Shrink and Pad are linear: apply the same movement to the tangent. Pad fills
+	// the new region with a constant (zero tangent), so padding dx with zeros is
+	// correct regardless of the forward pad value.
+	m[uop.OpShrink] = func(u uop.UOp, nodeT *Tensor, tanOf func(int) *Tensor, sc map[uint32][]shape.Sint, dev string) *Tensor {
+		return tanOf(0).Shrink(u.Arg().([][2]int64))
+	}
+	m[uop.OpPad] = func(u uop.UOp, nodeT *Tensor, tanOf func(int) *Tensor, sc map[uint32][]shape.Sint, dev string) *Tensor {
+		return tanOf(0).Pad(u.Arg().([][2]int64))
 	}
 
 	return m
