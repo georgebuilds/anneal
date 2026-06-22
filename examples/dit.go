@@ -295,17 +295,19 @@ func runDiT(
 			leaves[i] = p.T
 		}
 		grads := tensor.Backward(loss, leaves)
-		if err := tensor.Realize(loss); err != nil {
-			return fmt.Errorf("dit: realize loss at step %d: %w", step, err)
-		}
+		// Realize the loss and every gradient in ONE pass so the shared
+		// forward+backward executes once. Realize is stateless (it schedules from
+		// leaves and runs every kernel), so a separate Realize per gradient
+		// re-runs the whole graph N times, the dominant per-step cost.
+		toRealize := make([]*tensor.Tensor, 0, len(params)+1)
+		toRealize = append(toRealize, loss)
 		for _, p := range params {
-			g, ok := grads[p.T]
-			if !ok {
-				continue
+			if g, ok := grads[p.T]; ok {
+				toRealize = append(toRealize, g)
 			}
-			if err := tensor.Realize(g); err != nil {
-				return fmt.Errorf("dit: realize grad for %q at step %d: %w", p.Name, step, err)
-			}
+		}
+		if err := tensor.Realize(toRealize...); err != nil {
+			return fmt.Errorf("dit: realize loss+grads at step %d: %w", step, err)
 		}
 		opt.Step(grads)
 
