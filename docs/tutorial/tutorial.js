@@ -27,7 +27,8 @@
         { id: "llama",   label: "Llama" },
         { id: "vit",     label: "ViT" },
         { id: "resnet9", label: "ResNet-9" },
-        { id: "gpt2",    label: "GPT-2-small" }
+        { id: "gpt2",    label: "GPT-2-small" },
+        { id: "dit",     label: "DiT" }
     ];
     var IDS = MODELS.map(function (m) { return m.id; });
     var LABEL = {};
