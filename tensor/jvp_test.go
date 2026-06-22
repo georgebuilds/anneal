@@ -104,11 +104,81 @@ func TestJVPUnknownOpErrors(t *testing.T) {
 	x.SetData([]float32{1, 2, 3, 4})
 	v := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "cpu")
 	v.SetData([]float32{1, 1, 1, 1})
-	// Pad has no JVP rule yet (next slice); JVP must error rather than silently
-	// produce a wrong (zero) tangent.
-	out := x.Pad([][2]int64{{1, 1}})
+	// Flip has no JVP rule yet; JVP must error rather than silently produce a
+	// wrong (zero) tangent.
+	out := x.Flip([]bool{true})
 	if _, err := tensor.JVP(out, []*tensor.Tensor{x}, []*tensor.Tensor{v}); err == nil {
-		t.Fatal("expected JVP to error on an op with no forward-mode rule (pad)")
+		t.Fatal("expected JVP to error on an op with no forward-mode rule (flip)")
+	}
+}
+
+// TestJVPMinMaxShrinkPad FD-checks the S3 rules on the CPU interpreter: binary
+// max/min (the softmax and SiLU clamps on the DiT path), shrink (the modulation
+// and QKV splits), and pad (the patch-embed conv). Constants are chosen so no
+// element ties its compare operand, where the true derivative is undefined.
+func TestJVPMinMaxShrinkPad(t *testing.T) {
+	dev, err := cpu.Open()
+	if err != nil {
+		t.Fatalf("cpu.Open: %v", err)
+	}
+	prev := tensor.DefaultExecutor
+	tensor.DefaultExecutor = dev
+	t.Cleanup(func() { tensor.DefaultExecutor = prev })
+
+	a := uop.NewArena(1 << 22)
+	const n = 6
+	xd := []float32{0.5, -0.3, 1.2, 0.8, -1.1, 0.4}
+	vd := []float32{0.2, 0.7, -0.5, 0.1, 0.9, -0.3}
+	c1d := []float32{0.4, 0.1, 1.5, -0.2, -0.5, 0.9}  // max operand
+	c2d := []float32{0.45, -0.5, 0.0, 1.0, -2.0, 0.2} // min operand
+
+	leaf := func(data []float32) *tensor.Tensor {
+		x := tensor.NewLeaf(a, []int64{n}, uop.Dtypes.Float32, "cpu")
+		x.SetData(append([]float32{}, data...))
+		return x
+	}
+	c1 := leaf(c1d) // constants w.r.t. JVP (not seeded)
+	c2 := leaf(c2d)
+
+	// f(x) = pad( shrink( max(x,c1) + min(x,c2) ) )^2
+	f := func(x *tensor.Tensor) *tensor.Tensor {
+		s := x.Maximum(c1).Add(x.Minimum(c2)) // [6]
+		sh := s.Shrink([][2]int64{{1, 5}})    // [4]
+		pd := sh.Pad([][2]int64{{1, 1}})      // [6] (zeros at the ends)
+		return pd.Mul(pd)
+	}
+
+	x := leaf(xd)
+	out := f(x)
+	v := leaf(vd)
+
+	jt, err := tensor.JVP(out, []*tensor.Tensor{x}, []*tensor.Tensor{v})
+	if err != nil {
+		t.Fatalf("JVP: %v", err)
+	}
+	if err := tensor.Realize(jt); err != nil {
+		t.Fatalf("realize JVP: %v", err)
+	}
+	got := jt.Data()
+
+	eps := float32(1e-3)
+	xp := make([]float32, n)
+	xm := make([]float32, n)
+	for i := range xd {
+		xp[i] = xd[i] + eps*vd[i]
+		xm[i] = xd[i] - eps*vd[i]
+	}
+	fp := f(leaf(xp))
+	fm := f(leaf(xm))
+	if err := tensor.Realize(fp, fm); err != nil {
+		t.Fatalf("realize FD: %v", err)
+	}
+	fpd, fmd := fp.Data(), fm.Data()
+	for i := range got {
+		fd := (fpd[i] - fmd[i]) / (2 * eps)
+		if d := math.Abs(float64(got[i] - fd)); d > 2e-2 {
+			t.Fatalf("jvp[%d]=%v fd=%v (|diff|=%v)", i, got[i], fd, d)
+		}
 	}
 }
 
@@ -273,6 +343,11 @@ func TestJVPRuleCoverage(t *testing.T) {
 	// third source.
 	x, v = mk()
 	nonNil("where-constFalse", tensor.Where(x.CmpLt(k(x, 1)), x, k(x, 0)), x, v)
+
+	// max with a constant FIRST operand exercises the nil-tangent path of the
+	// min/max rule's first source.
+	x, v = mk()
+	nonNil("max-constFirst", k(x, 1).Maximum(x), x, v)
 
 	// A non-float intermediate (an int cast) carries no tangent: the only path to
 	// the output runs through it, so the tangent is zero. Exercises the non-float
