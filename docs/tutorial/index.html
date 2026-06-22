@@ -939,19 +939,20 @@
                     <div class="variant" data-model="dit">
                         <h3 class="step-heading">DiT: denoise CIFAR-10 with a Diffusion Transformer.</h3>
                         <p class="intent">
-                            <code>anneal train dit</code> trains a class-conditional Diffusion Transformer on CIFAR-10 with epsilon-prediction. Each image is split into patches; every transformer block is modulated by adaLN-zero conditioning assembled from the timestep and the class label; the model predicts the noise that was added. Classifier-free-guidance dropout during training lets sampling trade fidelity against diversity. Training runs on the GPU (the diffusion backward pass does not yet realize on the pure-Go CPU interpreter).
+                            <code>anneal train dit</code> trains a class-conditional Diffusion Transformer on CIFAR-10 with epsilon-prediction. Each image is split into patches; every transformer block is modulated by adaLN-zero conditioning assembled from the timestep and the class label; the model predicts the noise that was added. Classifier-free-guidance dropout during training lets sampling trade fidelity against diversity. Training runs on the GPU (the diffusion backward pass does not yet realize on the pure-Go CPU interpreter). The eval loss is a noisy per-step probe over fresh random timesteps; it falls from about 1.0 toward roughly 0.2. This is a small architecture demo of the diffusion-transformer stack, not a converged image generator (the model is compute-heavy, around 12s/step at this size on an M3).
                         </p>
                         <div class="terminal" role="region" aria-label="DiT training">
-                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train dit --steps=400 --plain" aria-label="copy command">copy</button></div>
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train dit --steps=500 --batch=8 --plain" aria-label="copy command">copy</button></div>
                             <div class="term-body">
-                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train dit --steps=400 --plain</span></div>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train dit --steps=500 --batch=8 --plain</span></div>
                                 <span class="t-out">training dit: Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10</span>
                                 <span class="t-out">device: Metal (Apple M3)</span>
                                 <span class="t-out">fetch cifar10-binary (162 MiB) <span class="t-fsd">sha ok</span></span>
-                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">1.0142</span></span>
-                                <span class="t-out">step <span class="t-dim">200</span> loss <span class="t-fwd">0.1471</span></span>
-                                <span class="t-out">step <span class="t-dim">400</span> loss <span class="t-fwd">0.0985</span></span>
-                                <span class="t-out"><span class="t-fwd">dit: CFG sample mean=+0.01 var=0.83</span> (guidance=2.0)</span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">0.9906</span></span>
+                                <span class="t-out">step <span class="t-dim">100</span> loss <span class="t-fwd">0.1851</span></span>
+                                <span class="t-out">step <span class="t-dim">300</span> loss <span class="t-fwd">0.3266</span></span>
+                                <span class="t-out">step <span class="t-dim">500</span> loss <span class="t-fwd">0.2087</span></span>
+                                <span class="t-out"><span class="t-fwd">dit: CFG sample mean=+0.01 var=0.25</span> (guidance=2.0)</span>
                             </div>
                         </div>
                         <div class="concept">
