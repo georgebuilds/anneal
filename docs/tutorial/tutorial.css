@@ -1,0 +1,553 @@
+/* ============================================================================
+   anneal tutorial / learn  ·  stylesheet
+   ----------------------------------------------------------------------------
+   Externalised from the old inline <style> so the page is markup + content and
+   the design system has one home. Mirrors docs/index.html's tokens verbatim so
+   the homepage and the learn surface stay visually identical.
+
+   Sections:
+     1.  Reset + tokens (dark default, light override)
+     2.  Base + a11y (skip link, focus, progress bar)
+     3.  Site chrome (header, footer)
+     4.  Model picker (the dynamic "choose your model" axis) + variant engine
+     5.  Layout shell (rail + main)
+     6.  Steps + headings
+     7.  LEARN components: hub hero, objectives, lesson catalog, concept box,
+         checkpoint, concepts track  (the education-forward layer)
+     8.  Content components: terminal, why, compare, hw-matrix, diagram,
+         crossref, model pill, qa bank
+     9.  Motion, responsive, forced-colors, print
+   ========================================================================== */
+
+/* ── 1. Reset + tokens ───────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg: #14110f;
+    --surface: #1f1a17;
+    --surface-2: #271f1b;
+    --text: #e8e2da;
+    --muted: #8a817a;
+    --faint: #5c544d;
+    --bg-glass: rgba(20, 17, 15, 0.88);
+
+    /* Brand colours: fixed, never invert. */
+    --teal: #00add8;
+    --ember: #ff7a45;
+    --gold: #f2c57c;
+
+    /* Text-safe accents: equal to brand in dark, darkened in light. */
+    --teal-tx: #00add8;
+    --ember-tx: #ff7a45;
+    --gold-tx: #f2c57c;
+
+    /* Terminal: always dark regardless of page theme. */
+    --term-bg: #1f1a17;
+    --term-border: #5c544d;
+    --term-text: #e8e2da;
+    --term-muted: #8a817a;
+    --term-faint: #5c544d;
+
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+    --radius: 8px;
+    --maxw: 1100px;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        --bg: #fbf8f3;
+        --surface: #ede8e0;
+        --surface-2: #e3ddd2;
+        --text: #14110f;
+        --muted: #5c4e3f;
+        --faint: #9a8f85;
+        --bg-glass: rgba(251, 248, 243, 0.88);
+        --teal-tx: #006d92;
+        --ember-tx: #b83700;
+        --gold-tx: #8b5e10;
+    }
+}
+[data-theme="light"] {
+    --bg: #fbf8f3;
+    --surface: #ede8e0;
+    --surface-2: #e3ddd2;
+    --text: #14110f;
+    --muted: #5c4e3f;
+    --faint: #9a8f85;
+    --bg-glass: rgba(251, 248, 243, 0.88);
+    --teal-tx: #006d92;
+    --ember-tx: #b83700;
+    --gold-tx: #8b5e10;
+}
+
+/* ── 2. Base + a11y ──────────────────────────────────────────────────────── */
+
+html { scroll-behavior: smooth; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+    position: absolute; top: -100%; left: 1rem; z-index: 200;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--teal); border-radius: 4px;
+    padding: 0.5rem 1rem; font-family: var(--mono); font-size: 0.82rem;
+    text-decoration: none; transition: top 0.15s ease;
+}
+.skip-link:focus { top: 0.75rem; }
+
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 2px; }
+
+/* Sticky top progress bar (thin teal line) */
+.progress-track {
+    position: sticky; top: 0; z-index: 110; height: 2px;
+    background: transparent; pointer-events: none;
+}
+.progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(to right, var(--teal), var(--gold));
+    transition: width 0.06s linear;
+}
+
+/* ── 3. Site chrome ──────────────────────────────────────────────────────── */
+
+header.site {
+    position: sticky; top: 2px; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 clamp(1.5rem, 5vw, 3rem); height: 52px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--faint);
+}
+.brand { display: inline-flex; align-items: center; font-size: 13px; letter-spacing: 0.01em; }
+.gb-link { color: var(--muted); text-decoration: none; transition: color 0.2s ease; }
+.gb-link:hover, .gb-link:focus-visible { color: var(--text); }
+.gb-abbr, .gb-full {
+    display: inline-block; overflow: hidden; white-space: nowrap;
+    max-width: 0; opacity: 0;
+    transition: max-width 0.42s cubic-bezier(0.22, 0.9, 0.25, 1), opacity 0.25s ease;
+}
+.gb-abbr { max-width: 4ch; opacity: 1; }
+.gb-link:hover .gb-abbr, .gb-link:focus-visible .gb-abbr { max-width: 0; opacity: 0; }
+.gb-link:hover .gb-full, .gb-link:focus-visible .gb-full { max-width: 14ch; opacity: 1; transition-delay: 0.04s; }
+.brand-sep { color: var(--faint); margin: 0 0.35em; user-select: none; }
+.proj-name { color: var(--text); font-weight: 500; }
+.proj-name.linkish { text-decoration: none; color: var(--text); }
+.proj-name.linkish:hover { color: var(--teal-tx); }
+
+header.site nav { display: flex; align-items: center; gap: 1.5rem; height: 100%; }
+header.site nav a {
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    transition: color 0.2s ease; display: inline-flex; align-items: center;
+    height: 100%; padding: 0 0.15rem;
+}
+header.site nav a:hover, header.site nav a:focus-visible { color: var(--text); }
+header.site nav a::before { content: "> "; color: var(--faint); transition: color 0.2s ease; margin-right: 0.2em; }
+header.site nav a:hover::before, header.site nav a:focus-visible::before { color: var(--teal); }
+header.site nav a[aria-current="page"] { color: var(--text); }
+header.site nav a[aria-current="page"]::before { color: var(--teal); }
+
+.icon-btn {
+    background: none; border: 1px solid var(--faint); border-radius: 4px;
+    font-family: var(--mono); font-size: 14px; color: var(--muted); cursor: pointer;
+    padding: 0 0.65rem; height: 28px; min-width: 44px; min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin: -8px 0; transition: color 0.2s ease, border-color 0.2s ease; line-height: 1;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--muted); }
+
+footer.site {
+    border-top: 1px solid var(--faint);
+    padding: 1.25rem clamp(1.5rem, 5vw, 3rem);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.74rem; color: var(--muted); flex-wrap: wrap; gap: 0.75rem;
+}
+footer.site .links { display: inline-flex; gap: 1.25rem; flex-wrap: wrap; }
+footer.site a { color: var(--muted); text-decoration: none; transition: color 0.2s ease; }
+footer.site a:hover { color: var(--text); }
+
+/* Nav-hidden helper for narrow viewports */
+@media (max-width: 620px) { header.site nav .nav-hide { display: none; } }
+
+/* ── 4. Model picker + variant engine ────────────────────────────────────── */
+
+.modelbar {
+    position: sticky; top: 54px; z-index: 105;
+    background: var(--bg-glass);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--faint);
+    padding: 0.55rem clamp(1.25rem, 4vw, 2rem);
+}
+.modelbar-inner {
+    max-width: var(--maxw); margin: 0 auto;
+    display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;
+}
+.modelbar-label {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+}
+.modelbar-label .pick-arrow { color: var(--teal-tx); margin-right: 0.35em; }
+.modeltabs { display: inline-flex; gap: 0.3rem; flex-wrap: wrap; }
+.modeltabs button {
+    background: transparent; border: 1px solid var(--faint); color: var(--muted);
+    font-family: var(--mono); font-size: 0.78rem; padding: 0.32rem 0.75rem;
+    border-radius: 999px; cursor: pointer; display: inline-flex; align-items: center;
+    gap: 0.4rem; min-height: 32px;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.modeltabs button:hover { color: var(--text); border-color: var(--muted); }
+.modeltabs button[aria-selected="true"] { color: var(--text); border-color: var(--teal); background: var(--surface); }
+/* Non-colour selection cue (a leading dot) for colour-blindness / forced-colors. */
+.modeltabs button::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--faint); flex-shrink: 0; transition: background 0.15s ease;
+}
+.modeltabs button[aria-selected="true"]::before { background: var(--teal); box-shadow: 0 0 0 2px rgba(0, 173, 216, 0.18); }
+.modeltabs button .tab-cost { font-size: 0.66rem; color: var(--faint); letter-spacing: 0.04em; }
+.modeltabs button[aria-selected="true"] .tab-cost { color: var(--muted); }
+@media (forced-colors: active) {
+    .modeltabs button[aria-selected="true"] { border: 2px solid CanvasText; background: Highlight; color: HighlightText; }
+}
+
+/*
+  Per-model variants. Authors wrap model-specific blocks in
+  <div class="variant" data-model="mlp">…</div>. The default rule hides any
+  variant whose data-model does not match the root [data-model]. Visibility is
+  pure CSS (attribute selectors), never a JS class toggle, and the anti-FOUC
+  script sets data-model on <html> before paint. Print + noscript reveal all.
+*/
+.variant { display: none; }
+html[data-model="mlp"]     .variant[data-model="mlp"],
+html[data-model="conv"]    .variant[data-model="conv"],
+html[data-model="nanogpt"] .variant[data-model="nanogpt"],
+html[data-model="llama"]   .variant[data-model="llama"],
+html[data-model="vit"]     .variant[data-model="vit"],
+html[data-model="resnet9"] .variant[data-model="resnet9"],
+html[data-model="gpt2"]    .variant[data-model="gpt2"] { display: block; }
+
+.variant { animation: variant-in 0.18s ease-out; }
+@keyframes variant-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+/* Inline pill naming the active model inside flowing copy. */
+.model-pill {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--teal-tx); background: var(--surface);
+    border: 1px solid var(--faint); padding: 0.1rem 0.55rem; border-radius: 999px;
+}
+.model-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--teal); }
+
+/* ── 5. Layout shell ─────────────────────────────────────────────────────── */
+
+.shell {
+    display: grid; grid-template-columns: 220px minmax(0, 1fr);
+    gap: clamp(1rem, 3vw, 2.5rem); max-width: var(--maxw); margin: 0 auto;
+    padding: clamp(1.25rem, 4vw, 2rem) clamp(1.25rem, 4vw, 2rem) 0;
+}
+aside.rail {
+    position: sticky; top: 114px; align-self: start;
+    max-height: calc(100dvh - 130px); overflow-y: auto; font-size: 0.78rem;
+}
+aside.rail ol { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+aside.rail a {
+    color: var(--muted); text-decoration: none; display: flex; gap: 0.6rem;
+    padding: 0.35rem 0.5rem; border-radius: 4px; border-left: 2px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+aside.rail a:hover { color: var(--text); }
+aside.rail a .num { color: var(--faint); width: 1.5em; flex-shrink: 0; }
+aside.rail a.active { color: var(--text); border-left-color: var(--teal); background: var(--surface); }
+.rail-title {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; padding-left: 0.5rem;
+}
+.rail-sep { height: 1px; background: var(--faint); opacity: 0.5; margin: 0.5rem 0.5rem; }
+
+details.rail-accordion {
+    display: none; background: var(--surface); border: 1px solid var(--faint);
+    border-radius: 6px; padding: 0.5rem 0.8rem; margin-bottom: 1.25rem;
+}
+details.rail-accordion summary { cursor: pointer; font-size: 0.78rem; color: var(--text); padding: 0.3rem 0; }
+details.rail-accordion ol { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.1rem; }
+details.rail-accordion a { color: var(--muted); text-decoration: none; display: block; padding: 0.3rem 0; font-size: 0.78rem; }
+details.rail-accordion a:hover { color: var(--text); }
+
+@media (max-width: 860px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    aside.rail { display: none; }
+    details.rail-accordion { display: block; }
+}
+main.tut { min-width: 0; }
+
+/* ── 6. Steps + headings ─────────────────────────────────────────────────── */
+
+section.step { padding: 1.6rem 0 2rem; border-bottom: 1px solid var(--faint); scroll-margin-top: 130px; }
+section.step:last-of-type { border-bottom: none; }
+.step-label {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.5rem; display: flex; gap: 0.7rem; align-items: center;
+}
+.step-label .num { color: var(--faint); }
+.step-heading {
+    font-size: clamp(1.15rem, 2.6vw, 1.6rem); font-weight: 700; color: var(--text);
+    letter-spacing: -0.022em; line-height: 1.25; margin-bottom: 0.7rem;
+}
+.intent { font-size: 0.86rem; color: var(--muted); max-width: 64ch; margin-bottom: 1.2rem; line-height: 1.75; }
+.intent code, .step-body code, details code, .concept code, .objectives code, .lesson-card code { color: var(--teal-tx); font-family: var(--mono); }
+
+/* ── 7. LEARN components ─────────────────────────────────────────────────── */
+
+/* 7a. Hub hero: the learning front door at the top of the page. */
+.hub {
+    max-width: var(--maxw); margin: 0 auto;
+    padding: clamp(2rem, 6vw, 3.5rem) clamp(1.25rem, 4vw, 2rem) 0.5rem;
+    position: relative;
+}
+.hub-eyebrow {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--teal-tx); margin-bottom: 0.8rem; display: inline-flex; align-items: center; gap: 0.5rem;
+}
+.hub-eyebrow::before { content: ""; width: 18px; height: 2px; border-radius: 1px;
+    background: linear-gradient(to right, var(--teal), var(--gold)); }
+.hub h1.hub-title {
+    font-size: clamp(1.7rem, 4.5vw, 2.7rem); font-weight: 700; color: var(--text);
+    letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 0.9rem; max-width: 20ch;
+}
+.hub-lead { font-size: clamp(0.9rem, 1.6vw, 1rem); color: var(--muted); max-width: 64ch; line-height: 1.75; margin-bottom: 1.5rem; }
+.hub-lead strong { color: var(--text); font-weight: 600; }
+
+/* "how this works" three-beat strip */
+.hub-flow { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
+.hub-beat {
+    display: inline-flex; align-items: baseline; gap: 0.5rem; font-size: 0.78rem; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--faint); border-radius: 999px; padding: 0.35rem 0.85rem;
+}
+.hub-beat b { color: var(--teal-tx); font-weight: 700; }
+.hub-beat .step-n { color: var(--faint); font-weight: 700; }
+
+/* 7b. Objectives box */
+.objectives {
+    border-left: 2px solid var(--teal); background: var(--surface);
+    border-radius: 0 6px 6px 0; padding: 0.85rem 1.1rem; margin: 1.2rem 0;
+}
+.objectives .obj-label {
+    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--teal-tx); margin-bottom: 0.5rem;
+}
+.objectives ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.objectives li { position: relative; padding-left: 1.4rem; font-size: 0.82rem; color: var(--text); line-height: 1.6; }
+.objectives li::before {
+    content: "✓"; position: absolute; left: 0; top: 0; color: var(--teal-tx); font-weight: 700;
+}
+
+/* 7c. Lesson catalog (scalable: cards are the surface that grows). */
+.lessons { max-width: var(--maxw); margin: 0 auto; padding: 0.5rem clamp(1.25rem, 4vw, 2rem) 1.5rem; }
+.lessons .sec-eyebrow {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.5rem;
+}
+.lessons h2 { font-size: clamp(1.1rem, 2.4vw, 1.45rem); font-weight: 700; color: var(--text); letter-spacing: -0.02em; margin-bottom: 0.4rem; }
+.lessons .lessons-sub { font-size: 0.82rem; color: var(--muted); max-width: 60ch; margin-bottom: 1.3rem; }
+
+.lesson-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 0.9rem; }
+
+.lesson-card {
+    display: flex; flex-direction: column; gap: 0.55rem;
+    background: var(--surface); border: 1px solid var(--faint); border-radius: 10px;
+    padding: 1rem 1.05rem; text-decoration: none; color: inherit;
+    position: relative; overflow: hidden; cursor: pointer;
+    transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+.lesson-card:hover, .lesson-card:focus-visible { border-color: var(--teal); transform: translateY(-2px); }
+.lesson-card:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+/* crackle echo from the homepage arch cards, for brand cohesion */
+.lesson-card::after {
+    content: ""; position: absolute; inset: -2px; pointer-events: none; opacity: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23c)' opacity='0.5'/></svg>");
+    mix-blend-mode: soft-light; transition: opacity 0.45s ease;
+}
+.lesson-card:hover::after { opacity: 0.16; }
+
+.lesson-card[aria-current="true"] {
+    border-color: var(--teal);
+    box-shadow: inset 0 0 0 1px var(--teal), 0 0 0 3px rgba(0, 173, 216, 0.12);
+    background: var(--surface-2);
+}
+/* forced-colors: box-shadow/border-color are flattened, so mark the current
+   lesson with an outline the high-contrast theme keeps. */
+@media (forced-colors: active) {
+    .lesson-card[aria-current="true"] { outline: 3px solid Highlight; outline-offset: -3px; }
+}
+
+.lesson-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.pips { display: inline-flex; gap: 3px; align-items: center; }
+.pip { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.pips[data-level="1"] .pip:nth-child(1) { background: var(--teal); }
+.pips[data-level="2"] .pip:nth-child(-n+2) { background: var(--gold); }
+.pips[data-level="3"] .pip { background: var(--ember); }
+.lesson-level { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
+.lesson-name { font-size: 0.98rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.lesson-card[aria-current="true"] .lesson-name { color: var(--teal-tx); }
+.lesson-what { font-size: 0.78rem; color: var(--muted); line-height: 1.55; }
+.lesson-learn { list-style: none; margin: 0.1rem 0 0; padding: 0; display: grid; gap: 0.22rem; }
+.lesson-learn li { font-size: 0.72rem; color: var(--muted); padding-left: 0.95rem; position: relative; line-height: 1.45; }
+.lesson-learn li::before { content: "→"; position: absolute; left: 0; color: var(--teal-tx); }
+
+.lesson-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; font-size: 0.68rem; color: var(--muted); margin-top: auto; }
+.lesson-meta .m { display: inline-flex; align-items: center; gap: 0.3rem; }
+.lesson-meta .m b { color: var(--muted); font-weight: 600; }
+.lesson-go {
+    font-size: 0.74rem; font-weight: 700; color: var(--teal-tx);
+    display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.15rem;
+}
+.lesson-card[aria-current="true"] .lesson-go::after { content: " · current"; color: var(--muted); font-weight: 400; }
+
+/* "more coming" ghost card signals continuous additions */
+.lesson-card.soon {
+    border-style: dashed; background: transparent;
+    align-items: flex-start; justify-content: center;
+}
+.lesson-card.soon:hover { transform: none; border-color: var(--gold); }
+.lesson-card.soon::after { display: none; }
+.lesson-card.soon .lesson-name { color: var(--gold-tx); }
+.lesson-card.soon .lesson-what { color: var(--muted); }
+
+/* 7d. Concept box: the "research" layer, the idea behind the step. */
+.concept {
+    background: var(--surface);
+    border: 1px solid var(--gold);
+    border-left-width: 3px;
+    border-radius: 8px; padding: 0.85rem 1.05rem; margin: 1rem 0;
+}
+.concept .c-label {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--gold-tx); margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.45rem;
+}
+.concept .c-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+.concept .c-body { font-size: 0.82rem; color: var(--text); line-height: 1.7; }
+.concept .c-body p + p { margin-top: 0.55rem; }
+.concept .c-deeper { margin-top: 0.6rem; font-size: 0.74rem; color: var(--muted); }
+.concept .c-deeper a { color: var(--gold-tx); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--faint); }
+.concept .c-deeper a:hover { text-decoration-color: var(--gold-tx); }
+.concept .c-deeper b { color: var(--muted); font-weight: 700; letter-spacing: 0.04em; }
+
+/* 7e. Checkpoint: what you can now do / what to try next. */
+.checkpoint {
+    border-left: 2px solid var(--ember); background: var(--surface);
+    border-radius: 0 6px 6px 0; padding: 0.75rem 1rem; margin: 1.1rem 0; font-size: 0.8rem; color: var(--muted);
+}
+.checkpoint .ck-label {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ember-tx); margin-bottom: 0.35rem;
+}
+.checkpoint strong { color: var(--text); font-weight: 600; }
+
+/* ── 8. Content components ───────────────────────────────────────────────── */
+
+/* Terminal (always dark, never themes) */
+.terminal { background: var(--term-bg); border: 1px solid var(--term-border); border-radius: 8px; overflow: hidden; font-size: 0.8rem; margin-bottom: 1rem; position: relative; }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 0.55rem 1rem; border-bottom: 1px solid var(--term-border); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--term-border); }
+.term-copy {
+    margin-left: auto; background: none; border: 1px solid var(--term-border); color: var(--term-muted);
+    font-family: var(--mono); font-size: 0.7rem; padding: 0.18rem 0.55rem; cursor: pointer; border-radius: 4px;
+    transition: color 0.15s ease, border-color 0.15s ease; min-height: 24px;
+}
+.term-copy:hover { color: var(--gold); border-color: var(--gold); }
+.term-copy.copied { color: var(--gold); border-color: var(--gold); }
+.term-body { padding: 0.85rem 1.1rem; line-height: 1.9; overflow-x: auto; }
+.t-p { color: var(--teal); }
+.t-cmd { color: var(--term-text); }
+.t-out { color: var(--term-muted); display: block; }
+.t-fwd { color: var(--teal); }
+.t-bwd { color: var(--ember); }
+.t-fsd { color: var(--gold); }
+.t-dim { color: var(--term-faint); }
+.t-gap { display: block; margin-top: 0.4rem; }
+
+/* "Why?" expander */
+details.why { background: var(--surface); border: 1px solid var(--faint); border-radius: 6px; padding: 0.65rem 0.9rem; margin: 0.6rem 0 0; }
+details.why summary { cursor: pointer; font-size: 0.78rem; color: var(--text); font-weight: 500; list-style: none; display: flex; align-items: center; gap: 0.4rem; }
+details.why summary::-webkit-details-marker { display: none; }
+details.why summary::before { content: "+"; color: var(--teal-tx); font-weight: 700; width: 1ch; display: inline-block; }
+details.why[open] summary::before { content: "−"; }
+details.why .body { font-size: 0.78rem; color: var(--muted); margin-top: 0.55rem; line-height: 1.7; }
+details.why .body p + p { margin-top: 0.6rem; }
+
+/* Side-rail compare callout (vs PyTorch / vs tinygrad) */
+.compare { border-left: 2px solid var(--ember); background: var(--surface); padding: 0.6rem 0.85rem; margin: 0.6rem 0; font-size: 0.76rem; color: var(--muted); border-radius: 0 4px 4px 0; }
+.compare .tag { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ember-tx); font-weight: 700; margin-right: 0.4em; }
+.compare code { color: var(--teal-tx); }
+
+/* Three-column hardware matrix */
+.hw-matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--faint); border: 1px solid var(--faint); border-radius: 6px; overflow: hidden; margin: 0.5rem 0 1rem; }
+.hw-cell { background: var(--bg); padding: 0.85rem 0.9rem; font-size: 0.78rem; }
+.hw-cell .hw-tag { font-size: 0.62rem; letter-spacing: 0.11em; text-transform: uppercase; color: var(--teal-tx); font-weight: 700; margin-bottom: 0.35rem; }
+.hw-cell .hw-tag.gold { color: var(--gold-tx); }
+.hw-cell .hw-tag.ember { color: var(--ember-tx); }
+.hw-cell .hw-title { color: var(--text); font-weight: 500; margin-bottom: 0.3rem; font-size: 0.82rem; }
+.hw-cell .hw-body { color: var(--muted); font-size: 0.74rem; }
+@media (max-width: 600px) { .hw-matrix { grid-template-columns: 1fr; } }
+
+/* SVG diagram caption */
+figure.diagram { margin: 0.9rem 0; background: var(--surface); border: 1px solid var(--faint); border-radius: 6px; padding: 0.9rem 0.9rem 0.6rem; }
+figure.diagram figcaption { font-size: 0.72rem; color: var(--muted); margin-top: 0.4rem; text-align: center; }
+figure.diagram svg { width: 100%; height: auto; max-width: 560px; display: block; margin: 0 auto; }
+
+/* Inline links */
+a.inline { color: var(--teal-tx); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--faint); }
+a.inline:hover { text-decoration-color: var(--teal-tx); }
+
+/* Cross-reference panel ("you can also try…") */
+.crossref { background: var(--surface); border: 1px dashed var(--faint); border-radius: 6px; padding: 0.7rem 0.9rem; margin-top: 1rem; font-size: 0.78rem; color: var(--muted); }
+.crossref strong { color: var(--text); font-weight: 600; }
+.crossref a.inline { color: var(--teal-tx); }
+
+/* Q&A bank */
+.qa-bank h2 { font-size: clamp(1.15rem, 2.6vw, 1.6rem); font-weight: 700; color: var(--text); letter-spacing: -0.022em; margin-bottom: 0.5rem; }
+.qa-bank .qa-intro { color: var(--muted); font-size: 0.82rem; margin-bottom: 1.2rem; }
+.qa-group { margin-bottom: 1.5rem; }
+.qa-group h3 { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; }
+.qa-group details { background: var(--surface); border: 1px solid var(--faint); border-radius: 6px; padding: 0.55rem 0.8rem; margin-bottom: 0.4rem; }
+.qa-group details summary { cursor: pointer; font-size: 0.82rem; color: var(--text); list-style: none; display: flex; gap: 0.5rem; align-items: baseline; }
+.qa-group details summary::-webkit-details-marker { display: none; }
+.qa-group details summary::before { content: "?"; color: var(--teal-tx); font-weight: 700; flex-shrink: 0; }
+.qa-group details[open] summary::before { color: var(--gold-tx); }
+.qa-group details .a { font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem; line-height: 1.7; }
+.qa-group details code { color: var(--teal-tx); }
+
+/* ── 9. Motion, responsive, print ────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    .variant { animation: none; }
+    html { scroll-behavior: auto; }
+    .lesson-card:hover, .lesson-card:focus-visible { transform: none; }
+}
+
+@media print {
+    .modelbar, .progress-track, header.site nav, details.rail-accordion, aside.rail { display: none !important; }
+    .variant { display: block !important; animation: none; }
+    .variant::before {
+        content: "Variant: " attr(data-model); display: block; font-size: 0.7rem; letter-spacing: 0.12em;
+        text-transform: uppercase; color: #444; margin: 0.4rem 0 0.3rem; border-top: 1px solid #888; padding-top: 0.3rem;
+    }
+    .lesson-card::after { display: none; }
+    .shell { grid-template-columns: 1fr; }
+}

@@ -41,7 +41,7 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## CLI
 
 - `anneal run mlp` — realize and execute a registered example graph
-- `anneal train mlp` — training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, llama, vit, gpt2; use `--batch=N` with dynmlp for dynamic batch)
+- `anneal train mlp`: training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, llama, vit, gpt2, diffusion; use `--batch=N` with dynmlp for dynamic batch). ResNet-9 is `anneal run resnet9` (forward realizes; full-network training is gated on a WGSL codegen scaling issue)
 - `anneal train nanogpt`: char-level transformer trained end to end on tinyshakespeare; first run fetches the corpus, prints a generated sample at the end
 - `anneal train llama`: char-level Llama-style decoder trained from scratch on tinyshakespeare; the modern-decoder level-up over nanoGPT (RMSNorm instead of LayerNorm, grouped-query attention with RoPE instead of vanilla multi-head attention plus learned absolute positions, SwiGLU feed-forward instead of a GELU MLP, tied embeddings); first run fetches the corpus, prints a generated sample at the end. A small architecture demo, not a trained chat model
 - `anneal train vit`: Vision Transformer (ViT-tiny: 32x32 RGB, patch 4, 64-dim embed, 2 encoder blocks, 4 heads, mean-pool classification head) trained on a synthetic 10-class image dataset; no asset downloads
@@ -70,7 +70,7 @@ The step-by-step tutorial (https://georgebuilds.github.io/anneal/tutorial/) is t
   - `gpt2`: fine-tune GPT-2-small from HuggingFace weights.
 - Explore the compiler (#tour): inspect the generated WGSL kernels (`anneal kernels <model>`) and the forward/backward UOp graph (`anneal graph <model>`, `anneal viz`).
 
-Section anchors: #welcome #prereqs #install #sanity #train #tour #gpt2 #further #troubleshooting #qa
+Section anchors: #start #lessons #prereqs #install #sanity #train #tour #more #further #troubleshooting #qa
 Full tutorial text for ingestion: https://georgebuilds.github.io/anneal/llms-full.txt
 
 ## Links
