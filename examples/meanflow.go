@@ -58,6 +58,9 @@ type meanflowConfig struct {
 	initScale      float32
 	cfgDropProb    float32
 	pEqual         float32
+	lossEps        float32 // adaptive-L2 denominator constant c
+	lossPower      float32 // adaptive-L2 exponent p (1 = fully normalized gradient)
+	warmupSteps    int64   // LR warmup steps (0 = none)
 }
 
 func meanflowDefaultConfig() meanflowConfig {
@@ -65,7 +68,8 @@ func meanflowDefaultConfig() meanflowConfig {
 		imageH: 32, imageW: 32, patch: 4, inCh: 3,
 		embedDim: 64, condDim: 64, timeEmbedDim: 64, numClasses: 10,
 		nLayer: 2, nHead: 4,
-		adamLR: 1e-3, initScale: 0.02, cfgDropProb: 0.1, pEqual: 0.25,
+		adamLR: 5e-4, initScale: 0.02, cfgDropProb: 0.1, pEqual: 0.25,
+		lossEps: 1e-3, lossPower: 1.0, warmupSteps: 20,
 	}
 }
 
@@ -308,19 +312,20 @@ func runMeanflow(
 		for _, p := range params {
 			p.Load(a)
 		}
-		l0, err := meanflowStepLoss(a, model, device, dc, &st)
+		_, raw0, err := meanflowStepLoss(a, model, device, dc, &st)
 		if err != nil {
 			return fmt.Errorf("meanflow: baseline loss: %w", err)
 		}
-		if err := tensor.Realize(l0); err != nil {
-			return fmt.Errorf("meanflow: realize baseline loss: %w", err)
-		}
-		logFn(0, l0.Data()[0])
+		logFn(0, raw0)
 	}
 
 	start := time.Now()
 
 	for step := 1; step <= cfg.Steps; step++ {
+		// LR warmup: the bootstrap target is wildest while the network is still
+		// near its adaLN-zero init, so ramping the LR over the first steps (on top
+		// of the adaptive-L2 weighting) keeps early training from overshooting.
+		opt.LR = warmupLR(lr, step, int(dc.warmupSteps))
 		ds.Batch(stepRNG, int(batch), xHost, yHost)
 		meanflowDrawStep(stepRNG, xHost, yHost, dc, &st)
 
@@ -328,7 +333,7 @@ func runMeanflow(
 		for _, p := range params {
 			p.Load(a)
 		}
-		loss, err := meanflowStepLoss(a, model, device, dc, &st)
+		loss, rawMSE, err := meanflowStepLoss(a, model, device, dc, &st)
 		if err != nil {
 			return fmt.Errorf("meanflow: build step %d: %w", step, err)
 		}
@@ -356,7 +361,7 @@ func runMeanflow(
 			if err := safetensors.Save(ckpt, meanflowParamMap(params)); err != nil && cfg.LogText != nil {
 				cfg.LogText(fmt.Sprintf("meanflow: checkpoint save failed at step %d: %v\n", step, err))
 			}
-			logFn(step, loss.Data()[0])
+			logFn(step, rawMSE)
 		}
 		if cfg.OnStep != nil {
 			cfg.OnStep(step)
@@ -426,7 +431,7 @@ func meanflowDrawStep(rng *rand.Rand, xHost []float32, yHost []int32, dc meanflo
 // stop-grad target v - (t-r)*du/dt (detached by realizing it and re-injecting a
 // const leaf, since there is no Detach op). Returns the (unrealized) loss; the
 // caller backpropagates through u only (the target is a constant).
-func meanflowStepLoss(a *uop.Arena, m *meanflowModel, device string, dc meanflowConfig, st *meanflowStepBuffers) (*tensor.Tensor, error) {
+func meanflowStepLoss(a *uop.Arena, m *meanflowModel, device string, dc meanflowConfig, st *meanflowStepBuffers) (*tensor.Tensor, float32, error) {
 	B, C, H, W := st.batch, dc.inCh, dc.imageH, dc.imageW
 
 	zt := tensor.NewLeaf(a, []int64{B, C, H, W}, uop.Dtypes.Float32, device)
@@ -453,18 +458,43 @@ func meanflowStepLoss(a *uop.Arena, m *meanflowModel, device string, dc meanflow
 	// du/dt along the trajectory: tangent v on z, 1 on t, 0 on r (r not seeded).
 	duDt, err := tensor.JVP(u, []*tensor.Tensor{zt, tLeaf}, []*tensor.Tensor{vLeaf, ones})
 	if err != nil {
-		return nil, fmt.Errorf("JVP: %w", err)
+		return nil, 0, fmt.Errorf("JVP: %w", err)
 	}
-	// Stop-grad target: realize v - (t-r)*du/dt and re-inject as a const leaf.
+	// Stop-grad target v - (t-r)*du/dt, plus the per-sample squared error from the
+	// target graph (used for the adaptive weight). Realize both at once so the
+	// forward + JVP run a single time here.
 	tgt := vLeaf.Sub(trLeaf.Mul(duDt))
-	if err := tensor.Realize(tgt); err != nil {
-		return nil, fmt.Errorf("realize target: %w", err)
+	diffG := u.Sub(tgt)
+	ePerSampleG := diffG.Mul(diffG).Mean([]int{1, 2, 3}, true) // [B,1,1,1]
+	if err := tensor.Realize(tgt, ePerSampleG); err != nil {
+		return nil, 0, fmt.Errorf("realize target/error: %w", err)
 	}
 	tgtConst := tensor.NewLeaf(a, []int64{B, C, H, W}, uop.Dtypes.Float32, device)
 	tgtConst.SetData(append([]float32{}, tgt.Data()...))
 
+	// Adaptive L2 weight w = 1/(sg(e)+c)^p, the MeanFlow stabilizer: it normalizes
+	// each sample's gradient by its own error, so the heavy-tailed bootstrap target
+	// (a few samples with huge du/dt early) cannot blow up the update. The weight
+	// is detached (host-computed from the realized error); the raw per-sample MSE
+	// is returned as the honest monitoring metric.
+	eVals := ePerSampleG.Data()
+	wData := make([]float32, len(eVals))
+	var sum float32
+	for i, e := range eVals {
+		wData[i] = float32(1.0 / math.Pow(float64(e)+float64(dc.lossEps), float64(dc.lossPower)))
+		sum += e
+	}
+	rawMSE := sum / float32(len(eVals))
+	wLeaf := tensor.NewLeaf(a, []int64{B, 1, 1, 1}, uop.Dtypes.Float32, device)
+	wLeaf.SetData(wData)
+
+	// loss = mean_all(w_b * diff^2), which equals mean_b(w_b * mean_chw(diff^2))
+	// because w_b is constant across a sample's pixels. The single all-axis mean
+	// (as in the DiT loss) keeps the backward simple; the per-sample mean is only
+	// realized above for the weight, never backpropagated.
 	diff := u.Sub(tgtConst)
-	return diff.Mul(diff).Mean(nil, false), nil
+	sq := diff.Mul(diff) // [B,C,H,W]
+	return wLeaf.Mul(sq).Mean(nil, false), rawMSE, nil
 }
 
 const (

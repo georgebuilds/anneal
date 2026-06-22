@@ -71,6 +71,7 @@ func TestRunMeanFlowFewStepsSmoke(t *testing.T) {
 		imageH: 32, imageW: 32, patch: 8, inCh: 3,
 		embedDim: 32, condDim: 32, timeEmbedDim: 32, numClasses: 10,
 		nLayer: 1, nHead: 2, adamLR: 1e-3, initScale: 0.02, cfgDropProb: 0.1, pEqual: 0.25,
+		lossEps: 1e-3, lossPower: 1.0,
 	}
 
 	var captured strings.Builder
