@@ -1,4 +1,4 @@
-# SPEC.md — Anneal: A Go tensor compiler
+# SPEC.md - Anneal: A Go tensor compiler
 
 ## 1. Goal and non-goals
 
@@ -8,35 +8,35 @@ Build a from-scratch Go implementation of tinygrad's architecture: an immutable-
 
 ### 1.2 The two decisions this spec is built on
 
-- **(D1) Graph-rewrite compiler, not an idiomatic Go autodiff library.** Gradients are produced by a pass over the UOp graph, not by tape/closure backward methods. This is the more expensive path (arena + interning + pattern-matcher codegen are all in scope), and it is justified *only* by fusion-through-backward — which is the whole point. A tape-based autograd lib was considered and rejected because it hides the backward pass from the scheduler and forecloses tinygrad's reason to exist.
+- **(D1) Graph-rewrite compiler, not an idiomatic Go autodiff library.** Gradients are produced by a pass over the UOp graph, not by tape/closure backward methods. This is the more expensive path (arena + interning + pattern-matcher codegen are all in scope), and it is justified *only* by fusion-through-backward - which is the whole point. A tape-based autograd lib was considered and rejected because it hides the backward pass from the scheduler and forecloses tinygrad's reason to exist.
 
   **D1 status: VERIFIED.** Every backward node is an ordinary interned `UOp` on the same arena as the forward graph. The scheduler sees the complete forward + backward DAG and fuses across the boundary. See §5 for the as-built implementation mechanism.
 
-- **(D2) Rangeify indexing model, not view-merge.** Movement ops become index arithmetic on ranges (the current scheduler), not stacked `View` composition resolved via `View.__add__`/`simplify`. I inherit a simpler model precisely because I carry no legacy. The `View`/stride/offset/mask *data structure* is still used as the per-op representation; what I do **not** build is the cross-view merge/simplify machinery — rangeify dissolves it into range substitution.
+- **(D2) Rangeify indexing model, not view-merge.** Movement ops become index arithmetic on ranges (the current scheduler), not stacked `View` composition resolved via `View.__add__`/`simplify`. I inherit a simpler model precisely because I carry no legacy. The `View`/stride/offset/mask *data structure* is still used as the per-op representation; what I do **not** build is the cross-view merge/simplify machinery - rangeify dissolves it into range substitution.
 
 ### 1.3 Scope status (current)
 
 Original v1 was deliberately bounded; several items have shipped past that bound. Current honest status:
 
 **Shipped beyond original v1:**
-- **Symbolic shapes — dynamic batch (Option A) + general axis movement (Option B).** A net trains with the batch dim NOT baked into the kernel; the symbolic seam (§6.4) further supports split/merge of a symbolic axis (`[n*4]↔[n,4]`), pad/shrink amounts that are themselves symbolic, multi-dim symbolic dispatch (including non-outermost symbolic positions on the kernel-output / tensor-result side and on input buffers via `emitIndex`'s `strideAcc` machinery), an unbounded number of symbolic vars per kernel, and cross-arena structural-key portability for symbolic graphs. See §6.4 for scope and the one remaining carried boundary (opt relaxations for symbolic kernels — perf, not correctness); §10 for the load-bearing invariants. Dynamic seq-length tensor APIs are the natural next user.
+- **Symbolic shapes - dynamic batch (Option A) + general axis movement (Option B).** A net trains with the batch dim NOT baked into the kernel; the symbolic seam (§6.4) further supports split/merge of a symbolic axis (`[n*4]↔[n,4]`), pad/shrink amounts that are themselves symbolic, multi-dim symbolic dispatch (including non-outermost symbolic positions on the kernel-output / tensor-result side and on input buffers via `emitIndex`'s `strideAcc` machinery), an unbounded number of symbolic vars per kernel, and cross-arena structural-key portability for symbolic graphs. See §6.4 for scope and the one remaining carried boundary (opt relaxations for symbolic kernels - perf, not correctness); §10 for the load-bearing invariants. Dynamic seq-length tensor APIs are the natural next user.
 - **JIT replay / `TinyJit`-style capture.** `tensor.JIT` captures the frozen execution plan on first call; subsequent calls skip sink construction, scheduling, and the leaf walk. The match guard is keyed on the captured output expression's structural key (§7.5c).
 - **Schedule cache.** `CreateSchedule` memoized on a structural key (in-process, single-arena). The former determinism BLOCKER is resolved (§7.6 pass-7b notes).
-- **GPT-2-small fine-tuning (end to end).** `anneal train gpt2` (`examples/gpt2_finetune.go`) trains the tied-head HuggingFace GPT-2-small on tinyshakespeare: tied embedding/LM-head accumulate one shared gradient, a numerically stable (max-subtract) cross-entropy, global-norm clip, AdamW (`nn.NewAdamW`) with LR warmup, and a skip-step guard. The whole forward+backward+all-grads realize as one batched call (shared forward computed once) wrapped in `tensor.JIT` on GPU (~40s/step on M3 after capture; was ~1.8 hr/step with per-grad realize). Required draining a numerical-stability cascade — `OpExpand`-backward axis fix, Sigmoid/attention exp-clamps, erf-GELU (`OpErf`, incl. CPU) — and the scheduler's `enforceBufferBudget` iteration cap scaling for the deep backward. The eval-batch loss converges (perplexity ~140 → ~64 over 100 steps). Pretraining from scratch remains out of scope.
+- **GPT-2-small fine-tuning (end to end).** `anneal train gpt2` (`examples/gpt2_finetune.go`) trains the tied-head HuggingFace GPT-2-small on tinyshakespeare: tied embedding/LM-head accumulate one shared gradient, a numerically stable (max-subtract) cross-entropy, global-norm clip, AdamW (`nn.NewAdamW`) with LR warmup, and a skip-step guard. The whole forward+backward+all-grads realize as one batched call (shared forward computed once) wrapped in `tensor.JIT` on GPU (~40s/step on M3 after capture; was ~1.8 hr/step with per-grad realize). Required draining a numerical-stability cascade - `OpExpand`-backward axis fix, Sigmoid/attention exp-clamps, erf-GELU (`OpErf`, incl. CPU) - and the scheduler's `enforceBufferBudget` iteration cap scaling for the deep backward. The eval-batch loss converges (perplexity ~140 → ~64 over 100 steps). Pretraining from scratch remains out of scope.
 - **Modern-decoder primitive stack (Llama example).** `anneal train llama` (`examples/llama.go`, `tensor/nn/llama.go`) trains a tiny char-level Llama-style decoder from scratch on tinyshakespeare, exercising the small-LM primitives that replaced the GPT-2 stack across 2024-2026 models: RMSNorm (not LayerNorm), grouped-query attention (4 query heads sharing 2 KV heads) with RoPE rotary position injection (not vanilla multi-head attention plus learned absolute positions), a SwiGLU feed-forward (not a GELU MLP), and tied embeddings (the LM head shares the token-embedding weight). The block is pre-RMSNorm with two residuals; position is carried entirely by RoPE inside attention, so there is no learned position embedding. It is the modern-decoder "level-up" companion to nanoGPT and reuses nanoGPT's char dataset, training through the same `tensor.Backward()` plus `tensor.Realize()` path so forward and backward fuse into the same WGSL kernels. It is a small architecture demo, not a trained chat model. Reference: `tensor/nn/rmsnorm.go`, `tensor/nn/gqa.go`, `tensor/nn/rope.go`, `tensor/nn/swiglu.go`.
 - **`.upat` DSL codegen migration.** The symbolic ruleset is compiled from `rewrite/rules/symbolic.upat` (§4.1).
 - **Migration I/O.** `tensor/npy` (load `.npy`/`.npz`) and `tensor/safetensors` (save/load HuggingFace checkpoints, bidirectionally compatible with the real Python library). Both pure-Go, no cgo, no runtime Python.
 - **Low-precision dtypes.** f16 via `shader-f16` extension (fail-closed); bf16 and fp8 (e4m3fn / e5m2) as storage-only with f32 compute. Reduction accumulators stay f32 (§11 Q3).
 - **Epilogue fusion (Pass 5 active).** `removeBufferize` now elides the BUFFERIZE of a reduce-output into a single downstream elementwise consumer. The reduce itself remains a materialization boundary; the elementwise op fuses into the same kernel. Verified kernel-count reductions: matmul+bias 2→1, matmul+bias+relu 2→1, MLP fwd 3→2, MLP fwd+bwd 12→8, conv 2→1. Value-identical (max-abs-diff 0), wall-clock neutral on M3.
-- **BEAM autotuning (env-gated).** `codegen/opt.go` exposes the Opt seam; `codegen/beam.go` implements beam-of-k search over opt sequences. `BeamApplyToItems` is wired into the realize path, env-gated via ANNEAL_BEAM. Default mode is zero-overhead O(1) disk-cache lookup. See §7.7b–c.
+- **BEAM autotuning (env-gated).** `codegen/opt.go` exposes the Opt seam; `codegen/beam.go` implements beam-of-k search over opt sequences. `BeamApplyToItems` is wired into the realize path, env-gated via ANNEAL_BEAM. Default mode is zero-overhead O(1) disk-cache lookup. See §7.7b-c.
 - **ONNX importer.** `onnx/` parses ONNX 1.17.0 models via pure-Go protobuf bindings (`onnx/onnxpb/`, generated at dev time, committed in-tree; zero-CGO preserved). About 100 op handlers cover the Stage-1 CNN core and the Stage-2 transformer core, lowering onto the same UOp arena as the rest of the compiler. Two new UOps shipped to close coverage gaps: `OpErf` (Abramowitz-Stegun 7.1.26 WGSL polynomial, max abs error 1.68e-07) and `OpMin`. Strategy A bit-exact gate: every E2E test builds the model twice on the same arena (direct Tensor API + via importer) and asserts `[]float32` slice equality. Strategy B onnxruntime cross-check committed for ResNet-9 at max-abs-diff 8.2e-08. Phase 4 conformance harness over 234 ONNX 1.17.0 backend node tests: 174 pass, 0 fail, 60 documented skips, worst max-abs-diff 7.324e-04. Symbolic `dim_param` axes preserved as anneal `Variable`s (Option B path). `WithStructureOnly()` skips initializer payload materialisation for visualization use; `Runner.Run` fails closed in that mode. Reference: `notes/onnx_implementation_plan.md`, `notes/onnx_progress.md`.
-- **`anneal web` local studio.** `cmd/anneal/cmd_web*.go` + `web/` ships a single-binary browser surface at `:3001` (default) with eight deep-linkable views: studio (home), visualize (with node inspector), kernels, explain, train, generate, history, doctor. WASM/native split keystone: every view that compiles runs in-browser via the Web Worker; every view that executes streams over SSE from a native handler. Zero telemetry, zero accounts, model bytes never reach the server (the WASM dropzone uses `onnx.WithStructureOnly()`). Bundle persistence under `~/.cache/anneal/runs/<ts>-<model>-<6hex>/` (`bundle_version=1`, additive-only). CLI default OFF (`--bundle` / `ANNEAL_BUNDLE=1`); web default ON (`?bundle=0` disables). Trainer snapshot channel (`tui.Snapshot`) decoupled from bubbletea — TUI byte-identical regression pinned. GPT-2-small forward verified on M3: 47s cold-start wall for 3-token completion, 3.82 GB peak RSS for 10 tokens. Accessibility is a binding requirement (WCAG 2.x AA) via `web/A11Y.md`. The canonical design doc is `DESIGN.md` (DD1 through DD4 plus the binding §11 a11y invariants). Reference: `notes/anneal_web_spec.md`, `notes/web_progress.md`.
+- **`anneal web` local studio.** `cmd/anneal/cmd_web*.go` + `web/` ships a single-binary browser surface at `:3001` (default) with eight deep-linkable views: studio (home), visualize (with node inspector), kernels, explain, train, generate, history, doctor. WASM/native split keystone: every view that compiles runs in-browser via the Web Worker; every view that executes streams over SSE from a native handler. Zero telemetry, zero accounts, model bytes never reach the server (the WASM dropzone uses `onnx.WithStructureOnly()`). Bundle persistence under `~/.cache/anneal/runs/<ts>-<model>-<6hex>/` (`bundle_version=1`, additive-only). CLI default OFF (`--bundle` / `ANNEAL_BUNDLE=1`); web default ON (`?bundle=0` disables). Trainer snapshot channel (`tui.Snapshot`) decoupled from bubbletea - TUI byte-identical regression pinned. GPT-2-small forward verified on M3: 47s cold-start wall for 3-token completion, 3.82 GB peak RSS for 10 tokens. Accessibility is a binding requirement (WCAG 2.x AA) via `web/A11Y.md`. The canonical design doc is `DESIGN.md` (DD1 through DD4 plus the binding §11 a11y invariants). Reference: `notes/anneal_web_spec.md`, `notes/web_progress.md`.
 
 **Still deferred / dropped:**
 - Multi-device / sharding / `ALLREDUCE`. Dropped for v1; `OpCopy`'s hard-boundary role is conditionally dormant and rejoins when this lands (§7.3 note).
 - `ImageDType` and image-specific codegen paths. Shipped: see the Image dtype row in §2 for the as-built surface and the carried output-stride constraint.
 - Backends beyond the first. v1 targets one backend (§7).
-- Opt relaxations for symbolic kernels — LOCAL/TILE/UPCAST/VECTORIZE currently blanket-bail on a symbolic axis. The blocker is structural, not a guard tweak: the lowerer forces every range of a sym kernel into `dim 0` (`targetDim=0` collapse in `codegen/lower.go`) and the executor mirrors with `wc[0]=ceil(outElems/L), Y=Z=1`, so peeling out an `AxisLocal` / `AxisWorkgroup` / `AxisUpcast` / `AxisVectorize` range from `level=0` breaks the level-0 stride composition for the remaining axes. The unlock is dropping the 1D-flatten and giving sym kernels static-style per-axis dim assignment — a separate slice. Optional perf, not correctness. (TILE has an additional WGSL ceiling: non-const `var<workgroup>` sizes aren't supported; non-matmul UPCAST/VECTORIZE have a pre-existing latent unrelated to symbolic, tracked separately.)
+- Opt relaxations for symbolic kernels - LOCAL/TILE/UPCAST/VECTORIZE currently blanket-bail on a symbolic axis. The blocker is structural, not a guard tweak: the lowerer forces every range of a sym kernel into `dim 0` (`targetDim=0` collapse in `codegen/lower.go`) and the executor mirrors with `wc[0]=ceil(outElems/L), Y=Z=1`, so peeling out an `AxisLocal` / `AxisWorkgroup` / `AxisUpcast` / `AxisVectorize` range from `level=0` breaks the level-0 stride composition for the remaining axes. The unlock is dropping the 1D-flatten and giving sym kernels static-style per-axis dim assignment - a separate slice. Optional perf, not correctness. (TILE has an additional WGSL ceiling: non-const `var<workgroup>` sizes aren't supported; non-matmul UPCAST/VECTORIZE have a pre-existing latent unrelated to symbolic, tracked separately.)
 
 ---
 
@@ -44,12 +44,12 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 
 | Dimension | Status |
 |---|---|
-| Shapes — static | ✅ |
-| Shapes — dynamic batch (symbolic, Option A) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
-| Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch (Option B) | ✅ Shipped; see §6.4 |
+| Shapes - static | ✅ |
+| Shapes - dynamic batch (symbolic, Option A) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
+| Symbolic shapes - split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch (Option B) | ✅ Shipped; see §6.4 |
 | Dynamic seq-length tensor API | ⛔ Deferred (Option-B capability is in; the tensor-surface constructor / fence is the open work) |
 | Devices | Single device (multi-device deferred) |
-| Autodiff | ✅ Full reverse-mode via typed graph traversal (D1 verified — §5) |
+| Autodiff | ✅ Full reverse-mode via typed graph traversal (D1 verified, §5); forward-mode JVP (`tensor.JVP`, §5) for directional derivatives |
 | Backend | ✅ WebGPU (native + WASM; §7.8); CPU pure-Go interpreter at `backend/cpu/` ships in-binary with no GPU required (slice 2 op coverage: MLP/conv core + movement, gather/scatter, non-contiguous reductions, f16/bf16/fp8 quantized storage with bit-exact Quantize parity; value oracle for WebGPU at max-abs-diff 1.19e-07 forward / 2.98e-08 gradient on the MLP demo) |
 | JIT | ✅ Capture/replay (`tensor.JIT`; §7.5c) |
 | Schedule cache | ✅ Memoized on structural key (§7.6) |
@@ -57,17 +57,17 @@ Original v1 was deliberately bounded; several items have shipped past that bound
 | Dtypes | `float32`, `int32`, `bool` runtime-verified; f16 ✅ via `shader-f16` (fail-closed if unavailable); bf16 ✅ storage-only (f32 compute); fp8 ✅ e4m3fn + e5m2 storage-only (f32 compute, any adapter). |
 | Image dtype | ✅ `ImageFloat32` ships as a storage-layout sibling of `Float32`. The buffer binding is `array<vec4<f32>>` (one vec4 holds four logical f32 elements); compute stays scalar f32, gradients and autodiff are unchanged. Selected via the standard `Vec`/promotion lattice (`LeastUpperDType(Image, Float32) == Float32`). Carried constraint: matmul bit-exact only when the output row stride is a multiple of 4 (per-component WGSL stores into a shared vec4 slot race under naga); the kernel produces correct results under that constraint and the value oracle is scoped accordingly. |
 | Epilogue fusion (Pass 5) | ✅ Reduce-output BUFFERIZE elided into single elementwise consumer (§7.6) |
-| BEAM autotuning | ✅ Env-gated; ANNEAL_BEAM=1 to search, disk-cached (§7.7b–c) |
+| BEAM autotuning | ✅ Env-gated; ANNEAL_BEAM=1 to search, disk-cached (§7.7b-c) |
 | ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~100 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone (§1.3) |
 | `anneal web` local studio | ✅ Single-binary local browser surface, 8 deep-linkable views, WASM/native split, zero telemetry, WCAG 2.x AA (§1.3, DESIGN.md) |
 | Tensor inspect (web) | ✅ `annealInspectTensor` over the shipped migration I/O surfaces (npy / safetensors); home-page dropzone (§1.3) |
 | Run bundle persistence | ✅ `~/.cache/anneal/runs/<ts>-<model>-<6hex>/`; `bundle_version=1` additive-only; CLI default OFF, web default ON (§1.3) |
 
-The original v1 milestone — train a small MLP and a small conv net end to end with gradients produced by the graph traversal and kernels fused across the forward/backward boundary — was met. Subsequent additions extend it without re-litigating it.
+The original v1 milestone - train a small MLP and a small conv net end to end with gradients produced by the graph traversal and kernels fused across the forward/backward boundary - was met. Subsequent additions extend it without re-litigating it.
 
 ---
 
-## 3. Core IR — the UOp
+## 3. Core IR - the UOp
 
 The single IR node used across the entire stack (tensor graph, kernel graph, linearized instructions).
 
@@ -75,23 +75,23 @@ The single IR node used across the entire stack (tensor graph, kernel graph, lin
 
 A UOp is an immutable record of five fields: `(op, dtype, src, arg, tag)`.
 
-- `op` — operation enum.
-- `dtype` — output dtype (`void` for control ops).
-- `src` — ordered tuple of source UOps (the DAG edges).
-- `arg` — static metadata (const value, axis, var name, kernel info, etc.). Must be one of the supported types listed in §3.3; passing an unsupported type panics at construction time.
-- `tag` — classification tag used by lowering.
+- `op` - operation enum.
+- `dtype` - output dtype (`void` for control ops).
+- `src` - ordered tuple of source UOps (the DAG edges).
+- `arg` - static metadata (const value, axis, var name, kernel info, etc.). Must be one of the supported types listed in §3.3; passing an unsupported type panics at construction time.
+- `tag` - classification tag used by lowering.
 
 Equality is **by identity**, made correct by structural interning (§3.3).
 
-### 3.2 Memory model — integer-indexed arena (load-bearing)
+### 3.2 Memory model - integer-indexed arena (load-bearing)
 
 UOps are **not** Go pointers in a graph. They are `uint32` indices into a contiguous, pre-allocated arena of UOp structs. Rationale: the compiler allocates millions of short-lived UOps; a `*UOp` pointer graph would batter Go's GC. The arena gives cache locality and O(1) bulk reclamation.
 
 **Lifecycle (as built):** The arena's lifecycle is bound to one **training step**, not one `Realize()` call. Within a step, multiple `Realize()` calls share one arena and freely accumulate nodes. Between steps, training code allocates a fresh `uop.NewArena()` and abandons the old one. The canonical training pattern is **fresh-arena-per-step**.
 
-Nothing holds UOp arena indices across step boundaries — the step N leaf may be at index 7, step N+1 at index 3 in a fresh arena. The only legitimate cross-step state is `nn.Parameter.Value` (§7.5b), and JIT's captured plan, which uses structural keys to survive arena churn (§7.5c).
+Nothing holds UOp arena indices across step boundaries - the step N leaf may be at index 7, step N+1 at index 3 in a fresh arena. The only legitimate cross-step state is `nn.Parameter.Value` (§7.5b), and JIT's captured plan, which uses structural keys to survive arena churn (§7.5c).
 
-**Forward/backward provenance** is recorded as an out-of-band per-node phase tag on the arena (a parallel slice, reset on `Arena.Reset`). The autodiff driver scopes the backward phase with `SetPhase`/`defer`; other sites (notably the uop tests) use explicit `prev := a.SetPhase(...); ...; a.SetPhase(prev)` restore. Either pattern is correct — `SetPhase` returns the prior phase, and the caller is responsible for restoring it. It does NOT participate in interning — provenance is a property of *when* a node was first built, not *what* it is. First-construction-wins: a node interned during the forward pass stays tagged forward even if the backward pass later asks for the same structure.
+**Forward/backward provenance** is recorded as an out-of-band per-node phase tag on the arena (a parallel slice, reset on `Arena.Reset`). The autodiff driver scopes the backward phase with `SetPhase`/`defer`; other sites (notably the uop tests) use explicit `prev := a.SetPhase(...); ...; a.SetPhase(prev)` restore. Either pattern is correct - `SetPhase` returns the prior phase, and the caller is responsible for restoring it. It does NOT participate in interning - provenance is a property of *when* a node was first built, not *what* it is. First-construction-wins: a node interned during the forward pass stays tagged forward even if the backward pass later asks for the same structure.
 
 ### 3.3 Interning / hash-consing
 
@@ -99,9 +99,9 @@ Before constructing a UOp, hash its `(op, dtype, src, arg, tag)` signature and l
 
 Go uses an **arena-bound cache**: the cache lives and dies with the arena, so dead nodes vanish when the arena is abandoned at step end.
 
-**Bypass intern set:** `{OpUnique, OpLUnique, OpBuffer, OpRange, OpDefineLocal}` carry intrinsic identity that must not dedup. `OpRange` is in the set because two loop variables with the same `(ID, Type)` from different kernels or realize calls must remain distinct — without bypass, hash-consing would collapse them and corrupt the per-kernel fused-ranges ordering. `OpRange` IDs come from a per-kernel `rangeCtx.nextID` counter rather than the intern cache.
+**Bypass intern set:** `{OpUnique, OpLUnique, OpBuffer, OpRange, OpDefineLocal}` carry intrinsic identity that must not dedup. `OpRange` is in the set because two loop variables with the same `(ID, Type)` from different kernels or realize calls must remain distinct - without bypass, hash-consing would collapse them and corrupt the per-kernel fused-ranges ordering. `OpRange` IDs come from a per-kernel `rangeCtx.nextID` counter rather than the intern cache.
 
-**Structural key:** `uop.StructuralKeys(a *Arena) []uint64` computes a bottom-up content hash per node — `H(op, dtype_struct_hash, arg, [child_key for child in srcs])`. Children contribute by their *structural keys*, not by arena indices, so two structurally-identical subtrees built in different arena order get the same key. `DType.StructuralHash()` is itself a pure function of dtype fields (not a pointer address), so the key is process-portable. This is the foundation for deterministic scheduling (§7.6 pass-7b) and the JIT match guard (§7.5c).
+**Structural key:** `uop.StructuralKeys(a *Arena) []uint64` computes a bottom-up content hash per node - `H(op, dtype_struct_hash, arg, [child_key for child in srcs])`. Children contribute by their *structural keys*, not by arena indices, so two structurally-identical subtrees built in different arena order get the same key. `DType.StructuralHash()` is itself a pure function of dtype fields (not a pointer address), so the key is process-portable. This is the foundation for deterministic scheduling (§7.6 pass-7b) and the JIT match guard (§7.5c).
 
 ---
 
@@ -121,9 +121,9 @@ Reflection in the hot rewrite path is **prohibited**.
 
 ### 4.2 The driver
 
-`graph_rewrite` walks the DAG applying rules. **The iterative driver was built from the start** — a slice-based state machine that handles arbitrarily deep graphs without stack overflow.
+`graph_rewrite` walks the DAG applying rules. **The iterative driver was built from the start** - a slice-based state machine that handles arbitrarily deep graphs without stack overflow.
 
-Two composable matchers in one driver: `bpm` (pre-order) and `pm` (post-order). Rule order matters — earlier rules win.
+Two composable matchers in one driver: `bpm` (pre-order) and `pm` (post-order). Rule order matters - earlier rules win.
 
 ### 4.3 Rulesets
 
@@ -131,15 +131,15 @@ Two composable matchers in one driver: `bpm` (pre-order) and `pm` (post-order). 
 
 ### 4.4 Bounds (interval arithmetic, not SMT)
 
-`rewrite/rules/bounds.go` provides `BoundsOf(u uop.UOp) Bounds` — SMT-free integer interval arithmetic over the UOp graph. Composes through ALU ops (`OpAdd`/`Sub`/`Mul`/`IDiv`/`Mod`/`CmpLT`/`CmpNE`/`CmpEQ`/`Cast`), handles `OpDefineVar`, and is the foundation that load-bears symbolic-shape work without an external solver.
+`rewrite/rules/bounds.go` provides `BoundsOf(u uop.UOp) Bounds` - SMT-free integer interval arithmetic over the UOp graph. Composes through ALU ops (`OpAdd`/`Sub`/`Mul`/`IDiv`/`Mod`/`CmpLT`/`CmpNE`/`CmpEQ`/`Cast`), handles `OpDefineVar`, and is the foundation that load-bears symbolic-shape work without an external solver.
 
-Tested directly via table-driven cases in `bounds_test.go` (90% line coverage on `BoundsOf` as of the hardening pass). A latent `OpMod` bug surfaced by that pass — the same-period guard used Go's truncating `/` where `floorDiv` is correct, producing too-tight bounds for dividend ranges straddling zero — has been fixed.
+Tested directly via table-driven cases in `bounds_test.go` (90% line coverage on `BoundsOf` as of the hardening pass). A latent `OpMod` bug surfaced by that pass - the same-period guard used Go's truncating `/` where `floorDiv` is correct, producing too-tight bounds for dividend ranges straddling zero - has been fixed.
 
 ---
 
 ## 5. Autodiff
 
-Gradients are computed by `tensor.Backward()` — a typed iterative reverse traversal of the forward UOp DAG. Per-op derivative dispatch is via `Gradient`, a `map[uop.Op]GradRule` ruleset in `tensor/gradient_ruleset.go`. The original typed-switch implementation (`applyGradRule`) is retained in `tensor/gradient_oracle_test.go` as the differential equivalence oracle — `TestGradientRulesetEquivalence` enforces bit-exact equivalence on every test run, so any future ruleset edit must match it. Adjoints converging from multiple consumers are summed by injecting `OpAdd` nodes. The output is an augmented graph containing forward + backward UOps on the same arena, which the scheduler sees whole and fuses across.
+Gradients are computed by `tensor.Backward()` - a typed iterative reverse traversal of the forward UOp DAG. Per-op derivative dispatch is via `Gradient`, a `map[uop.Op]GradRule` ruleset in `tensor/gradient_ruleset.go`. The original typed-switch implementation (`applyGradRule`) is retained in `tensor/gradient_oracle_test.go` as the differential equivalence oracle - `TestGradientRulesetEquivalence` enforces bit-exact equivalence on every test run, so any future ruleset edit must match it. Adjoints converging from multiple consumers are summed by injecting `OpAdd` nodes. The output is an augmented graph containing forward + backward UOps on the same arena, which the scheduler sees whole and fuses across.
 
 `gradient.go`'s shape handling carries `[]shape.Sint` (not `[]int64`) so a symbolic batch dim flows through the backward pass as an opaque passthrough axis. See §6.4.
 
@@ -149,11 +149,13 @@ Gradients are computed by `tensor.Backward()` — a typed iterative reverse trav
 
 A PatternMatcher / `.upat` gradient ruleset is an option (the `.upat` generator now exists). It would be an ergonomics and introspectability improvement, not a correctness requirement. The current typed traversal is the correct, permanent v1 design.
 
+**Forward-mode (JVP).** `tensor.JVP(out, wrt, tangents)` adds forward-mode autodiff alongside reverse-mode. It walks the same forward DAG in topological order, propagating a tangent per node via a per-op `jvpRules` table parallel to the gradient ruleset, so the tangent graph is just more interned UOps on the same arena (no new IR, same fuse-through scheduling). Coverage spans a full DiT forward (pointwise, unary, cast, movement, reduce, where, binary min/max, shrink/pad; matmul/softmax/layernorm/attention compose for free since matmul lowers to mul + sum), and it fails closed with a clear error on any op without a rule (never a silent zero tangent). FD-verified on the CPU interpreter. First use: the exact MeanFlow objective (`examples/meanflow.go`), whose total time-derivative along the trajectory is one JVP.
+
 **Visualizer consequence:** the visualizer cannot show the backward pass as "rules firing" until gradients migrate to a ruleset. It can show the resulting augmented graph (forward nodes in teal, backward nodes in ember; provenance is read from the per-node phase tag, §3.2) with correct coloring, and the fusion boundary in gold.
 
 ---
 
-## 6. Shapes — View, ShapeTracker, and the symbolic seam
+## 6. Shapes - View, ShapeTracker, and the symbolic seam
 
 ### 6.1 View and ShapeTracker
 
@@ -176,13 +178,13 @@ type ShapeTracker struct {
 
 ### 6.2 Movement ops as view math (no copies)
 
-All six movement primitives are pure stride/offset/mask edits on the last view; they never copy. Correctness rests on the flat index being affine: `idx = offset + Σ idx_i·stride_i`. A copy is never forced by a movement op — only by the **scheduler** (§7) when it inserts a realize boundary.
+All six movement primitives are pure stride/offset/mask edits on the last view; they never copy. Correctness rests on the flat index being affine: `idx = offset + Σ idx_i·stride_i`. A copy is never forced by a movement op - only by the **scheduler** (§7) when it inserts a realize boundary.
 
 ### 6.3 What rangeify changes (D2)
 
 Under rangeify, cross-view composition is replaced by **range substitution**: movement ops swizzle index ranges rather than stacking views that later get merged. **I do not build `View.__add__` / `ShapeTracker.simplify`.** The View struct remains the per-op representation; the merge layer is the thing rangeify obviates.
 
-### 6.4 Symbolic seam — Option A (dynamic batch) and Option B (general axis movement) both shipped
+### 6.4 Symbolic seam - Option A (dynamic batch) and Option B (general axis movement) both shipped
 
 The seam is `Sint = int | UOp`:
 
@@ -192,23 +194,23 @@ type ConstInt struct { V int64 }
 type SymInt   struct { Node uop.UOp }
 ```
 
-`SymInt` arithmetic builds real UOp expressions (`Add`/`Sub`/`Mul`/`Neg`/`IDiv`/`Mod`); `ConstInt`×`ConstInt` stays off-arena so the static path is bit-identical. `arena.DefineVar(name, min, max)` creates the symbolic dim with `DefineVar.src = [minC, max+1 C]` (inclusive-min, exclusive-max internally; user-facing bounds are inclusive on both ends — see §10). There is **no SMT/Z3 dependency** — bound reasoning is `BoundsOf` interval arithmetic over the same UOp graph (§4.4).
+`SymInt` arithmetic builds real UOp expressions (`Add`/`Sub`/`Mul`/`Neg`/`IDiv`/`Mod`); `ConstInt`×`ConstInt` stays off-arena so the static path is bit-identical. `arena.DefineVar(name, min, max)` creates the symbolic dim with `DefineVar.src = [minC, max+1 C]` (inclusive-min, exclusive-max internally; user-facing bounds are inclusive on both ends - see §10). There is **no SMT/Z3 dependency** - bound reasoning is `BoundsOf` interval arithmetic over the same UOp graph (§4.4).
 
-**Option A — dynamic batch (shipped):** a symbolic dim rides through ops as an opaque passthrough axis, matched by node identity (`SintShapesEqual`) and routed through reshape/expand/permute/broadcast/matmul without arithmetic compare. The symbolic dim's value reaches the GPU via a trailing WGSL **uniform** buffer (`ParamsN`) keyed at dispatch time, so one compiled WGSL kernel runs at any batch size without recompiling (`Device.RunSymbolic` + a compile-once cache keyed on WGSL source). Binding is by point-substitution: `tensor.RealizeWithBinding(map[string]int64, tensors...)` substitutes each `DefineVar` with its `Const` value into the graph *before* scheduling, and the existing symbolic ruleset folds the result.
+**Option A - dynamic batch (shipped):** a symbolic dim rides through ops as an opaque passthrough axis, matched by node identity (`SintShapesEqual`) and routed through reshape/expand/permute/broadcast/matmul without arithmetic compare. The symbolic dim's value reaches the GPU via a trailing WGSL **uniform** buffer (`ParamsN`) keyed at dispatch time, so one compiled WGSL kernel runs at any batch size without recompiling (`Device.RunSymbolic` + a compile-once cache keyed on WGSL source). Binding is by point-substitution: `tensor.RealizeWithBinding(map[string]int64, tensors...)` substitutes each `DefineVar` with its `Const` value into the graph *before* scheduling, and the existing symbolic ruleset folds the result.
 
-**Option B — split/merge, sym pad/shrink, multi-dim sym dispatch (shipped):** the capability now covers (a) reshape across a symbolic axis in both directions (`[n,4]↔[n*4]`), (b) pad/shrink amounts that are themselves symbolic, (c) multi-dim symbolic dispatch on GPU — including non-outermost symbolic positions on the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute landing patterns), (d) an unbounded number of distinct symbolic vars per kernel (the prior 4-var WGSL-uniform-field cap is gone; `ParamsN` grows dynamically, rounded up to a multiple of 4 for WGSL uniform alignment), and (e) cross-arena structural-key portability for symbolic graphs (same logical graph built in two arenas hashes byte-equal). All paths value-proven against a CPU oracle with max-abs-diff 0.
+**Option B - split/merge, sym pad/shrink, multi-dim sym dispatch (shipped):** the capability now covers (a) reshape across a symbolic axis in both directions (`[n,4]↔[n*4]`), (b) pad/shrink amounts that are themselves symbolic, (c) multi-dim symbolic dispatch on GPU - including non-outermost symbolic positions on the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute landing patterns), (d) an unbounded number of distinct symbolic vars per kernel (the prior 4-var WGSL-uniform-field cap is gone; `ParamsN` grows dynamically, rounded up to a multiple of 4 for WGSL uniform alignment), and (e) cross-arena structural-key portability for symbolic graphs (same logical graph built in two arenas hashes byte-equal). All paths value-proven against a CPU oracle with max-abs-diff 0.
 
 Mechanically, Option B replaces the cv()-trapping comparator path with `BoundsOf`-style reasoning: `shape.ResolveNonNeg` / `shape.ResolveLE` answer "is this provably ≥ 0 / ≤ that?" by walking the backing UOp tree's intervals, so Pad/Shrink validation never reaches the comparison fence. The `Lt`/`Le`/`Eq`-on-`SymInt` panic from Option A is retained as a defense-in-depth fence (any new call site that *does* require an arithmetic compare must be promoted to bound-based reasoning), not as Option B's blocker.
 
 Encoding details that landed and are load-bearing:
-- **`OpRange` bound** is `OpRange.src[0]` — a full UOp expression (Const for concrete, DefineVar / affine expression for symbolic). `RangeArg` is `{ID, Type}` only; size/symbolic flags/var-slot indices are recovered structurally from `src[0]` and the kernel's `VariablesOf` walk.
-- **`ShapeDim` encoding** is `{V, Sym, VarName, Mul}` — name-keyed and structural. Symbolic dims set `Sym=true`, `V=0`, and decompose as `Mul * binding[VarName]`. Pad/shrink amounts share the same encoding via `PadSintArg` / `ShrinkSintArg`.
-- **`BoundExprArg` + `Buffer.SymDimAffine`** carry two-var (and higher) affine sums (`Sum(Mul[i] * binding[VarName[i]]) + Offset`) on the runtime resolution surface only — used when a buffer's output bound is an Add of distinct DefineVars (e.g. pad on a symbolic axis). The structural-key surface stays at the simpler `(VarName, Mul)` decomposition.
+- **`OpRange` bound** is `OpRange.src[0]` - a full UOp expression (Const for concrete, DefineVar / affine expression for symbolic). `RangeArg` is `{ID, Type}` only; size/symbolic flags/var-slot indices are recovered structurally from `src[0]` and the kernel's `VariablesOf` walk.
+- **`ShapeDim` encoding** is `{V, Sym, VarName, Mul}` - name-keyed and structural. Symbolic dims set `Sym=true`, `V=0`, and decompose as `Mul * binding[VarName]`. Pad/shrink amounts share the same encoding via `PadSintArg` / `ShrinkSintArg`.
+- **`BoundExprArg` + `Buffer.SymDimAffine`** carry two-var (and higher) affine sums (`Sum(Mul[i] * binding[VarName[i]]) + Offset`) on the runtime resolution surface only - used when a buffer's output bound is an Add of distinct DefineVars (e.g. pad on a symbolic axis). The structural-key surface stays at the simpler `(VarName, Mul)` decomposition.
 - **`sintStrides` / `flatIndexSints` / `unflatIndexSints`** handle symbolic dims in any position (including non-outermost). The lowerer's trailing-product walk dispatches multi-dim symbolic via the same `renderSymBoundExpr` machinery; `symElemCount` in the executor produces the correct total dispatch threads.
 - **`emitIndex` `strideAcc` machinery** widens stride accumulation in the lowerer's multi-dim `OpIndex` path from `int64` to a `(constPart, symPart)` accumulator (`codegen/lower.go`). For an input buffer with a non-outermost symbolic dim, the stride for axes outside the sym slot is rendered as a WGSL u32 expression (`params_n.n{slot}` × `SymDimMul`, with parenthesisation that survives left-associative WGSL `*` / `/` composition); `paramDimFactor` resolves the per-dim factor via the buffer's `SymDimAffine` / `(SymDimMul, SymDimVar)` encoding. Closes the emitIndex carried-debt from Slice 7b. Defensive panics fire if a positional encoding leaks back in (concrete `stride[d]=0` on a non-trailing dim or a missing slot lookup).
-- **Tensor-surface frontend (`tensor.Variable` + `tensor.NewSymbolicShape`).** `tensor.NewVariable(arena, name, min, max)` returns a `Variable` value wrapping the interned `OpDefineVar` UOp; `.Sint()` yields a `shape.SymInt` composable into a `[]shape.Sint` shape list, `.Bind(val)` returns a `map[string]int64` entry, and `tensor.MergeBindings(...)` unions multiple bindings with conflict detection. `tensor.NewSymbolicShape(arena, []shape.Sint, dtype, device)` is the general-purpose constructor permitting symbolic dims at any position with multiple distinct Variables per shape (the legacy `NewSymbolicBatchInput` is sym-outermost-only and remains for internal callers). The constructor builds a `ShapeSintArg` with `Sym=true, V=0, VarName=name, Mul=1` at each sym position (the V=0-on-sym invariant is enforced defensively at every dim regardless of position), collects all distinct DefineVars and stores them as srcs of the BUFFER node in name-sorted order so the gradient pass and scheduler recover them by structural lookup. Same-name + different-bounds collisions in a single arena panic at the Variable constructor — `FindDefineVar` is name-keyed and would silently route the shape to the wrong bounds otherwise. The 1D-flattened symbolic-dispatch carried boundary below applies regardless of whether the sym dim is outermost or non-outermost; this slice is correctness ergonomics, not a new dispatch path.
+- **Tensor-surface frontend (`tensor.Variable` + `tensor.NewSymbolicShape`).** `tensor.NewVariable(arena, name, min, max)` returns a `Variable` value wrapping the interned `OpDefineVar` UOp; `.Sint()` yields a `shape.SymInt` composable into a `[]shape.Sint` shape list, `.Bind(val)` returns a `map[string]int64` entry, and `tensor.MergeBindings(...)` unions multiple bindings with conflict detection. `tensor.NewSymbolicShape(arena, []shape.Sint, dtype, device)` is the general-purpose constructor permitting symbolic dims at any position with multiple distinct Variables per shape (the legacy `NewSymbolicBatchInput` is sym-outermost-only and remains for internal callers). The constructor builds a `ShapeSintArg` with `Sym=true, V=0, VarName=name, Mul=1` at each sym position (the V=0-on-sym invariant is enforced defensively at every dim regardless of position), collects all distinct DefineVars and stores them as srcs of the BUFFER node in name-sorted order so the gradient pass and scheduler recover them by structural lookup. Same-name + different-bounds collisions in a single arena panic at the Variable constructor - `FindDefineVar` is name-keyed and would silently route the shape to the wrong bounds otherwise. The 1D-flattened symbolic-dispatch carried boundary below applies regardless of whether the sym dim is outermost or non-outermost; this slice is correctness ergonomics, not a new dispatch path.
 
-**Carried boundary (perf, not correctness):** the lowerer keeps a 1D-flattened symbolic-dispatch model — `targetDim=0` collapse for any sym range in `codegen/lower.go` plus the executor's matching `wc[0]=ceil(outElems/L), Y=Z=1` in `backend/webgpu/executor.go`. The capability is correct end-to-end via that flatten, but the four kernel opts (`LOCAL` / `TILE` / `UPCAST` / `VECTORIZE`) blanket-bail on a symbolic axis: peeling an `AxisLocal` / `AxisWorkgroup` / `AxisUpcast` / `AxisVectorize` range out of `level=0` breaks the level-0 stride composition for the remaining axes (probe transcript in `notes/slice7d_preflight.md`). The unlock is a separate slice — drop `targetDim=0` for sym, assign axes to dispatch dims like the static path, and teach `runSymKernelWithHandle` to compute per-dim dispatch counts from `params_n`. `TILE` additionally requires sym-aware barriers and a non-const `var<workgroup>` size (a WGSL ceiling, not a code-shape problem); non-matmul `UPCAST`/`VECTORIZE` have a pre-existing latent on the static path too (`vecTileActive` is only set inside `emitTiledReduce`) — tracked separately, unrelated to symbolic.
+**Carried boundary (perf, not correctness):** the lowerer keeps a 1D-flattened symbolic-dispatch model - `targetDim=0` collapse for any sym range in `codegen/lower.go` plus the executor's matching `wc[0]=ceil(outElems/L), Y=Z=1` in `backend/webgpu/executor.go`. The capability is correct end-to-end via that flatten, but the four kernel opts (`LOCAL` / `TILE` / `UPCAST` / `VECTORIZE`) blanket-bail on a symbolic axis: peeling an `AxisLocal` / `AxisWorkgroup` / `AxisUpcast` / `AxisVectorize` range out of `level=0` breaks the level-0 stride composition for the remaining axes (probe transcript in `notes/slice7d_preflight.md`). The unlock is a separate slice - drop `targetDim=0` for sym, assign axes to dispatch dims like the static path, and teach `runSymKernelWithHandle` to compute per-dim dispatch counts from `params_n`. `TILE` additionally requires sym-aware barriers and a non-const `var<workgroup>` size (a WGSL ceiling, not a code-shape problem); non-matmul `UPCAST`/`VECTORIZE` have a pre-existing latent on the static path too (`vecTileActive` is only set inside `emitTiledReduce`) - tracked separately, unrelated to symbolic.
 
 ---
 
@@ -216,11 +218,11 @@ Encoding details that landed and are load-bearing:
 
 ### 7.1 Shape of it
 
-Two stages over one UOp graph: (1) `GetKernelGraph` splits the tensor-level graph into per-kernel `CALL` nodes by inserting `BUFFERIZE` boundaries and removing them where fusion pays; (2) `createSchedule` toposorts kernels into an ordered list of `ExecItem`s. There is no separate "kernel AST" type — it is all UOps.
+Two stages over one UOp graph: (1) `GetKernelGraph` splits the tensor-level graph into per-kernel `CALL` nodes by inserting `BUFFERIZE` boundaries and removing them where fusion pays; (2) `createSchedule` toposorts kernels into an ordered list of `ExecItem`s. There is no separate "kernel AST" type - it is all UOps.
 
 ### 7.2 Fusion mental model (inverted from PyTorch/JAX)
 
-**Fuse by default; bufferize on realize; remove bufferize if cheap.** The grouper does not decide what to fuse — it decides what *not* to fuse by inserting `BUFFERIZE`, then a cost pass opportunistically deletes removable bufferizes.
+**Fuse by default; bufferize on realize; remove bufferize if cheap.** The grouper does not decide what to fuse - it decides what *not* to fuse by inserting `BUFFERIZE`, then a cost pass opportunistically deletes removable bufferizes.
 
 ### 7.3 Hard boundaries vs. tunable heuristics
 
@@ -228,8 +230,8 @@ Two stages over one UOp graph: (1) `GetKernelGraph` splits the tensor-level grap
 
 `CONTIGUOUS`, `ASSIGN`, `BUFFER_VIEW`, `ENCDEC`, `REDUCE_AXIS`, plus SINK srcs.
 
-- **`REDUCE_AXIS` as correctness boundary:** every reduce (matmul, Linear, any `ReduceAxis`) materialises its output to a buffer — the reduction itself cannot be inlined into an adjacent elementwise consumer. However, Pass 5 (`removeBufferize`, §7.6) now **elides the BUFFERIZE of the reduce output** when that buffer's sole consumer is a single elementwise op (epilogue fusion). The elementwise op fuses into the same kernel as the reduce; a separate dispatch is no longer required. The reduction boundary itself is not negotiable.
-- **`COPY` is conditionally deferred:** `OpCopy` was in the design's `ALWAYS_CONTIGUOUS` hard set and will rejoin `buildRealizeMap` when multi-device lands. Dormant — not deleted.
+- **`REDUCE_AXIS` as correctness boundary:** every reduce (matmul, Linear, any `ReduceAxis`) materialises its output to a buffer - the reduction itself cannot be inlined into an adjacent elementwise consumer. However, Pass 5 (`removeBufferize`, §7.6) now **elides the BUFFERIZE of the reduce output** when that buffer's sole consumer is a single elementwise op (epilogue fusion). The elementwise op fuses into the same kernel as the reduce; a separate dispatch is no longer required. The reduction boundary itself is not negotiable.
+- **`COPY` is conditionally deferred:** `OpCopy` was in the design's `ALWAYS_CONTIGUOUS` hard set and will rejoin `buildRealizeMap` when multi-device lands. Dormant - not deleted.
 
 **Tunable performance choices** (not correctness): multi-consumer splitting, per-kernel buffer-count limits (Metal 31, WebGPU 8), reduce-reads-from-buffer keep.
 
@@ -243,15 +245,15 @@ Two stages over one UOp graph: (1) `GetKernelGraph` splits the tensor-level grap
 
 `LUNIQUE` UID per bufferize (global, per-arena counter in `addBuffers`), then per-kernel `PARAM(arg=N)` numbering inside `splitKernels`. The renderer turns `PARAM(arg=N)` into `data{N}`. `ExecItem.bufs[N]` is the runtime buffer for `data{N}`.
 
-Ordering at every step is driven by `uop.StructuralKeys` (§3.3), not by arena allocation order — see §7.6 pass-7b notes.
+Ordering at every step is driven by `uop.StructuralKeys` (§3.3), not by arena allocation order - see §7.6 pass-7b notes.
 
 ### 7.5b Parameter persistence
 
 `nn.Parameter` is the only legitimately cross-step value state:
 
-- **`Parameter.Value []float32`** — the canonical weight vector. Lives on the `Parameter` struct, not in any arena. Outlives every arena abandonment.
-- **`Load(a *Arena) *Tensor`** — creates a fresh `OpBuffer` leaf in arena `a`, copies `p.Value` into `a.leaves[newLeaf.Index()]`, and sets `p.T` to the new leaf.
-- **`SGDStep(grad []float32, lr float32)`** — applies `p.Value[i] -= lr * grad[i]` in-place after `Realize(gradTensor)` materialises the gradient.
+- **`Parameter.Value []float32`** - the canonical weight vector. Lives on the `Parameter` struct, not in any arena. Outlives every arena abandonment.
+- **`Load(a *Arena) *Tensor`** - creates a fresh `OpBuffer` leaf in arena `a`, copies `p.Value` into `a.leaves[newLeaf.Index()]`, and sets `p.T` to the new leaf.
+- **`SGDStep(grad []float32, lr float32)`** - applies `p.Value[i] -= lr * grad[i]` in-place after `Realize(gradTensor)` materialises the gradient.
 
 The step N leaf may have arena index 7; the step N+1 leaf in a fresh arena may have index 3. Both are found via `p.Value` through `Load`. `TestCrossResetPersistence` verifies this end-to-end on GPU.
 
@@ -259,35 +261,35 @@ The step N leaf may have arena index 7; the step N+1 leaf in a fresh arena may h
 
 `tensor.JIT` captures the frozen execution plan on the first call and replays subsequent calls without rebuilding the graph or rescheduling. The captured plan holds the `[]ExecItem` schedule plus a leaf table; replay re-uploads current `Parameter.Value` data into the recorded buffer slots, applies the current symbolic binding (if any), and dispatches.
 
-**Crux — arena-index instability across step boundaries.** Per §3.2 / §10, arena indices are not stable across the fresh per-step arena. So a captured `ExecItem.Bufs[*].UOpIdx` cannot be naively reused on a later step. Resolution (Design B — structural remap): leaves are matched by preorder-DFS ordinal — a function of graph *topology*, not arena index — and data is re-resolved from the current step's `Parameter.Value` each replay.
+**Crux - arena-index instability across step boundaries.** Per §3.2 / §10, arena indices are not stable across the fresh per-step arena. So a captured `ExecItem.Bufs[*].UOpIdx` cannot be naively reused on a later step. Resolution (Design B - structural remap): leaves are matched by preorder-DFS ordinal - a function of graph *topology*, not arena index - and data is re-resolved from the current step's `Parameter.Value` each replay.
 
-**Match guard.** Replay is only valid if the current call is structurally the same as the captured one. The guard checks (i) leaf count, (ii) per-slot leaf sizes, and **(iii) the structural key of the captured output expression(s)** (`capSK = subgraphSK(tensors)` via `uop.StructuralKeys`). A mismatch on any of these forces a re-capture. The output-expression-SK is load-bearing — two same-shape `OpBuffer` leaves have identical leaf-level structural keys (no srcs, identical `arg`, off-graph `Value`), so leaf-SK alone could not discriminate them; the output-SK at the expression level catches any structural difference between capture and replay.
+**Match guard.** Replay is only valid if the current call is structurally the same as the captured one. The guard checks (i) leaf count, (ii) per-slot leaf sizes, and **(iii) the structural key of the captured output expression(s)** (`capSK = subgraphSK(tensors)` via `uop.StructuralKeys`). A mismatch on any of these forces a re-capture. The output-expression-SK is load-bearing - two same-shape `OpBuffer` leaves have identical leaf-level structural keys (no srcs, identical `arg`, off-graph `Value`), so leaf-SK alone could not discriminate them; the output-SK at the expression level catches any structural difference between capture and replay.
 
 **Invariant to preserve:** the harmlessly-passing case is structurally-identical graphs with permuted *leaves* (e.g. `W1*x+W2 → W2*x+W1`). The DFS remap's permutation cancels the expression's permutation, so those correctly bypass the guard. This is intentional; do not over-tighten the guard.
 
-JIT dispatch funnels through the same `onGPU` owner-goroutine path as `Run`/`RunSymbolic` (§7.8) — bypassing it would reintroduce the Metal autorelease-pool race.
+JIT dispatch funnels through the same `onGPU` owner-goroutine path as `Run`/`RunSymbolic` (§7.8) - bypassing it would reintroduce the Metal autorelease-pool race.
 
-### 7.6 Minimum viable scheduler — ordered passes
+### 7.6 Minimum viable scheduler - ordered passes
 
-Each pass is either a PatternMatcher of ~5–15 rules or a direct Go function. The numbering reflects what ships in `schedule/` today; earlier drafts of this section listed two additional codegen-ready cleanup passes (`fixIndexDtype`, `finalRewrites`) that were dropped before v1 — index dtype narrowing folds into codegen instead, and no separate final-cleanup pass was needed.
+Each pass is either a PatternMatcher of ~5-15 rules or a direct Go function. The numbering reflects what ships in `schedule/` today; earlier drafts of this section listed two additional codegen-ready cleanup passes (`fixIndexDtype`, `finalRewrites`) that were dropped before v1 - index dtype narrowing folds into codegen instead, and no separate final-cleanup pass was needed.
 
 1. **`earlyRewrites`**: clean movement-op chains, fold ASSIGN chains, fix self-assign hazards. *v1: no-op identity.*
 
-2–4. **`runRangeify` (fused)**: computes the realize map, threads index arithmetic through each kernel subgraph, and inserts BUFFERIZE.
+2-4. **`runRangeify` (fused)**: computes the realize map, threads index arithmetic through each kernel subgraph, and inserts BUFFERIZE.
 
-   **2–4a. Realize map:** `buildRealizeMap` marks SINK srcs and hard-boundary ops as realize points.
+   **2-4a. Realize map:** `buildRealizeMap` marks SINK srcs and hard-boundary ops as realize points.
 
-   **2–4b. Range propagation via `indexExprNode`:** for each realize point, fresh `AxisLoop RANGE` nodes are created for each output dimension. `indexExprNode` recurses through the kernel body, dissolving all six movement ops into index arithmetic. Symbolic dims (§6.4) flow through as symbolic `RANGE` bounds.
+   **2-4b. Range propagation via `indexExprNode`:** for each realize point, fresh `AxisLoop RANGE` nodes are created for each output dimension. `indexExprNode` recurses through the kernel body, dissolving all six movement ops into index arithmetic. Symbolic dims (§6.4) flow through as symbolic `RANGE` bounds.
 
 5. **`removeBufferize` epilogue-fusion pass.** Elides the BUFFERIZE of a reduce-output when its sole consumer is a single elementwise op, folding that op into the same kernel (epilogue fusion). The reduction itself remains a materialization boundary; only the downstream elementwise is fused. Value-identical to the unfused schedule on all tested programs (max-abs-diff 0).
 
-6. **`addBuffers`** — assigns `LUNIQUE` ids to each surviving bufferize. **Ordered by structural key**, not by DFS visit order, so the same logical graph produces the same id sequence regardless of construction order.
+6. **`addBuffers`** - assigns `LUNIQUE` ids to each surviving bufferize. **Ordered by structural key**, not by DFS visit order, so the same logical graph produces the same id sequence regardless of construction order.
 
-7. **`splitKernels`** — splits the post-rangeify graph into per-kernel subgraphs at BUFFERIZE boundaries; assigns per-kernel `PARAM(arg=N)` numbering **ordered by structural key**.
+7. **`splitKernels`** - splits the post-rangeify graph into per-kernel subgraphs at BUFFERIZE boundaries; assigns per-kernel `PARAM(arg=N)` numbering **ordered by structural key**.
 
-7b. **`createSchedule`** — toposorts kernels via Kahn with a deterministic tiebreak. **Frontier tiebreak is by structural key**, not arena index.
+7b. **`createSchedule`** - toposorts kernels via Kahn with a deterministic tiebreak. **Frontier tiebreak is by structural key**, not arena index.
 
-   *Determinism fix (resolved blocker):* Earlier, `createSchedule`, `splitKernels`, and `addBuffers` all keyed sort/numbering on arena allocation order, so a structurally-equal graph built differently produced a different-but-valid schedule. The schedule cache (§1.3) could not work without this being fixed — the cache keys on structure but would return a schedule with mismatched PARAM numbering on a hit. Fix: ordering everywhere is now a function of `StructuralKeys`.
+   *Determinism fix (resolved blocker):* Earlier, `createSchedule`, `splitKernels`, and `addBuffers` all keyed sort/numbering on arena allocation order, so a structurally-equal graph built differently produced a different-but-valid schedule. The schedule cache (§1.3) could not work without this being fixed - the cache keys on structure but would return a schedule with mismatched PARAM numbering on a hit. Fix: ordering everywhere is now a function of `StructuralKeys`.
 
 8. **`Schedule cache`.** `CreateSchedule` is memoized on the structural key of its `sink` argument (+ device) via an arena-local cache. Hit returns the cached `[]ExecItem` directly; miss computes and stores. The cache is per-arena (arena indices in `ExecItem.Bufs` are only valid in their build arena), so it is correct within a step; JIT (§7.5c) is the across-step counterpart.
 
@@ -300,21 +302,21 @@ Each kernel's SINK-rooted UOp tree is lowered to a linear `[]Instr` sequence by 
 **Low-precision dtypes (f16/bf16).**
 - `enable f16;` directive emitted when any f16 buffer is in scope.
 - f16 native types and arithmetic for elementwise ops.
-- **Reduction accumulators widen to f32 even when operands are f16** (load-bearing correctness — pure FP16/FP16 is a deferred opt-in, not the default).
+- **Reduction accumulators widen to f32 even when operands are f16** (load-bearing correctness - pure FP16/FP16 is a deferred opt-in, not the default).
 - bf16 as `array<u32>` storage with bitcast/shift widening at boundaries; no `enable f16;` required for bf16-only kernels. Narrowing on store goes through a `_bf16_rtne_bits(f32) -> u32` prelude helper emitted when the kernel writes bf16 output; the helper implements round-to-nearest-even per the PyTorch / Eigen reference (`((u >> 16) & 1) + 0x7FFF` rounding bias with explicit NaN canonicalization to `0x7FC00000`).
 
-For symbolic kernels (§6.4), the symbolic dim is rendered as a WGSL **uniform** buffer (not a storage buffer — uniforms don't count against WebGPU's 8-storage-buffer limit, restoring full data-buffer budget on symbolic kernels). The uniform must be a struct of `u32` fields, not `array<u32,N>` — array element stride is 16 bytes in the uniform address space; struct fields pack at 4 bytes. A prior memory-corruption-at-step-1200 bug came from this exact pitfall and has been fixed.
+For symbolic kernels (§6.4), the symbolic dim is rendered as a WGSL **uniform** buffer (not a storage buffer - uniforms don't count against WebGPU's 8-storage-buffer limit, restoring full data-buffer budget on symbolic kernels). The uniform must be a struct of `u32` fields, not `array<u32,N>` - array element stride is 16 bytes in the uniform address space; struct fields pack at 4 bytes. A prior memory-corruption-at-step-1200 bug came from this exact pitfall and has been fixed.
 
-### 7.7b Kernel optimization seam — Opt + ApplyOpt
+### 7.7b Kernel optimization seam - Opt + ApplyOpt
 
 `codegen/opt.go` exposes an **Opt seam**: `Opt{Kind, Axis, Arg}` and `ApplyOpt` rewrite a kernel SINK-rooted AST before `Lower`/`RenderWGSL`. This is the only extension point for kernel-level performance work; the lowerer and renderer are never modified for optimization purposes.
 
 Four composable Opts:
 
-- **`OptLocal(axis, localSize)`** — splits a parallel axis into workgroup + local dims; emits multi-dim `@workgroup_size` and 2D/3D dispatch. Incidentally fixes the WebGPU 65535 1D-dispatch limit by spreading workgroups across dispatch dimensions.
-- **`OptTile(axis, TS)`** — shared-memory tiling on a reduce axis: `var<workgroup>` tile buffers, `workgroupBarrier()`, coalesced + branchless tile loads.
-- **`OptUpcast(axis, factor)`** — per-thread register-blocked micro-tile: each thread covers `factor` sequential outputs in that dim. Rejects reduce and Symbolic axes.
-- **`OptVectorize(axis, W)`** — WGSL source-level `vec4<f32>` packaging on a parallel axis. On Apple/Metal this lowers to 4 scalar loads, not a hardware SIMD instruction. Only W=4 has a working lowerer.
+- **`OptLocal(axis, localSize)`** - splits a parallel axis into workgroup + local dims; emits multi-dim `@workgroup_size` and 2D/3D dispatch. Incidentally fixes the WebGPU 65535 1D-dispatch limit by spreading workgroups across dispatch dimensions.
+- **`OptTile(axis, TS)`** - shared-memory tiling on a reduce axis: `var<workgroup>` tile buffers, `workgroupBarrier()`, coalesced + branchless tile loads.
+- **`OptUpcast(axis, factor)`** - per-thread register-blocked micro-tile: each thread covers `factor` sequential outputs in that dim. Rejects reduce and Symbolic axes.
+- **`OptVectorize(axis, W)`** - WGSL source-level `vec4<f32>` packaging on a parallel axis. On Apple/Metal this lowers to 4 scalar loads, not a hardware SIMD instruction. Only W=4 has a working lowerer.
 
 Opts compose via `ApplyOpts(item, []Opt{...})`. BEAM (§7.7c) finds the best sequence automatically.
 
@@ -328,23 +330,23 @@ Opts compose via `ApplyOpts(item, []Opt{...})`. BEAM (§7.7c) finds the best seq
 3. Value-identity guard: candidates whose output differs from the identity baseline (max-abs-diff ≠ 0 on deterministic test inputs) are silently dropped.
 4. Time surviving candidates; keep the top-W by min latency. Deterministic tie-break: shorter sequence, then lexicographic on (Kind, Axis, Arg).
 5. Stop early when no candidate improves on the current best, or when MaxDepth is reached.
-6. Total candidates evaluated ≤ MaxDepth × BeamWidth × |ActionSpace| — bounded and finite.
+6. Total candidates evaluated ≤ MaxDepth × BeamWidth × |ActionSpace| - bounded and finite.
 
 **Realize-path integration** (`BeamApplyToItems`, called from `tensor/realize.go`):
 - **Default mode** (ANNEAL_BEAM unset): O(1) map lookup against the disk cache; identity on miss. Zero GPU overhead added to the realize path.
 - **Search mode** (ANNEAL_BEAM=1): runs `BeamSearch` on cache miss; persists the winner (opts + WGSL hash) to `~/.cache/anneal/beam_cache.json`. Blocks synchronously for the duration of each search.
 
-**Value-identity guard (cache hits with non-empty opts).** The persistent cache stores both the winning opt sequence and the FNV-64a hash of the opted WGSL after normalization. On a cache hit, the guard re-renders the opted WGSL and compares hashes. A mismatch signals an SK collision — logged and fallen back to identity. The risk is bounded by two independent 64-bit hashes colliding simultaneously (~2⁻⁶⁴ per kernel pair).
+**Value-identity guard (cache hits with non-empty opts).** The persistent cache stores both the winning opt sequence and the FNV-64a hash of the opted WGSL after normalization. On a cache hit, the guard re-renders the opted WGSL and compares hashes. A mismatch signals an SK collision - logged and fallen back to identity. The risk is bounded by two independent 64-bit hashes colliding simultaneously (~2⁻⁶⁴ per kernel pair).
 
 **WGSL-identifier-stability contract (load-bearing invariant).** `normalizeWGSL` replaces arena-index-dependent variable names (`t{N}`, `r{N}`, `sm{N}`) with stable sequential placeholders (`_v0`, `_v1`, …) before hashing. These names vary across process restarts because `OpRange` bypasses interning and max-ID scans are arena-wide. Same kernel → same hash every call, regardless of arena construction order. **Any future codegen change that introduces new per-run-varying identifiers must extend `normalizeWGSL`, or the disk cache will silently invalidate on every restart.**
 
 **Empirical performance on M3** (honest characterization):
-- **Large compute-bound matmul (1024³+):** the earlier "flat ~85 GFLOP/s across all opt stacks" characterization was an artifact of the schedule-cache opt-masking defect plus the broken `var<workgroup>` path (every "opted" leg timed the identity kernel). Real numbers post-fix (min-of-6, M3): identity ≈ 84–85 GFLOP/s; OptLocal²+OptTile ≈ 216–223; +OptUpcast (b3) ≈ 312–321; +OptUpcast+OptVec4Load ≈ 371 (1024³) / 420 (2048³) — the best-known stack at 4.4–5.0× identity. OptVectorize (b37) is a measured regression vs b3 (≈ 106–112). FMA probe ≈ 678 GFLOP/s remains the compute roofline. Evidence: `notes/optvec4load_progress.md`.
-- **Small / dispatch-bound kernels:** BEAM finds real wins. Isolated Conv 1×1×8×8 k3×3 kernel: 489µs→195µs (2.50×). MLP backward layer kernels: 1.05–1.15×. Evidence: `test_output_b4.txt`.
+- **Large compute-bound matmul (1024³+):** the earlier "flat ~85 GFLOP/s across all opt stacks" characterization was an artifact of the schedule-cache opt-masking defect plus the broken `var<workgroup>` path (every "opted" leg timed the identity kernel). Real numbers post-fix (min-of-6, M3): identity ≈ 84-85 GFLOP/s; OptLocal²+OptTile ≈ 216-223; +OptUpcast (b3) ≈ 312-321; +OptUpcast+OptVec4Load ≈ 371 (1024³) / 420 (2048³) - the best-known stack at 4.4-5.0× identity. OptVectorize (b37) is a measured regression vs b3 (≈ 106-112). FMA probe ≈ 678 GFLOP/s remains the compute roofline. Evidence: `notes/optvec4load_progress.md`.
+- **Small / dispatch-bound kernels:** BEAM finds real wins. Isolated Conv 1×1×8×8 k3×3 kernel: 489µs→195µs (2.50×). MLP backward layer kernels: 1.05-1.15×. Evidence: `test_output_b4.txt`.
 - **End-to-end with warm BEAM cache** (bench_test.go, `tensor/nn/`): 1024³ matmul −0.7% (noise), MLP −0.3% (noise), Conv2d −2.9% (real; timing ranges non-overlapping). The Conv2d win originates in small im2col and backward kernels, not the large matmul.
 
 **Future levers explicitly out of v1 scope:**
-- ~~`array<vec4<f32>>`-typed buffer bindings for hardware-width loads.~~ **Landed** as the composable `OptVec4Load` (codegen/opt.go): it proved to be an Opt slice after all — the binding element type is a render-time per-param override keyed off the reduce tag, no backend re-architecture needed (f32 buffers whose element count is ≡0 mod 4 are already 16-byte-multiple allocations).
+- ~~`array<vec4<f32>>`-typed buffer bindings for hardware-width loads.~~ **Landed** as the composable `OptVec4Load` (codegen/opt.go): it proved to be an Opt slice after all - the binding element type is a render-time per-param override keyed off the reduce tag, no backend re-architecture needed (f32 buffers whose element count is ≡0 mod 4 are already 16-byte-multiple allocations).
 - WGSL subgroup-matrix ops (the actual tensor-core analog). In spec design at gpuweb#4195 as of early 2026; deliberately cut at track-B intro. That decision stands.
 
 ### 7.8 Backend strategy
@@ -360,9 +362,9 @@ Opts compose via `ApplyOpts(item, []Opt{...})`. BEAM (§7.7c) finds the best seq
 `readBuffer` does NOT use `wgpu.Buffer.Map` (which internally spawns an unpinned goroutine whose blocking `waitUntilCompleted` lets Go migrate it off the OS thread that created the `NSAutoreleasePool` → SIGSEGV in pool drain). Instead it uses `MapAsync` + an explicit `Poll(PollWait)` driven *on* the owner thread, so the library never spawns its internal goroutine and every pool create/drain pair shares one OS thread. This eliminated a ~70% crash rate under load.
 
 Phasing:
-- **Phase 1 — WebGPU (native via wgpu, + WASM via `syscall/js`).** v1 target, shipped.
-- **Phase 2 — CUDA driver API** (`libcuda.so.1` + NVRTC → PTX) for datacenter throughput.
-- **Phase 3 — Metal** (`objc_msgSend` FFI) for Apple-silicon unified-memory specialisation.
+- **Phase 1 - WebGPU (native via wgpu, + WASM via `syscall/js`).** v1 target, shipped.
+- **Phase 2 - CUDA driver API** (`libcuda.so.1` + NVRTC → PTX) for datacenter throughput.
+- **Phase 3 - Metal** (`objc_msgSend` FFI) for Apple-silicon unified-memory specialisation.
 
 ---
 
@@ -382,7 +384,7 @@ schedule/           rangeify, realize-map, bufferize, kernel split, toposort,
                       memory plan, stats hook, structural-key-ordered scheduling,
                       schedule cache (cache.go)
 codegen/            lower.go (→ []Instr linearisation), wgsl.go (WGSL renderer),
-                      opt.go (Opt seam — four composable kernel transforms),
+                      opt.go (Opt seam - four composable kernel transforms),
                       beam.go (BEAM search + persistent disk cache)
 backend/            Renderer / Compiler / Allocator / Program / DeviceBuffer interfaces
   webgpu/           open.go (locked GPU-owner goroutine), executor.go (orchestrator),
@@ -395,7 +397,7 @@ tensor/             Tensor API, ops, movement, gradient, realize, jit
 cmd/anneal/         CLI (run/train/graph/kernels/explain/doctor/viz verbs)
 tui/                bubbletea/lipgloss train dashboard
 viz/                visualizer
-examples/           mlp.go, conv.go, dynmlp.go (dynamic-batch)
+examples/           mlp, conv, dynmlp (dynamic-batch), nanogpt, llama, vit, resnet9, diffusion, dit, meanflow, gpt2
 docs/               GitHub Pages site (bilingual en/es)
 
 Module path: github.com/georgebuilds/anneal
@@ -405,7 +407,7 @@ Module path: github.com/georgebuilds/anneal
 
 ## 9. Build order (history)
 
-**Phases 0–12 complete; the post-v1 work below is also shipped.**
+**Phases 0-12 complete; the post-v1 work below is also shipped.**
 
 1. UOp + arena + interning + dtype + a v0 runtime PatternMatcher with named captures. ✓
 2. `graph_rewrite` driver (iterative state machine) + gated toposort. ✓
@@ -424,9 +426,9 @@ Module path: github.com/georgebuilds/anneal
 - Structural-hash determinism fix (resolved the schedule-cache blocker).
 - Schedule cache.
 - JIT capture/replay (`tensor.JIT`) with output-SK match guard (§7.5c).
-- Metal AutoreleasePool race fix — single locked GPU-owner goroutine (§7.8).
-- Symbolic shapes — dynamic batch (Option A, §6.4) and general axis movement (Option B): split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch including non-outermost sym positions on both kernel-output and input buffers (the latter via `emitIndex`'s `strideAcc` machinery, post-Slice-7c follow-up), dynamic `ParamsN` (the 4-var WGSL uniform-field cap is gone), cross-arena structural-key portability. `Lt/Le/Eq`-on-`SymInt` panic is retained as defense-in-depth; Option B uses `shape.ResolveNonNeg` / `ResolveLE` bound predicates, not arithmetic comparators.
-- Migration I/O — `tensor/npy` (load) and `tensor/safetensors` (save+load, bidirectional with the real Python library).
+- Metal AutoreleasePool race fix - single locked GPU-owner goroutine (§7.8).
+- Symbolic shapes - dynamic batch (Option A, §6.4) and general axis movement (Option B): split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch including non-outermost sym positions on both kernel-output and input buffers (the latter via `emitIndex`'s `strideAcc` machinery, post-Slice-7c follow-up), dynamic `ParamsN` (the 4-var WGSL uniform-field cap is gone), cross-arena structural-key portability. `Lt/Le/Eq`-on-`SymInt` panic is retained as defense-in-depth; Option B uses `shape.ResolveNonNeg` / `ResolveLE` bound predicates, not arithmetic comparators.
+- Migration I/O - `tensor/npy` (load) and `tensor/safetensors` (save+load, bidirectional with the real Python library).
 - `explain` symbolic-rule drift check vs `symbolic.upat`.
 - Bounds-system test coverage + `OpMod` floor-div fix.
 - f16 in WGSL codegen with f32 accumulator (Slice 1).
@@ -434,14 +436,14 @@ Module path: github.com/georgebuilds/anneal
 - Tensor/nn f16/bf16 surface; implicit mixed precision via f32 master weights (Slice 3).
 - FD gradient checks for f16/bf16 with literature-calibrated tolerances; OpCast adjoint precision fix (Slice 4).
 - Epilogue fusion (Track A): Pass 5 `removeBufferize` elides reduce-output BUFFERIZE into single elementwise consumer. Kernel count reductions across MLP, conv, matmul chains. Value-identical (max-abs-diff 0).
-- Opt seam + BEAM autotuning (Track B): `codegen/opt.go` (four composable Opts), `codegen/beam.go` (beam-of-k search, persistent disk cache, value-identity guard, WGSL-stability contract), wired into realize path via `BeamApplyToItems` (env-gated). See §7.7b–c for empirical results.
+- Opt seam + BEAM autotuning (Track B): `codegen/opt.go` (four composable Opts), `codegen/beam.go` (beam-of-k search, persistent disk cache, value-identity guard, WGSL-stability contract), wired into realize path via `BeamApplyToItems` (env-gated). See §7.7b-c for empirical results.
 
 ---
 
 ## 10. Invariants (don't violate these)
 
 - UOps are immutable; rewrites produce new nodes.
-- Identity equality is only valid because of interning — never compare structurally in hot paths.
+- Identity equality is only valid because of interning - never compare structurally in hot paths.
 - Nothing holds UOp arena indices across step boundaries. Within a step, indices accumulate freely and are valid until the arena is abandoned at step end.
 - `nn.Parameter.Value` is the only legitimate cross-step value state; JIT's captured plan is the only legitimate cross-step *plan* state, and survives via structural keys + per-step value re-resolution (§7.5c).
 - Forward/backward provenance is recorded out-of-band on the arena (per-node phase tag), NOT in the interning key. First-construction-wins (§3.2).
@@ -449,25 +451,25 @@ Module path: github.com/georgebuilds/anneal
 - Movement ops never copy; only the scheduler materialises.
 - Hard correctness boundaries (§7.3) are not negotiable; performance heuristics are.
 - No SMT solver in the core indexing path; bound reasoning is interval arithmetic (`BoundsOf`, §4.4).
-- Scheduling is a pure function of graph structure — kernel order, PARAM numbering, and LUNIQUE id assignment are driven by `StructuralKeys`, never by arena allocation order (§3.3, §7.6).
-- Dtype structural identity goes through `DType.StructuralHash()` (a function of dtype fields), not pointer address — so structural keys are portable across processes.
+- Scheduling is a pure function of graph structure - kernel order, PARAM numbering, and LUNIQUE id assignment are driven by `StructuralKeys`, never by arena allocation order (§3.3, §7.6).
+- Dtype structural identity goes through `DType.StructuralHash()` (a function of dtype fields), not pointer address - so structural keys are portable across processes.
 - All Metal-touching calls go through the `onGPU` owner-goroutine funnel (§7.8). Bypassing it reintroduces the autorelease-pool race.
 - JIT replay's match guard is keyed on the captured output expression's structural key, not on per-leaf identity. Same-shape sibling `OpBuffer` leaves cannot be discriminated at the leaf level (§7.5c).
-- Symbolic comparisons (`Lt/Le/Eq` on `SymInt`) panic by design — defense-in-depth fence (§6.4). Option B paths reach the same site through `shape.ResolveNonNeg` / `ResolveLE`, which walk the backing UOp's intervals and return false on "provably-negative OR unprovable" without ever invoking the arithmetic comparator. A new call site that *would* need to compare two symbolic values arithmetically must be routed through bound predicates, not silently unfenced.
-- **DefineVar bounds are inclusive on both ends.** A `DefineVar(name, min, max)` declares that the variable may take any value in `[min, max]` — both endpoints reachable. Internally `uop.Arena.DefineVar` stores the upper as `max+1` so the renderer convention is exclusive-upper (loop runs `< bound`); `BoundsOf` and `shape.boundsOfUOp` unwrap the `+1` so every user-facing consumer reads inclusive `[Min, Max]`. Mirrors tinygrad master: `RANGE._min_max` returns `(0, (self.src[0]-1).vmax)` — the `-1` is the inclusive-bounds correction. Any new bound-consumer site must either (a) read `BoundsOf(u).Max` as the inclusive maximum, or (b) destructure the raw `src[1]` Const and document that it consumes the exclusive-upper encoding. Mixing the two interpretations is the canonical off-by-one footgun.
-- **Vmax-driven index dtype upcast.** `rules.IndexDtypeForBound(b)` returns `Int64` when the bound's `vmax` would overflow `int32`, else `Int32`; this is the single source of truth for "is i32 enough for this index expression?" WebGPU's renderer downgrades `Int64` → `i32` (WebGPU has no i64) and emits an acknowledging comment on the affected symbolic-loop emission; a future CUDA/Metal-direct backend would honor the i64 unchanged. The decision lives in one place — backends choose to honor or downgrade. References tinygrad PR #8268.
+- Symbolic comparisons (`Lt/Le/Eq` on `SymInt`) panic by design - defense-in-depth fence (§6.4). Option B paths reach the same site through `shape.ResolveNonNeg` / `ResolveLE`, which walk the backing UOp's intervals and return false on "provably-negative OR unprovable" without ever invoking the arithmetic comparator. A new call site that *would* need to compare two symbolic values arithmetically must be routed through bound predicates, not silently unfenced.
+- **DefineVar bounds are inclusive on both ends.** A `DefineVar(name, min, max)` declares that the variable may take any value in `[min, max]` - both endpoints reachable. Internally `uop.Arena.DefineVar` stores the upper as `max+1` so the renderer convention is exclusive-upper (loop runs `< bound`); `BoundsOf` and `shape.boundsOfUOp` unwrap the `+1` so every user-facing consumer reads inclusive `[Min, Max]`. Mirrors tinygrad master: `RANGE._min_max` returns `(0, (self.src[0]-1).vmax)` - the `-1` is the inclusive-bounds correction. Any new bound-consumer site must either (a) read `BoundsOf(u).Max` as the inclusive maximum, or (b) destructure the raw `src[1]` Const and document that it consumes the exclusive-upper encoding. Mixing the two interpretations is the canonical off-by-one footgun.
+- **Vmax-driven index dtype upcast.** `rules.IndexDtypeForBound(b)` returns `Int64` when the bound's `vmax` would overflow `int32`, else `Int32`; this is the single source of truth for "is i32 enough for this index expression?" WebGPU's renderer downgrades `Int64` → `i32` (WebGPU has no i64) and emits an acknowledging comment on the affected symbolic-loop emission; a future CUDA/Metal-direct backend would honor the i64 unchanged. The decision lives in one place - backends choose to honor or downgrade. References tinygrad PR #8268.
 - Reduction accumulators are f32 even when operands are f16; never accumulate in f16. The FP16/FP16 fast path is a deferred opt-in, not the default.
 - Adjoint precision through OpCast/OpBitcast backward uses `LeastUpperDType(adj.dtype, src.dtype)`. A forward dtype narrowing must never silently narrow the backward adjoint.
 - WGSL-identifier-stability contract: `normalizeWGSL` must cover all per-run-varying identifier patterns (`t{N}`, `r{N}`, `sm{N}`). Any future codegen change introducing new arena-index-dependent identifiers must extend `normalizeWGSL` or the persistent BEAM disk cache silently invalidates on restart (§7.7c).
-- **Timing-harness contract.** Min-of-N is the only signal usable for pass/fail in any timing test. CV, max/min, and median are diagnostic — `t.Logf` when elevated, never `t.Errorf` and never `t.Skip`. Pass criterion is min against a hardcoded per-machine reference (e.g. `CONFIG_REFERENCE_MIN_MICROS_*` in `backend/webgpu/b0_test.go`) with generous slack (1.5×) for GPU variance; FAIL only on a genuine floor regression. This rule was earned through two false-positive incidents using variance metrics as pass/fail: (1) the B1 false-confidence "all green" reports where CV failures buried real grad-correctness bugs, and (2) the `TestB0_TimingHarness_Stability` 1-in-5 flicker where the CV>5% AND max/min<=2.0 discriminator misclassified moderate GPU contention as regression. The harness's own observation — min-of-N is stable across all observed GPU states — is the only signal a regression test can trust.
-- **ShapeSintArg V-on-symbolic-dim invariant.** When `ShapeDim.Sym=true`, `ShapeDim.V` must be 0. `hashArg` ignores `V` on symbolic dims while `equalArg` compares it; both fields participating in structural-key equality is contingent on this invariant holding. Enforced by `toShapeSintArg` in `tensor/movement.go` (and by the parallel symbolic-dim construction in `NewSymbolicBatchInput` in `tensor/tensor.go`). If a future workload requires `V≠0` on a symbolic dim (e.g. carrying a max-bound hint), the latent hash/equal asymmetry must be resolved first — decide whether `V` is semantic (mix into `hashArg`) or hint-only (drop from `equalArg`) before relaxing the invariant. Surfaced by the targeted-coverage pass in `uop/hash_arg_test.go`.
-- **Structural-key vs runtime-resolution boundary.** Structural keys carry *decomposed* symbolic identity: `ShapeDim {V, Sym, VarName, Mul}` for shape/pad/shrink amounts, and the `RangeArg {ID, Type}` + `OpRange.src[0]` UOp expression for loop bounds. Runtime resolution carries the *full affine* expression: `BoundExprArg` on `OpBuffer` and the parallel `Buffer.SymDimAffine` on `schedule.ExecItem` admit two-variable (and higher) affine sums (`Σ Mul[i]·binding[VarName[i]] + Offset`) when a buffer's output bound is an Add of distinct DefineVars (e.g. pad on a symbolic axis). Two surfaces, two encodings — never mixed: a structural key that names an affine sum would silently collide with a different graph that built the same sum from different ops, and a runtime resolver that only saw `(VarName, Mul)` couldn't compute the dispatch count for a pad-on-sym output. When introducing a symbolic surface that needs wider arithmetic than `var × const`, decide which side of the boundary it lives on before encoding it. Reference: §6.4 encoding bullets; `uop/uop.go` `BoundExprArg` and `BoundDim`; `schedule/exec.go` `SymDimAffineEntry`; `schedule/kernels.go` `bufSymDimAffine`.
+- **Timing-harness contract.** Min-of-N is the only signal usable for pass/fail in any timing test. CV, max/min, and median are diagnostic - `t.Logf` when elevated, never `t.Errorf` and never `t.Skip`. Pass criterion is min against a hardcoded per-machine reference (e.g. `CONFIG_REFERENCE_MIN_MICROS_*` in `backend/webgpu/b0_test.go`) with generous slack (1.5×) for GPU variance; FAIL only on a genuine floor regression. This rule was earned through two false-positive incidents using variance metrics as pass/fail: (1) the B1 false-confidence "all green" reports where CV failures buried real grad-correctness bugs, and (2) the `TestB0_TimingHarness_Stability` 1-in-5 flicker where the CV>5% AND max/min<=2.0 discriminator misclassified moderate GPU contention as regression. The harness's own observation - min-of-N is stable across all observed GPU states - is the only signal a regression test can trust.
+- **ShapeSintArg V-on-symbolic-dim invariant.** When `ShapeDim.Sym=true`, `ShapeDim.V` must be 0. `hashArg` ignores `V` on symbolic dims while `equalArg` compares it; both fields participating in structural-key equality is contingent on this invariant holding. Enforced by `toShapeSintArg` in `tensor/movement.go` (and by the parallel symbolic-dim construction in `NewSymbolicBatchInput` in `tensor/tensor.go`). If a future workload requires `V≠0` on a symbolic dim (e.g. carrying a max-bound hint), the latent hash/equal asymmetry must be resolved first - decide whether `V` is semantic (mix into `hashArg`) or hint-only (drop from `equalArg`) before relaxing the invariant. Surfaced by the targeted-coverage pass in `uop/hash_arg_test.go`.
+- **Structural-key vs runtime-resolution boundary.** Structural keys carry *decomposed* symbolic identity: `ShapeDim {V, Sym, VarName, Mul}` for shape/pad/shrink amounts, and the `RangeArg {ID, Type}` + `OpRange.src[0]` UOp expression for loop bounds. Runtime resolution carries the *full affine* expression: `BoundExprArg` on `OpBuffer` and the parallel `Buffer.SymDimAffine` on `schedule.ExecItem` admit two-variable (and higher) affine sums (`Σ Mul[i]·binding[VarName[i]] + Offset`) when a buffer's output bound is an Add of distinct DefineVars (e.g. pad on a symbolic axis). Two surfaces, two encodings - never mixed: a structural key that names an affine sum would silently collide with a different graph that built the same sum from different ops, and a runtime resolver that only saw `(VarName, Mul)` couldn't compute the dispatch count for a pad-on-sym output. When introducing a symbolic surface that needs wider arithmetic than `var × const`, decide which side of the boundary it lives on before encoding it. Reference: §6.4 encoding bullets; `uop/uop.go` `BoundExprArg` and `BoundDim`; `schedule/exec.go` `SymDimAffineEntry`; `schedule/kernels.go` `bufSymDimAffine`.
 - **WebGPU 8-buffer-per-kernel limit.** A WGSL compute shader can bind at most 8 storage buffers per kernel (the WebGPU standard limit; not a Metal-specific constraint). Hit three times so far, with three workaround patterns:
   - **Scheduler-level cap** (track-A epilogue fusion, slice 1): Pass 5's `removeBufferize` refuses to elide a removable bufferize if the resulting fused kernel would exceed 8 buffers. Prevents over-fusion at scheduling time.
   - **Opt-level cap** (track-B B2 OptTile, B2.1): tile-load coalescing checks inputs ≤ 7 (+output = 8) before applying; refuses to fuse a tile that would bust the budget. Prevents over-fusion at opt-application time.
   - **Gradient-rule materialization barrier** (pool slice): `ReduceAxis(OpMax)` backward inserts `adj.Contiguous()` before building the expanded adjoint, so deep adjoint chains (e.g. FC backward feeding pool backward in a convnet) don't inline their leaf buffers into the pool-backward kernel. Trades a small extra kernel launch for correctness on workloads that would otherwise exceed the 8-buffer limit.
 
-  When adding a new fusion path, opt, or gradient rule that aggregates multiple buffer reads into a single kernel: count the worst-case buffer count for the consuming kernel (inputs + outputs + any constant/uniform buffers) and pick the appropriate pattern above. If buffer count exceeds 8 in any reachable configuration, the kernel fails to compile at the WebGPU layer with a `CreateBindGroupLayout` / `CreateShaderModule wgpu: ...` error — surfaced through realize, not at codegen time. The recurring failure mode is intermittent rather than consistent because it depends on whether scheduling happens to fuse the problematic kernel on a given run; small graph changes can move the limit in or out of being exceeded.
+  When adding a new fusion path, opt, or gradient rule that aggregates multiple buffer reads into a single kernel: count the worst-case buffer count for the consuming kernel (inputs + outputs + any constant/uniform buffers) and pick the appropriate pattern above. If buffer count exceeds 8 in any reachable configuration, the kernel fails to compile at the WebGPU layer with a `CreateBindGroupLayout` / `CreateShaderModule wgpu: ...` error - surfaced through realize, not at codegen time. The recurring failure mode is intermittent rather than consistent because it depends on whether scheduling happens to fuse the problematic kernel on a given run; small graph changes can move the limit in or out of being exceeded.
 
 ---
 
@@ -475,9 +477,9 @@ Module path: github.com/georgebuilds/anneal
 
 1. **Iterative vs. recursive driver. RESOLVED.** The iterative slice-based state machine was built from the start. Anneal's iterative driver is the deliberate choice from §4.2.
 
-2. **v0 matcher → codegen migration trigger. RESOLVED.** The `.upat` DSL was built and the symbolic ruleset migrated (§4.1). Drift check (`TestUpatDriftCheck`) enforces curated-prose ↔ `.upat` correspondence. The gradient ruleset remains the natural next user of the DSL — that migration is optional (D1 holds either way) and would unlock live derivation of `explain`'s gradient half and a "rules firing" backward animation in the visualizer.
+2. **v0 matcher → codegen migration trigger. RESOLVED.** The `.upat` DSL was built and the symbolic ruleset migrated (§4.1). Drift check (`TestUpatDriftCheck`) enforces curated-prose ↔ `.upat` correspondence. The gradient ruleset remains the natural next user of the DSL - that migration is optional (D1 holds either way) and would unlock live derivation of `explain`'s gradient half and a "rules firing" backward animation in the visualizer.
 
-3. **Dtype breadth — runtime lowering. RESOLVED.**
+3. **Dtype breadth - runtime lowering. RESOLVED.**
    - **f16** via `shader-f16` WGSL extension; reductions use an f32 accumulator for precision (narrows at write).
    - **bf16** as storage-only with f32 compute (`_bf16_rtne_bits(expr)` on store via the round-to-nearest-even prelude helper matching PyTorch / Eigen, `bitcast<f32>(u32_buffer[i])` on load). Available on any WebGPU adapter; no shader extension required.
    - **Fail-closed (f16):** the engine fails before any GPU allocation if a requested f16 surface is unavailable; no silent fp32 fallback. `anneal doctor` reports availability per device. bf16 has no such requirement.
@@ -487,16 +489,16 @@ Module path: github.com/georgebuilds/anneal
 
 4. **Renderer target. RESOLVED: WGSL-only.** Codegen is WGSL-only (`codegen/lower.go` + `codegen/wgsl.go`). The C-style renderer family (for CUDA/Metal Phase 2/3) is deferred.
 
-5. **Symbolic Option B status. RESOLVED.** General symbolic axis movement — split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch including non-outermost positions on both kernel output and input buffers (the latter via `emitIndex`'s `strideAcc` machinery), unbounded sym-vars-per-kernel, cross-arena portability — has shipped (§6.4). The remaining carried boundary is the 1D-flattened sym dispatch model that gates the four kernel opts: capability is correct, but `LOCAL`/`TILE`/`UPCAST`/`VECTORIZE` still bail on sym axes. Dropping `targetDim=0` for sym kernels and mirroring static's per-axis dim assignment is a separate perf slice; correctness does not depend on it.
+5. **Symbolic Option B status. RESOLVED.** General symbolic axis movement - split/merge a symbolic axis, sym pad/shrink, multi-dim symbolic dispatch including non-outermost positions on both kernel output and input buffers (the latter via `emitIndex`'s `strideAcc` machinery), unbounded sym-vars-per-kernel, cross-arena portability - has shipped (§6.4). The remaining carried boundary is the 1D-flattened sym dispatch model that gates the four kernel opts: capability is correct, but `LOCAL`/`TILE`/`UPCAST`/`VECTORIZE` still bail on sym axes. Dropping `targetDim=0` for sym kernels and mirroring static's per-axis dim assignment is a separate perf slice; correctness does not depend on it.
 
 ---
 
 ## 12. Provenance and confidence
 
-This spec is calibrated against the as-built implementation. Original Phases 1–10 were verified end-to-end by GPU training of MLP and conv net; subsequent shipped work (listed in §9) is each value-proven against an oracle appropriate to its surface:
+This spec is calibrated against the as-built implementation. Original Phases 1-10 were verified end-to-end by GPU training of MLP and conv net; subsequent shipped work (listed in §9) is each value-proven against an oracle appropriate to its surface:
 
 - **Symbolic batch (Option A):** forward 1.19e-7 vs CPU (compile-once across batch sizes); backward FD gradient check 2.43e-4; symbolic-vs-static gradients identical (0.0 max-abs-diff); learnable-task training matches static MLP trajectory.
-- **General symbolic axis movement (Option B):** split/merge across a symbolic dim (`[n,4]↔[n*4]`), symbolic pad/shrink amounts, multi-dim symbolic dispatch with sym in any position on both the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute) and input buffers via `emitIndex`'s `strideAcc` machinery (post-Slice-7c follow-up) — every case value-proven against a CPU oracle with max-abs-diff 0. Cross-arena structural-key portability: same logical graph built in two arenas produces byte-equal structural keys, so the schedule cache and BEAM disk cache survive arena churn. DefineVar bounds inclusive on both ends with `BoundsOf`-driven int32→int64 dtype selection (WebGPU emits the documented downgrade comment when honoring i32). Remaining carried boundary is perf-only: the 1D-flattened sym dispatch model gates `LOCAL`/`TILE`/`UPCAST`/`VECTORIZE` opts on sym axes (§6.4).
+- **General symbolic axis movement (Option B):** split/merge across a symbolic dim (`[n,4]↔[n*4]`), symbolic pad/shrink amounts, multi-dim symbolic dispatch with sym in any position on both the kernel-output side (`[4,n]`, `[n,4+k]`, post-permute) and input buffers via `emitIndex`'s `strideAcc` machinery (post-Slice-7c follow-up) - every case value-proven against a CPU oracle with max-abs-diff 0. Cross-arena structural-key portability: same logical graph built in two arenas produces byte-equal structural keys, so the schedule cache and BEAM disk cache survive arena churn. DefineVar bounds inclusive on both ends with `BoundsOf`-driven int32→int64 dtype selection (WebGPU emits the documented downgrade comment when honoring i32). Remaining carried boundary is perf-only: the 1D-flattened sym dispatch model gates `LOCAL`/`TILE`/`UPCAST`/`VECTORIZE` opts on sym axes (§6.4).
 - **Schedule cache:** hit returns identical GPU results (max-abs-diff 0); one symbolic schedule serves multiple bindings; static path byte-identical.
 - **JIT capture/replay:** replay vs non-JIT max-abs-diff 0 over many steps with changing weights; training converges (ratio 0.0011, Pearson 0.9752); adversarial output-SK guard test demonstrates the count-only guard's failure mode (+9 vs −9) and the structural-key fix.
 - **Metal AutoreleasePool fix:** 0 crashes / 60 runs (30 + 30 with test-side pinning removed); value oracle byte-identical.
@@ -505,8 +507,8 @@ This spec is calibrated against the as-built implementation. Original Phases 1�
 - **`OpMod` floor-div fix:** surfaced by bounds-system table-driven coverage (28% → 90%); adversarial cases for `[-3,3] mod 4` and `[-1,1] mod 2` now produce the correct `[0,3]` and `[0,1]` rather than the buggy `[1,3]` and `[1,1]`.
 - **`.upat` drift check:** bidirectional (op, handler) correspondence enforced as a build-failing test.
 - **f16/bf16 support:** f16 elementwise atol=1e-3 (ε ≈ 9.77e-4); bf16 FD atol=rtol=0.3 (calibrated to 7-bit mantissa noise floor); bf16-storage MLP trains at f32 quality (Pearson 0.9810 vs f32 baseline 0.9735).
-- **OpCast adjoint fix:** `TestGradientThroughCastBF16ToF32` precision oracle proves the fix (`y = (1 + 1/256)·x` — gradient `1.00390625` would have narrowed to `1.0` pre-fix).
+- **OpCast adjoint fix:** `TestGradientThroughCastBF16ToF32` precision oracle proves the fix (`y = (1 + 1/256)·x` - gradient `1.00390625` would have narrowed to `1.0` pre-fix).
 - **Epilogue fusion (Track A):** verified max-abs-diff 0 vs unfused schedule across all tested programs; kernel-count reductions confirmed (matmul+bias 2→1, matmul+bias+relu 2→1, MLP fwd 3→2, MLP fwd+bwd 12→8, conv 2→1); wall-clock neutral on M3.
-- **BEAM autotuning (Track B):** value-identity guard verified (max-abs-diff 0 on all accepted candidates); SK-collision guard adversarial test confirms correct fallback. Empirical: isolated Conv 1×1×8×8 k3×3 kernel 489µs→195µs (2.50×); MLP backward kernels 1.05–1.15×; end-to-end Conv2d −2.9% (non-overlapping timing ranges), matmul and MLP within noise. Large-matmul characterization superseded post-smem-fix: see the "Large compute-bound matmul" bullet above (b3+OptVec4Load ≈ 4.4–5.0× identity; the old "~85 GFLOP/s invariant" was a harness artifact). Evidence: `test_output_b4.txt`, `notes/optvec4load_progress.md`.
+- **BEAM autotuning (Track B):** value-identity guard verified (max-abs-diff 0 on all accepted candidates); SK-collision guard adversarial test confirms correct fallback. Empirical: isolated Conv 1×1×8×8 k3×3 kernel 489µs→195µs (2.50×); MLP backward kernels 1.05-1.15×; end-to-end Conv2d −2.9% (non-overlapping timing ranges), matmul and MLP within noise. Large-matmul characterization superseded post-smem-fix: see the "Large compute-bound matmul" bullet above (b3+OptVec4Load ≈ 4.4-5.0× identity; the old "~85 GFLOP/s invariant" was a harness artifact). Evidence: `test_output_b4.txt`, `notes/optvec4load_progress.md`.
 
 For any claim about current behavior, the code is the source of truth; this spec describes intent and invariants, not surface details that may evolve.

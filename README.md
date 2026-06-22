@@ -20,7 +20,7 @@
 
 anneal is a from-scratch Go port of [tinygrad](https://github.com/tinygrad/tinygrad)'s modern, *rangeify-era* core. It takes tensor programs, lowers them through a graph-rewrite compiler, and emits fused GPU kernels. It trains a small MLP, a small convolutional network, a char-level nanoGPT, a char-level Llama-style decoder (RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings), and a tiny Vision Transformer end-to-end on real GPU hardware via WebGPU; it loads GPT-2-small from HuggingFace weights, runs it forward with bit-identical output to the reference implementation, and **fine-tunes it end to end** (tied weights, AdamW, on tinyshakespeare) with the loss converging on a real GPU.
 
-It is a research project and a learning vehicle, built deliberately in phases. It is not (yet) a drop-in replacement for a production framework — see [Status](#status) for exactly what v1 does and doesn't do.
+It is a research project and a learning vehicle, built deliberately in phases. It is not (yet) a drop-in replacement for a production framework - see [Status](#status) for exactly what v1 does and doesn't do.
 
 ## What anneal is
 
@@ -159,32 +159,33 @@ viz/         the WASM visualizer
 web/         studio.html / studio.css / studio.js / worker.js, embedded into the CLI binary; A11Y.md is the binding per-view a11y checklist
 onnx/        ONNX importer; onnxpb/ holds the pure-Go protobuf bindings;
              testdata/ holds the 234-case ONNX 1.17.0 conformance corpus
-examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, llama.go, vit.go, gpt2/
+examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, llama.go, vit.go, resnet9.go, diffusion.go, dit.go, meanflow.go, gpt2_finetune.go, gpt2/
 internal/
   assets/    SHA-pinned downloader for Shakespeare corpus and HF GPT-2 weights
   bundle/    on-disk run bundle format (manifest.json + schedule.json + kernels/ + loss.csv etc.)
 ```
 
-The full architecture — the UOp arena and interning model, the rewrite driver, the rangeify indexing model, the 10-pass scheduler, and the design decisions behind them — lives in **[SPEC.md](SPEC.md)**. Read it before making non-trivial changes.
+The full architecture - the UOp arena and interning model, the rewrite driver, the rangeify indexing model, the 10-pass scheduler, and the design decisions behind them - lives in **[SPEC.md](SPEC.md)**. Read it before making non-trivial changes.
 
 ## Status
 
-The line between shipped capabilities and deferred ones is intentional, not accidental. That line has moved since the project started — dynamic-batch training and JIT have landed — but the harder items remain deliberate non-goals for now.
+The line between shipped capabilities and deferred ones is intentional, not accidental. That line has moved since the project started - dynamic-batch training and JIT have landed - but the harder items remain deliberate non-goals for now.
 
 | Capability | Status |
 |---|---|
 | Reverse-mode autodiff | ✅ Full, via graph rewrite |
+| Forward-mode autodiff (JVP) | ✅ `tensor.JVP`; covers a full DiT forward; powers exact MeanFlow |
 | Backend | ✅ WebGPU (native + WASM); CPU pure-Go interpreter (slice 2: movement ops, gather/scatter, non-contiguous reductions, f16/bf16/fp8 storage; ships in-binary, no GPU required) |
-| Shapes — static | ✅ |
-| Shapes — dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
-| Symbolic shapes — split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch | ✅ Shipped |
+| Shapes - static | ✅ |
+| Shapes - dynamic batch (symbolic) | ✅ `NewSymbolicBatchInput` + `RealizeWithBinding` |
+| Symbolic shapes - split/merge a symbolic axis, sym pad/shrink, multi-dim sym dispatch | ✅ Shipped |
 | Dynamic seq-length tensor API | ✅ `tensor.NewVariable` + `tensor.NewSymbolicShape` (non-outermost sym, multiple Variables per shape) |
 | JIT | ✅ Capture/replay (`tensor.JIT`) |
 | Schedule cache | ✅ Memoized on structural key |
 | Devices | Single device |
 | Dtypes | f16 ✅ (RTNE, requires shader-f16); bf16 ✅ storage + RTNE narrowing, f32 compute, any adapter; fp8 ✅ e4m3fn + e5m2, storage-only, f32 compute, any adapter (bit-exact vs host oracle) |
 | Multi-device | ⛔ Deferred |
-| Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; vec4 slot dispatch — one thread per output slot — makes any output row stride bit-exact; symbolic image kernels keep the legacy aligned-stride constraint) |
+| Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; vec4 slot dispatch - one thread per output slot - makes any output row stride bit-exact; symbolic image kernels keep the legacy aligned-stride constraint) |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
 | ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~100 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone |
 | `anneal web` (local studio) | ✅ Single binary, 8 deep-linkable views, WASM/native split, zero telemetry, WCAG 2.x AA |
@@ -198,7 +199,7 @@ For the specific shape of each deferral and the platform ceilings behind them (8
 
 The visualize, kernels, explain, history, and ONNX dropzone views compile to WASM and work in **any modern browser**: importing a model and inspecting its UOp graph + scheduled WGSL needs no GPU at all. The doctor view shows the native side and the browser's `navigator.gpu` probe side by side so the gap is visible.
 
-The original milestone — train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary — is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), general symbolic axis movement (split/merge a symbolic dim, sym pad/shrink, multi-dim sym dispatch with the symbolic axis in any position on both kernel-output and input buffers), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional. Kernel autotuning: `LOCAL` applies to multi-dim symbolic kernels; `TILE` stays unavailable on symbolic axes because WGSL forbids non-const workgroup sizes, a hard platform ceiling; `UPCAST`, `VECTORIZE`, and `VEC4LOAD` are matmul-only by lowerer design (only `emitTiledReduce` handles their per-lane positions); `UPCAST` and `VECTORIZE` are fail-loud at opt-application time when composed without `OptTile`, and BEAM's `ActionSpace` pre-filters them on non-tiled kernels. `OptVec4Load` rebinds the f32 matmul inputs as `array<vec4<f32>>` for genuine 128-bit Metal tile loads; the best-known stack `OptLocal²+OptTile+OptUpcast²+OptVec4Load` reaches roughly 371 to 420 GFLOP/s at 1024³ to 2048³ on an M3 (about 4.4 to 5.0x the identity kernel). Symbolic kernels still run correctly via the identity codegen path.
+The original milestone - train a small MLP and a small conv net end-to-end on GPU, with gradients produced by the rewrite pass and kernels fused across the forward/backward boundary - is met. Since then: dynamic-batch training (`dynmlp`, symbolic batch dim), general symbolic axis movement (split/merge a symbolic dim, sym pad/shrink, multi-dim sym dispatch with the symbolic axis in any position on both kernel-output and input buffers), JIT capture/replay, a schedule cache, epilogue fusion (Pass 5 now elides a reduce-output BUFFERIZE into a single downstream elementwise consumer), and BEAM autotuning (env-gated, disk-cached) have all shipped. The remaining deferrals listed above are intentional. Kernel autotuning: `LOCAL` applies to multi-dim symbolic kernels; `TILE` stays unavailable on symbolic axes because WGSL forbids non-const workgroup sizes, a hard platform ceiling; `UPCAST`, `VECTORIZE`, and `VEC4LOAD` are matmul-only by lowerer design (only `emitTiledReduce` handles their per-lane positions); `UPCAST` and `VECTORIZE` are fail-loud at opt-application time when composed without `OptTile`, and BEAM's `ActionSpace` pre-filters them on non-tiled kernels. `OptVec4Load` rebinds the f32 matmul inputs as `array<vec4<f32>>` for genuine 128-bit Metal tile loads; the best-known stack `OptLocal²+OptTile+OptUpcast²+OptVec4Load` reaches roughly 371 to 420 GFLOP/s at 1024³ to 2048³ on an M3 (about 4.4 to 5.0x the identity kernel). Symbolic kernels still run correctly via the identity codegen path.
 
 ## Contributing
 
