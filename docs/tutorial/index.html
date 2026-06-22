@@ -16,7 +16,7 @@
                     t = window.matchMedia("(prefers-color-scheme:light)").matches ? "light" : "dark";
                 document.documentElement.setAttribute("data-theme", t);
 
-                var VALID = { mlp: 1, conv: 1, nanogpt: 1, llama: 1, vit: 1, resnet9: 1, gpt2: 1 };
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, llama: 1, vit: 1, resnet9: 1, gpt2: 1, dit: 1, meanflow: 1 };
                 var m = null;
                 var hash = (window.location.hash || "").replace(/^#/, "");
                 var fromHash = (hash.match(/(?:^|[&;])model=([a-z0-9]+)/) || [])[1];
@@ -132,7 +132,8 @@
                     { "@type": "ListItem", "position": 5, "name": "ViT: a vision transformer on RGB patches", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=vit" },
                     { "@type": "ListItem", "position": 6, "name": "ResNet-9: real convolutions, residuals, BatchNorm", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=resnet9" },
                     { "@type": "ListItem", "position": 7, "name": "GPT-2-small: run and fine-tune the real weights", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=gpt2" },
-                    { "@type": "ListItem", "position": 8, "name": "DiT: a Diffusion Transformer with adaLN-zero and classifier-free guidance", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=dit" }
+                    { "@type": "ListItem", "position": 8, "name": "DiT: a Diffusion Transformer with adaLN-zero and classifier-free guidance", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=dit" },
+                    { "@type": "ListItem", "position": 9, "name": "MeanFlow: a one-step generative model trained with a forward-mode JVP", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=meanflow" }
                 ]
             }
         </script>
@@ -226,6 +227,7 @@
                     <button role="tab" id="tab-resnet9" data-model="resnet9" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">resnet-9 <span class="tab-cost">(CIFAR-10, ~170 MB)</span></button>
                     <button role="tab" id="tab-gpt2" data-model="gpt2" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">gpt-2 <span class="tab-cost">(~550 MB)</span></button>
                     <button role="tab" id="tab-dit" data-model="dit" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">dit <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
+                    <button role="tab" id="tab-meanflow" data-model="meanflow" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">meanflow <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
                 </div>
                 <span class="sr-only" id="js-modelannounce" role="status" aria-live="polite"></span>
             </div>
@@ -423,13 +425,28 @@
                             <span class="lesson-go">start lesson &#8594;</span>
                         </a>
 
+                        <a class="lesson-card" data-model="meanflow" href="#prereqs" aria-label="MeanFlow lesson">
+                            <div class="lesson-top">
+                                <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                                <span class="lesson-level">deep</span>
+                            </div>
+                            <div class="lesson-name">MeanFlow</div>
+                            <p class="lesson-what">A one-step generative model on CIFAR-10, on the same DiT backbone.</p>
+                            <ul class="lesson-learn">
+                                <li>average velocity, sampled in one step</li>
+                                <li>forward-mode autodiff (a JVP target)</li>
+                            </ul>
+                            <div class="lesson-meta"><span class="m"><b>data</b> ~160 MB</span><span class="m"><b>device</b> GPU</span></div>
+                            <span class="lesson-go">start lesson &#8594;</span>
+                        </a>
+
                         <a class="lesson-card soon" href="https://github.com/georgebuilds/anneal" target="_blank" rel="noopener" aria-label="more lessons coming; watch the repo on GitHub">
                             <div class="lesson-top">
                                 <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
                                 <span class="lesson-level">soon</span>
                             </div>
                             <div class="lesson-name">more on the way</div>
-                            <p class="lesson-what">A one-step flow map (MeanFlow) is next on the roadmap. New lessons slot in here as they ship.</p>
+                            <p class="lesson-what">More architectures are on the roadmap. New lessons slot in here as they ship.</p>
                             <span class="lesson-go" style="color:var(--gold-tx)">watch the repo &#8599;</span>
                         </a>
                     </div>
@@ -466,6 +483,9 @@
                     </div>
                     <div class="variant" data-model="dit">
                         <div class="compare"><span class="tag">disk / network for DiT</span> About 160 MB on first run: the CIFAR-10 binary distribution is fetched into <code>$ANNEAL_CACHE_DIR</code>, SHA-pinned and atomically written (the same dataset ResNet-9 uses). Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
+                    </div>
+                    <div class="variant" data-model="meanflow">
+                        <div class="compare"><span class="tag">disk / network for MeanFlow</span> About 160 MB on first run: the CIFAR-10 binary distribution is fetched into <code>$ANNEAL_CACHE_DIR</code>, SHA-pinned and atomically written (the same dataset DiT and ResNet-9 use). Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
                     </div>
 
                     <div class="hw-matrix" aria-label="hardware support matrix">
@@ -632,6 +652,18 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="meanflow">
+                        <div class="terminal" role="region" aria-label="list models (meanflow highlighted)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                                <span class="t-out">  dit       Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10</span>
+                                <span class="t-out">  <span class="t-fwd">meanflow</span>  MeanFlow one-step generative model (average-velocity, forward-mode JVP) on CIFAR-10</span>
+                            </div>
+                        </div>
+                    </div>
 
                     <details class="why">
                         <summary>Why <code>go install</code> and not a release binary?</summary>
@@ -657,6 +689,7 @@
                     <div class="variant" data-model="resnet9"><p class="intent" style="margin-top:0">For ResNet-9, check that <code>max buffer size</code> comfortably exceeds the largest activation: at the canonical 64/128/256/512 channels, the layer3 stage produces a [B, 512, 4, 4] tensor (32 KB per sample, 1 MB at B=32). The whole model and its activations fit easily on any discrete GPU; the binding constraint at present is the WGSL codegen on very-deep backward graphs, not buffer pressure.</p></div>
                     <div class="variant" data-model="gpt2"><p class="intent" style="margin-top:0">For GPT-2, check that <code>max buffer size</code> is comfortably above the largest single weight tensor (the FP32 embedding is about 154 MB). On Apple Silicon and most discrete GPUs this is automatic; on low-end integrated GPUs it can be the binding constraint.</p></div>
                     <div class="variant" data-model="dit"><p class="intent" style="margin-top:0">For DiT, you want <code>status: ok</code> on a real adapter: training runs on the GPU only. The diffusion backward pass does not yet realize on the pure-Go CPU interpreter (a known backend limitation), so <code>--device=cpu</code> covers the forward path but not <code>anneal train dit</code>. The binding constraint is the WGSL backward surface, not buffer size.</p></div>
+                    <div class="variant" data-model="meanflow"><p class="intent" style="margin-top:0">For MeanFlow, you want <code>status: ok</code> on a real adapter: training runs on the GPU only. It reuses the DiT backbone (whose backward does not yet realize on the pure-Go CPU interpreter), and the continuous-time embedding adds a <code>Sin</code> the CPU path does not realize either, so <code>anneal train meanflow</code> is GPU-only. The binding constraint is the WGSL surface, not buffer size.</p></div>
 
                     <div class="terminal" role="region" aria-label="doctor command">
                         <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal doctor" aria-label="copy doctor command">copy</button></div>
@@ -961,6 +994,32 @@
                             <p class="c-deeper"><b>paper:</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (2022). <b>source:</b> <a href="https://github.com/georgebuilds/anneal/blob/main/tensor/nn/dit.go">tensor/nn/dit.go</a>, <a href="https://github.com/georgebuilds/anneal/blob/main/examples/dit.go">examples/dit.go</a>.</p>
                         </div>
                     </div>
+                    <div class="variant" data-model="meanflow">
+                        <h3 class="step-heading">MeanFlow: a one-step generative model, trained with forward-mode autodiff.</h3>
+                        <p class="intent">
+                            <code>anneal train meanflow</code> trains a one-step generative model on CIFAR-10. Instead of many denoising steps, the network learns the <em>average</em> velocity <code>u(z, r, t)</code> over a flow-matching interval, so a sample is drawn in a single step: <code>x0 = z1 - u(z1, 0, 1)</code>. The training target comes from the MeanFlow identity <code>u = v - (t - r)&middot;du/dt</code>, whose total time-derivative <code>du/dt</code> anneal computes as one forward-mode JVP (<code>tensor.JVP</code>) of the DiT backbone: this is the first time forward-mode autodiff drives a real training objective in the compiler. The reverse-mode pass still trains the weights; the JVP only builds the (stop-grad) target. The backbone is the same adaLN-zero DiT from the DiT lesson, plus an in-graph continuous-time embedding so a tangent can flow through <code>t</code>. Training runs on the GPU only. This is a short architecture demo of the MeanFlow objective and the JVP plumbing, not a converged image generator: because the target depends on the model's own du/dt, early training is noisy (a known MeanFlow bootstrap effect), and there is no multi-session convergence run yet.
+                        </p>
+                        <div class="terminal" role="region" aria-label="MeanFlow training">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train meanflow --steps=40 --plain" aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train meanflow --steps=40 --plain</span></div>
+                                <span class="t-out">training meanflow: MeanFlow one-step generative model (average-velocity, forward-mode JVP) on CIFAR-10</span>
+                                <span class="t-out">device: Metal (Apple M3)</span>
+                                <span class="t-out">fetch cifar10-binary (162 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">1.7971</span></span>
+                                <span class="t-out">step <span class="t-dim">020</span> loss <span class="t-fwd">19.7620</span></span>
+                                <span class="t-out">step <span class="t-dim">040</span> loss <span class="t-fwd">2.7469</span></span>
+                                <span class="t-out"><span class="t-fwd">meanflow: one-step sample mean=+0.0970 var=+1.3465</span> (guidance=2.0)</span>
+                                <span class="t-out"><span class="t-dim">// real losses from a 40-step demo. the target uses the model's own du/dt,</span></span>
+                                <span class="t-out"><span class="t-dim">// so early training is noisy (a known MeanFlow bootstrap effect), not yet converged.</span></span>
+                            </div>
+                        </div>
+                        <div class="concept">
+                            <div class="c-label">the idea</div>
+                            <div class="c-body"><p>A flow-matching model learns an instantaneous velocity <code>v</code> and integrates it over many steps. MeanFlow learns the <em>average</em> velocity over an interval directly, so one step suffices. The catch is the target: the identity <code>u = v - (t - r)&middot;du/dt</code> needs <code>du/dt</code>, the total time-derivative of the network itself. Reverse-mode autodiff gives gradients of a scalar loss; this needs a directional derivative of the network's output, which is exactly what a forward-mode JVP computes. anneal seeds tangents <code>(v, 0, 1)</code> on <code>(z, r, t)</code> and reads <code>du/dt</code> out of one <code>tensor.JVP</code> pass, then trains the weights with the usual reverse-mode pass against that stop-grad target.</p></div>
+                            <p class="c-deeper"><b>paper:</b> Geng et al., "Mean Flows for One-step Generative Modeling" (2024). <b>source:</b> <a href="https://github.com/georgebuilds/anneal/blob/main/examples/meanflow.go">examples/meanflow.go</a>, <a href="https://github.com/georgebuilds/anneal/blob/main/tensor/nn/dit.go">tensor/nn/dit.go</a>.</p>
+                        </div>
+                    </div>
 
                     <div class="checkpoint">
                         <div class="ck-label">checkpoint</div>
@@ -1104,6 +1163,21 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="meanflow">
+                        <div class="terminal" role="region" aria-label="compiler inspection for MeanFlow">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal kernels meanflow" aria-label="copy kernels command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain sin</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: the time embed is in-graph (Mul, Sin, Pad, Add), so a tangent flows through t.</span>
+                                <span class="t-out"><span class="t-fsd">jvp</span>: du/dt is one forward-mode pass; d(sin x) = cos(x)&middot;dx rides the same DAG.</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels meanflow</span></div>
+                                <span class="t-out">kernel 0/N time.embed+cond  <span class="t-dim">// fused: sin/cos embed + t/r/class projections</span></span>
+                                <span class="t-out">kernel J/N jvp.du_dt        <span class="t-dim">// forward-mode tangents through the DiT backbone</span></span>
+                                <span class="t-out">kernel N-1 mse(u, target)   <span class="t-dim">// fused: u minus stop-grad (v - (t-r)&middot;du/dt), squared</span></span>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="compare"><span class="tag">vs PyTorch</span> There is no FX graph capture, no <code>torch.compile</code> backend layer, no extra trip through Triton. The CLI is already inside the compiler.</div>
 
@@ -1217,6 +1291,10 @@
                     <div class="variant" data-model="dit">
                         <div class="crossref"><strong>Compare the transformer.</strong> Switch the picker to <em>ViT</em>: DiT reuses the same patch embedding and non-causal encoder blocks, conditioned on the diffusion timestep and class instead of producing a classification.</div>
                         <div class="crossref"><strong>Compare the diffusion.</strong> Switch to <em>diffusion</em>, the tiny DDPM denoiser, to see the same linear-beta schedule and epsilon-prediction objective on a conv backbone instead of a transformer. Run <code>anneal train diffusion</code>.</div>
+                    </div>
+                    <div class="variant" data-model="meanflow">
+                        <div class="crossref"><strong>Compare the backbone.</strong> Switch the picker to <em>DiT</em>: MeanFlow trains the same adaLN-zero Diffusion Transformer, but learns an average velocity sampled in one step instead of an epsilon prediction integrated over many denoising steps.</div>
+                        <div class="crossref"><strong>See the many-step version.</strong> Switch to <em>diffusion</em>, the tiny DDPM denoiser, to watch the iterative sampling MeanFlow collapses into a single step. Run <code>anneal train diffusion</code>.</div>
                     </div>
                 </section>
 
