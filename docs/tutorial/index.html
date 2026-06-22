@@ -997,7 +997,7 @@
                     <div class="variant" data-model="meanflow">
                         <h3 class="step-heading">MeanFlow: a one-step generative model, trained with forward-mode autodiff.</h3>
                         <p class="intent">
-                            <code>anneal train meanflow</code> trains a one-step generative model on CIFAR-10. Instead of many denoising steps, the network learns the <em>average</em> velocity <code>u(z, r, t)</code> over a flow-matching interval, so a sample is drawn in a single step: <code>x0 = z1 - u(z1, 0, 1)</code>. The training target comes from the MeanFlow identity <code>u = v - (t - r)&middot;du/dt</code>, whose total time-derivative <code>du/dt</code> anneal computes as one forward-mode JVP (<code>tensor.JVP</code>) of the DiT backbone: this is the first time forward-mode autodiff drives a real training objective in the compiler. The reverse-mode pass still trains the weights; the JVP only builds the (stop-grad) target. The backbone is the same adaLN-zero DiT from the DiT lesson, plus an in-graph continuous-time embedding so a tangent can flow through <code>t</code>. Training runs on the GPU only. This is a short architecture demo of the MeanFlow objective and the JVP plumbing, not a converged image generator: because the target depends on the model's own du/dt, early training is noisy (a known MeanFlow bootstrap effect), and there is no multi-session convergence run yet.
+                            <code>anneal train meanflow</code> trains a one-step generative model on CIFAR-10. Instead of many denoising steps, the network learns the <em>average</em> velocity <code>u(z, r, t)</code> over a flow-matching interval, so a sample is drawn in a single step: <code>x0 = z1 - u(z1, 0, 1)</code>. The training target comes from the MeanFlow identity <code>u = v - (t - r)&middot;du/dt</code>, whose total time-derivative <code>du/dt</code> anneal computes as one forward-mode JVP (<code>tensor.JVP</code>) of the DiT backbone: this is the first time forward-mode autodiff drives a real training objective in the compiler. The reverse-mode pass still trains the weights; the JVP only builds the (stop-grad) target. The backbone is the same adaLN-zero DiT from the DiT lesson, plus an in-graph continuous-time embedding so a tangent can flow through <code>t</code>. Training runs on the GPU only. This is a short architecture demo of the MeanFlow objective and the JVP plumbing, not a converged image generator: because the target depends on the model's own du/dt, naive training blows up (a known MeanFlow bootstrap effect). An adaptive-L2 loss weighting plus LR warmup keep it bounded and stable; the raw metric stays noisy and full convergence is a longer run.
                         </p>
                         <div class="terminal" role="region" aria-label="MeanFlow training">
                             <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train meanflow --steps=40 --plain" aria-label="copy command">copy</button></div>
@@ -1007,11 +1007,13 @@
                                 <span class="t-out">device: Metal (Apple M3)</span>
                                 <span class="t-out">fetch cifar10-binary (162 MiB) <span class="t-fsd">sha ok</span></span>
                                 <span class="t-out">step <span class="t-dim">000</span> loss <span class="t-fwd">1.7971</span></span>
-                                <span class="t-out">step <span class="t-dim">020</span> loss <span class="t-fwd">19.7620</span></span>
-                                <span class="t-out">step <span class="t-dim">040</span> loss <span class="t-fwd">2.7469</span></span>
-                                <span class="t-out"><span class="t-fwd">meanflow: one-step sample mean=+0.0970 var=+1.3465</span> (guidance=2.0)</span>
-                                <span class="t-out"><span class="t-dim">// real losses from a 40-step demo. the target uses the model's own du/dt,</span></span>
-                                <span class="t-out"><span class="t-dim">// so early training is noisy (a known MeanFlow bootstrap effect), not yet converged.</span></span>
+                                <span class="t-out">step <span class="t-dim">010</span> loss <span class="t-fwd">1.8728</span></span>
+                                <span class="t-out">step <span class="t-dim">020</span> loss <span class="t-fwd">2.2100</span></span>
+                                <span class="t-out">step <span class="t-dim">030</span> loss <span class="t-fwd">1.8616</span></span>
+                                <span class="t-out">step <span class="t-dim">040</span> loss <span class="t-fwd">2.9199</span></span>
+                                <span class="t-out"><span class="t-fwd">meanflow: one-step sample mean=+0.1471 var=+1.3248</span> (guidance=2.0)</span>
+                                <span class="t-out"><span class="t-dim">// real 40-step demo. adaptive-L2 weighting + LR warmup keep the loss bounded</span></span>
+                                <span class="t-out"><span class="t-dim">// (naive training blows up to ~20); the bootstrap metric stays noisy, full convergence needs a longer run.</span></span>
                             </div>
                         </div>
                         <div class="concept">
