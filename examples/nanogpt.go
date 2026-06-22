@@ -12,7 +12,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// NanoGPTStreamToken is one record emitted by NanoGPTGenerateStream — a
+// NanoGPTStreamToken is one record emitted by NanoGPTGenerateStream - a
 // per-token callback payload for the studio's /sse/generate handler. The
 // shape mirrors gpt2.StreamToken so the SSE wire format stays uniform.
 type NanoGPTStreamToken struct {

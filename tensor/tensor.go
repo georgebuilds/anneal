@@ -73,7 +73,7 @@ func (t *Tensor) IsRealized() bool { return t.data != nil }
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
-// NewLeaf creates a leaf tensor backed by a BUFFER node — a trainable parameter
+// NewLeaf creates a leaf tensor backed by a BUFFER node - a trainable parameter
 // or external input. Phase 6 differentiates w.r.t. leaves; Phase 9 updates them.
 // The shape is stored in the arg so the gradient pass can recover it without
 // a ShapeTracker (all movement-op args already encode shape; Buffer was the gap).

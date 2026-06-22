@@ -7,7 +7,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// index_sint_test.go — adversarial coverage for sintStrides, flatIndexSints, and
+// index_sint_test.go - adversarial coverage for sintStrides, flatIndexSints, and
 // unflatIndexSints. These are the symbolic-shape variants of flatIndex/unflatIndex
 // used when an OpReshape carries a ShapeSintArg. Production exercises them through
 // dynamic-batch tensor paths; this file pins their direct semantics so a
@@ -52,7 +52,7 @@ func constIndices(a *uop.Arena, vals ...int64) []uop.UOp {
 	return out
 }
 
-// ── sintStrides — concrete shape ────────────────────────────────────────────
+// ── sintStrides - concrete shape ────────────────────────────────────────────
 
 // TestSintStridesAllConcrete verifies row-major strides for a fully concrete
 // shape: strides[i] = prod(shape[i+1:]). Strides are []shape.Sint; for an
@@ -93,7 +93,7 @@ func TestSintStridesAllConcrete(t *testing.T) {
 // shape). The symbolic dim's stride equals the product of trailing concrete
 // dims (concrete ConstInt); for dims to its right, strides[i] = prod(concrete
 // tail of i+1:). Post Slice 7a the accumulator does multiply through the
-// symbolic dim (using shape.Mul) — but the resulting symbolic factor only
+// symbolic dim (using shape.Mul) - but the resulting symbolic factor only
 // shows up in strides for dims to the LEFT of the symbolic dim, which don't
 // exist in the symbolic-outermost case.
 func TestSintStridesSymbolicHead(t *testing.T) {
@@ -148,7 +148,7 @@ func TestSintStridesSymbolicHead(t *testing.T) {
 	})
 }
 
-// ── flatIndexSints — row-major flattening ───────────────────────────────────
+// ── flatIndexSints - row-major flattening ───────────────────────────────────
 
 // TestFlatIndexSintsEmpty: zero-dim shape → Const(0). Pins the early-return.
 func TestFlatIndexSintsEmpty(t *testing.T) {
@@ -202,7 +202,7 @@ func TestFlatIndexSintsConcrete2D(t *testing.T) {
 
 // TestFlatIndexSintsStride1Optimisation pins that when stride==1 the code uses
 // the index directly (no Const(1) Mul). Important for cache-hit symmetry with
-// the static flatIndex path — if a symbolic build started emitting r*Const(1)
+// the static flatIndex path - if a symbolic build started emitting r*Const(1)
 // where the static path emits r, the schedule cache wouldn't match.
 func TestFlatIndexSintsStride1Optimisation(t *testing.T) {
 	a := uop.NewArena(8)
@@ -232,7 +232,7 @@ func TestFlatIndexSintsSymbolicHead(t *testing.T) {
 	r := constIndices(a, 0, 0)
 
 	got := flatIndexSints(a, r, sh)
-	// Expect Add(Mul(r0, Const(16)), r1) — symbolic dim has concrete stride 16.
+	// Expect Add(Mul(r0, Const(16)), r1) - symbolic dim has concrete stride 16.
 	if got.Op() != uop.OpAdd {
 		t.Fatalf("top = %v, want OpAdd", got.Op())
 	}
@@ -246,7 +246,7 @@ func TestFlatIndexSintsSymbolicHead(t *testing.T) {
 	}
 }
 
-// ── unflatIndexSints — row-major decomposition ──────────────────────────────
+// ── unflatIndexSints - row-major decomposition ──────────────────────────────
 
 func TestUnflatIndexSintsEmpty(t *testing.T) {
 	a := uop.NewArena(4)
@@ -312,7 +312,7 @@ func TestUnflatIndexSintsSymbolicHead(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("len(out) = %d, want 2", len(got))
 	}
-	// out[0] (symbolic): IDiv(flat, Const(8)) — NO Mod.
+	// out[0] (symbolic): IDiv(flat, Const(8)) - NO Mod.
 	if got[0].Op() != uop.OpIDiv {
 		t.Errorf("symbolic out[0].Op = %v, want OpIDiv (no Mod on symbolic outermost)", got[0].Op())
 	}
@@ -328,7 +328,7 @@ func TestUnflatIndexSintsSymbolicHead(t *testing.T) {
 // TestUnflatIndexSintsSymbolicHeadNoModIsLoadBearing documents WHY the symbolic
 // outermost case skips Mod. If a future "consistency cleanup" added a Mod on
 // the symbolic dim, codegen would have to read the symbolic bound at runtime
-// to compute the modulus — turning a free arithmetic op into a uniform-buffer
+// to compute the modulus - turning a free arithmetic op into a uniform-buffer
 // fetch in the inner loop. Pinning here so the rationale survives refactors.
 func TestUnflatIndexSintsSymbolicHeadNoModIsLoadBearing(t *testing.T) {
 	a := uop.NewArena(32)
@@ -336,7 +336,7 @@ func TestUnflatIndexSintsSymbolicHeadNoModIsLoadBearing(t *testing.T) {
 	flat := constIndices(a, 0)[0]
 	got := unflatIndexSints(a, flat, sh)
 	if got[0].Op() == uop.OpMod {
-		t.Error("symbolic outermost dim wrapped in Mod — would force runtime bound read in inner loop")
+		t.Error("symbolic outermost dim wrapped in Mod - would force runtime bound read in inner loop")
 	}
 }
 
@@ -367,7 +367,7 @@ func TestFlatUnflatRoundTripConcrete(t *testing.T) {
 			a := uop.NewArena(64)
 			sh := constShape(dims...)
 
-			// Build symbolic round-trip: f(unflat(flat)) — both arithmetic on the same flat var.
+			// Build symbolic round-trip: f(unflat(flat)) - both arithmetic on the same flat var.
 			flatBound := a.New(uop.OpConst, uop.Dtypes.Index, nil, prod(dims), nil)
 			flat := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{flatBound},
 				uop.RangeArg{ID: 99, Type: uop.AxisLoop}, nil)
@@ -379,7 +379,7 @@ func TestFlatUnflatRoundTripConcrete(t *testing.T) {
 			// We don't need to evaluate them; we assert the round-trip expression hashes the
 			// same way as expected per-dim arithmetic, by checking it does not collapse to
 			// the flat var itself (which would indicate the round-trip collapsed to identity,
-			// which is what we want EXCEPT we cannot rely on algebraic simplification here —
+			// which is what we want EXCEPT we cannot rely on algebraic simplification here -
 			// the symbolic algebra rewriter is not invoked by these helpers).
 			//
 			// Minimum check: roundTrip must be a valid UOp and reference `flat` transitively.
@@ -387,7 +387,7 @@ func TestFlatUnflatRoundTripConcrete(t *testing.T) {
 				t.Fatal("round-trip produced invalid UOp")
 			}
 			if !referencesTransitively(roundTrip, flat) {
-				t.Errorf("round-trip expression does not reference the original flat var — broken")
+				t.Errorf("round-trip expression does not reference the original flat var - broken")
 			}
 		})
 	}
@@ -473,7 +473,7 @@ func evalUOp(u uop.UOp, binding map[uint32]int64) int64 {
 	panic("evalUOp: unsupported op " + u.Op().String())
 }
 
-// TestStructuralStridesSymMid: shape [4, n] — symbolic non-outermost.
+// TestStructuralStridesSymMid: shape [4, n] - symbolic non-outermost.
 // strides[0] must carry n; strides[1] = 1.
 // flat(r0, r1) = r0*n + r1; unflat(flat) = [(flat/n)%4, flat%n].
 func TestStructuralStridesSymMid(t *testing.T) {
@@ -524,7 +524,7 @@ func TestStructuralStridesSymMid(t *testing.T) {
 	}
 }
 
-// TestStructuralStridesTwoSym: shape [n, m] — two symbolic dims.
+// TestStructuralStridesTwoSym: shape [n, m] - two symbolic dims.
 // strides[0] = m (symbolic); strides[1] = 1.
 // flat(r0, r1) = r0*m + r1; unflat(flat) = [(flat/m), flat%m] (i==0 sym → no Mod).
 func TestStructuralStridesTwoSym(t *testing.T) {
@@ -574,7 +574,7 @@ func TestStructuralStridesTwoSym(t *testing.T) {
 }
 
 // TestStructuralStridesNMSplit: round-trip across reshape [n*m] ↔ [n, m].
-// This is the case that hit Slice 7 preflight §5.b — pre-7a, the flat index
+// This is the case that hit Slice 7 preflight §5.b - pre-7a, the flat index
 // over [n, m] came out r0 + r1 (strides [1,1]) instead of r0*m + r1.
 func TestStructuralStridesNMSplit(t *testing.T) {
 	cases := [][2]int64{{2, 3}, {3, 5}, {4, 4}}
@@ -617,7 +617,7 @@ func TestStructuralStridesNMSplit(t *testing.T) {
 	}
 }
 
-// TestStructuralStridesSymMiddle: shape [4, n, 4] — sym strictly in the
+// TestStructuralStridesSymMiddle: shape [4, n, 4] - sym strictly in the
 // middle. strides[0] must carry 4n; strides[1]=4; strides[2]=1.
 func TestStructuralStridesSymMiddle(t *testing.T) {
 	for _, nv := range []int64{2, 3, 5} {

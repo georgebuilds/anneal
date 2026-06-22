@@ -11,7 +11,7 @@ import (
 // TestHandleConstant_FloatTensor exercises the device-tier Constant path:
 // a TensorProto with FLOAT data is materialised as a leaf, then exposed as
 // a graph output. We assert the output shape, dtype, AND its float32 data
-// element-by-element — Constant carries data eagerly so this is a pure
+// element-by-element - Constant carries data eagerly so this is a pure
 // value-oracle check.
 func TestHandleConstant_FloatTensor(t *testing.T) {
 	tp := &onnxpb.TensorProto{
@@ -87,7 +87,7 @@ func TestHandleIdentity_PassThrough(t *testing.T) {
 
 // TestHandleConstantOfShape_Default builds a 0-filled tensor of the host-fed
 // shape. We assert the output shape + dtype + structure (Expand of a Reshape
-// of a Const). The leaf data of the underlying Const is asserted too —
+// of a Const). The leaf data of the underlying Const is asserted too -
 // FullSints builds a CONST → RESHAPE → EXPAND tree.
 func TestHandleConstantOfShape_Default(t *testing.T) {
 	// Initializer carrying shape [2,3] as INT64.

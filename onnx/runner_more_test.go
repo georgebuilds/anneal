@@ -260,7 +260,7 @@ func TestImport_AiOnnxDomainExplicit(t *testing.T) {
 
 // makeSymbolicValueInfo builds a ValueInfoProto with a mix of dim_value and
 // dim_param dims. dim is per-axis: positive → DimValue, "" → empty
-// (DimValue=0 — used as a dynamic-axis test), anything else → DimParam.
+// (DimValue=0 - used as a dynamic-axis test), anything else → DimParam.
 func makeSymbolicValueInfo(name string, dt onnxpb.TensorProto_DataType, dims []any) *onnxpb.ValueInfoProto {
 	shape := &onnxpb.TensorShapeProto{}
 	for _, d := range dims {
@@ -274,7 +274,7 @@ func makeSymbolicValueInfo(name string, dt onnxpb.TensorProto_DataType, dims []a
 				Value: &onnxpb.TensorShapeProto_Dimension_DimParam{DimParam: v},
 			})
 		case nil:
-			// Empty dim — neither DimValue nor DimParam set.
+			// Empty dim - neither DimValue nor DimParam set.
 			shape.Dim = append(shape.Dim, &onnxpb.TensorShapeProto_Dimension{})
 		}
 	}

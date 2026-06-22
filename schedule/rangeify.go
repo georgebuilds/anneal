@@ -166,7 +166,7 @@ func cloneShape(s []shape.Sint) []shape.Sint {
 // ── Realize map ───────────────────────────────────────────────────────────────
 
 // hardRealizeOps are ALWAYS_CONTIGUOUS: they must force a kernel boundary.
-// REDUCE_AXIS is included conservatively — it changes the iteration space.
+// REDUCE_AXIS is included conservatively - it changes the iteration space.
 var hardRealizeOps = map[uop.Op]bool{
 	uop.OpContiguous: true,
 	uop.OpAssign:     true,
@@ -244,7 +244,7 @@ func (rc *rangeCtx) freshRanges(sh []shape.Sint, t uop.AxisType) []uop.UOp {
 	return ranges
 }
 
-// ── runRangeify: passes 2–4 (realize map + range threading + BUFFERIZE) ──────
+// ── runRangeify: passes 2-4 (realize map + range threading + BUFFERIZE) ──────
 
 // runRangeify computes the realize map, propagates range indices through every
 // kernel subgraph via indexExprNode, and wraps each realize point in BUFFERIZE.

@@ -1,6 +1,6 @@
 // Package viz implements the web-based UOp graph visualizer. It runs the real
 // anneal compiler (frontend + rewrite engine + scheduler) compiled Go→WASM and
-// renders the actual UOp graph in the browser — never a mock.
+// renders the actual UOp graph in the browser - never a mock.
 package viz
 
 import (
@@ -16,16 +16,16 @@ import (
 
 // Node class constants (provenance).
 const (
-	ClassForward  = "forward"  // forward pass — teal
-	ClassBackward = "backward" // backward pass — ember
+	ClassForward  = "forward"  // forward pass - teal
+	ClassBackward = "backward" // backward pass - ember
 )
 
 // Node kind constants (structural shape hint for the renderer).
 const (
-	KindDefault = "default" // circle — regular computation
-	KindLeaf    = "leaf"    // rounded rect — OpBuffer input/parameter
-	KindReduce  = "reduce"  // diamond — OpReduceAxis (real kernel boundary in v1)
-	KindSink    = "sink"    // hexagon — OpSink aggregation point
+	KindDefault = "default" // circle - regular computation
+	KindLeaf    = "leaf"    // rounded rect - OpBuffer input/parameter
+	KindReduce  = "reduce"  // diamond - OpReduceAxis (real kernel boundary in v1)
+	KindSink    = "sink"    // hexagon - OpSink aggregation point
 )
 
 // GraphData is the serializable UOp graph for the browser renderer.
@@ -74,14 +74,14 @@ func (g *GraphData) ToJSON() ([]byte, error) {
 // returns a serializable GraphData suitable for the browser renderer.
 //
 // DD2 compliance: the real anneal compiler (frontend + rewrite + scheduler)
-// runs in this call. No GPU execution is performed — graph construction and
+// runs in this call. No GPU execution is performed - graph construction and
 // scheduling are pure-Go graph operations that run identically on native and
 // WASM targets.
 //
 // Cross-build render-stability: node IDs are arena indices, which are
 // construction-order-dependent per SPEC §1.3 / AGENTS.md. This renders one
 // compilation faithfully. The visualizer makes no cross-build comparisons and
-// does not assume render-stability across reloads — this is the documented safe
+// does not assume render-stability across reloads - this is the documented safe
 // v1 posture.
 func BuildGraph(name string) (*GraphData, error) {
 	ex, err := examples.Get(name)
@@ -99,7 +99,7 @@ func BuildGraph(name string) (*GraphData, error) {
 	// Reduce output to a scalar so Backward has a single root adjoint.
 	loss := out.Sum(nil, false)
 
-	// Run the real backward traversal (tensor/gradient.go typed traversal —
+	// Run the real backward traversal (tensor/gradient.go typed traversal -
 	// NOT a PatternMatcher ruleset, per SPEC §5). Each new UOp node built
 	// inside Backward is stamped PhaseBackward by the arena's phase field;
 	// forward nodes reused via interning keep their original PhaseForward.
@@ -122,7 +122,7 @@ func BuildGraph(name string) (*GraphData, error) {
 	// reports the true kernel count for a full training step.
 	schedSink := a.New(uop.OpSink, uop.Dtypes.Void, vizRoots, nil, nil)
 
-	// Run the real scheduler (passes 1–10, no GPU execution).
+	// Run the real scheduler (passes 1-10, no GPU execution).
 	items := schedule.CreateSchedule(schedSink, "webgpu")
 	kernelCount := len(items)
 
@@ -268,7 +268,7 @@ func kindOf(u uop.UOp, a *uop.Arena) string {
 		return KindSink
 	case uop.OpReduceAxis:
 		// ReduceAxis nodes are hard kernel boundaries in v1 (removeBufferize is a
-		// no-op stub — every reduce materialises to a buffer). Gold diamond shape.
+		// no-op stub - every reduce materialises to a buffer). Gold diamond shape.
 		return KindReduce
 	case uop.OpBuffer:
 		return KindLeaf

@@ -3,7 +3,7 @@ package onnx
 // Phase 3 (Stage-2 transformer core) E2E gate.
 //
 // Strategy mirrors Phase 1.C / Phase 2:
-//   - "Bit-exact" tests build the same graph twice on the SAME arena —
+//   - "Bit-exact" tests build the same graph twice on the SAME arena -
 //     once via the tensor/nn API, once via a hand-constructed ModelProto fed
 //     through the importer. Identical primitives intern, so cpuEval over
 //     both must produce []float32 slices that are bit-equal.
@@ -124,7 +124,7 @@ func TestE2E_SelfAttention_BitExact(t *testing.T) {
 	w.randomFill(rng, "proj_w", []int64{E, E}, 0.1)
 	w.randomFill(rng, "proj_b", []int64{E}, 0.05)
 
-	// Input tensor — random small values to keep softmax well-conditioned.
+	// Input tensor - random small values to keep softmax well-conditioned.
 	xVals := make([]float32, B*T*E)
 	for i := range xVals {
 		xVals[i] = (rng.Float32()*2 - 1) * 0.5
@@ -144,7 +144,7 @@ func TestE2E_SelfAttention_BitExact(t *testing.T) {
 
 	// Path B: build the equivalent attention subgraph by hand, on the same
 	// arena. We deliberately mirror the structure of CausalSelfAttention.Forward
-	// for a non-causal mask (all-ones). The mask doesn't reach into ONNX —
+	// for a non-causal mask (all-ones). The mask doesn't reach into ONNX -
 	// it's a fixed leaf, and we set the all-ones mask in both paths so they
 	// are structurally identical (the non-causal SelfAttention constructor
 	// produces an all-ones mask, which is the identity for the multiplicative
@@ -261,7 +261,7 @@ func TestE2E_LayerNorm_BitExact(t *testing.T) {
 }
 
 // buildDecomposedLayerNorm mirrors the body of nn.LayerNorm.Forward
-// (Mean/Sub/Mul/Mean/Sqrt/Div/Mul/Add chain) — uses the exact same primitive
+// (Mean/Sub/Mul/Mean/Sqrt/Div/Mul/Add chain) - uses the exact same primitive
 // calls so arena interning produces identical UOps for bit-exact equality.
 func buildDecomposedLayerNorm(arena *uop.Arena, x *tensor.Tensor, w *xfmrWeights, E int64) *tensor.Tensor {
 	rank := x.Rank()
@@ -283,7 +283,7 @@ func buildDecomposedLayerNorm(arena *uop.Arena, x *tensor.Tensor, w *xfmrWeights
 	return xhat.Mul(weight).Add(bias)
 }
 
-// ── (3) GELU via Erf — numerical accuracy vs math.Erf ───────────────────────
+// ── (3) GELU via Erf - numerical accuracy vs math.Erf ───────────────────────
 
 // TestE2E_GELU_Erf_Numerical verifies that the Erf handler routes through the
 // new OpErf primitive and the resulting erf-based GELU agrees with the
@@ -291,7 +291,7 @@ func buildDecomposedLayerNorm(arena *uop.Arena, x *tensor.Tensor, w *xfmrWeights
 //
 // Reference: gelu_erf(x) = 0.5 * x * (1 + math.erf(x / sqrt(2))).
 //
-// This is a numerical-accuracy test (no direct anneal-equivalent — anneal
+// This is a numerical-accuracy test (no direct anneal-equivalent - anneal
 // ships only tanh-approx GELU). The 1e-6 bound bounds the polynomial helper
 // error (~1.5e-7) plus a few ulps for the surrounding multiplies / divides.
 func TestE2E_GELU_Erf_Numerical(t *testing.T) {
@@ -362,7 +362,7 @@ func TestE2E_GELU_TanhApprox_BitExact(t *testing.T) {
 	xLeaf.SetData(xVals)
 
 	// Path A: build via primitives identical to geluTanh (re-implemented for
-	// access — geluTanh is unexported).
+	// access - geluTanh is unexported).
 	const (
 		c0 = float64(0.7978845608028654) // sqrt(2/pi)
 		c1 = float64(0.044715)
@@ -462,7 +462,7 @@ func TestE2E_Softmax_OpsetBranch(t *testing.T) {
 		}
 	}
 
-	// Also assert opset 12 and 13 differ — easy way: cross-row sums on the
+	// Also assert opset 12 and 13 differ - easy way: cross-row sums on the
 	// opset-13 output over the flat-tail won't be 1, and vice versa.
 	d := approxClose(opset12, opset13)
 	t.Logf("Softmax opset 12 vs 13: max-abs-diff = %g (expected non-trivial)", d)
@@ -474,8 +474,8 @@ func TestE2E_Softmax_OpsetBranch(t *testing.T) {
 // ── (6) Slice negative-step reversed ────────────────────────────────────────
 
 // TestE2E_Slice_NegativeStep_Reversed builds a Slice node with step=-1 over a
-// 1-D tensor with starts=[3], ends=[-5], steps=[-1] — the canonical ONNX
-// recipe for full-reverse — and asserts it matches tensor.Flip directly.
+// 1-D tensor with starts=[3], ends=[-5], steps=[-1] - the canonical ONNX
+// recipe for full-reverse - and asserts it matches tensor.Flip directly.
 func TestE2E_Slice_NegativeStep_Reversed(t *testing.T) {
 	arena := uop.NewArena(2048)
 	xVals := []float32{10, 20, 30, 40}
@@ -811,7 +811,7 @@ func TestE2E_TransformerBlock_BitExact(t *testing.T) {
 		return h.Add(mlp.Forward(ln2.Forward(h)))
 	}()
 
-	// Path B: identical primitive composition — interns to the same UOp.
+	// Path B: identical primitive composition - interns to the same UOp.
 	directB := func() *tensor.Tensor {
 		ln1 := nn.NewLayerNorm(arena, E, 1e-5)
 		ln1.Weight = xfmrLeafParam(arena, w, "ln1_w")

@@ -330,7 +330,7 @@ func TestTrainDynMLPZeroBatchFallback(t *testing.T) {
 // TestRunViTLogTextEmits drives runViT with zero steps against a tiny
 // in-memory CIFAR-10 fixture; the loop body is skipped (Steps=0) but the
 // lr/batch fallback resolution, model assembly, and final wall-time
-// LogText emission all execute. CPU-only — no GPU dispatch.
+// LogText emission all execute. CPU-only - no GPU dispatch.
 func TestRunViTLogTextEmits(t *testing.T) {
 	ds := synthCIFAR10(8, rand.New(rand.NewSource(41)))
 	var captured strings.Builder
@@ -377,7 +377,7 @@ func TestEvalViTLossCIFARNoGPUReturnsNaN(t *testing.T) {
 
 func TestRunNanoGPTZeroStepsLogTextEmits(t *testing.T) {
 	// Steps=0 + a fixture corpus skips every Realize. The final sample
-	// path is gated behind generateNanoGPT, which Realizes — so we expect
+	// path is gated behind generateNanoGPT, which Realizes - so we expect
 	// the helper to return a generation error here. The setup block up to
 	// that point is what we're after.
 	ds := newCharDatasetFromString(strings.Repeat("abcdefgh", 8))

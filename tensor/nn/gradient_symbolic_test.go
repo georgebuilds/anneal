@@ -277,7 +277,7 @@ func staticMLPGrads(t *testing.T, model *symMLP, xData, tgtData []float32) map[*
 // ── TestDynBatchTrainConvergence ──────────────────────────────────────────────
 
 // TestDynBatchTrainConvergence proves that training a symbolic-batch MLP
-// converges — the loss decreases over 200 SGD steps.
+// converges - the loss decreases over 200 SGD steps.
 func TestDynBatchTrainConvergence(t *testing.T) {
 	requireGPU(t)
 	skipIfSoftwareGPU(t)

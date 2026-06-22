@@ -339,7 +339,7 @@ func TestLowerNode_HappyPath(t *testing.T) {
 	if ap := n.Attrs["auto_pad"]; ap.Kind != AttrString || ap.S != "NOTSET" {
 		t.Errorf("auto_pad attr=%+v, want AttrString NOTSET", ap)
 	}
-	// Mutate pb input slice — lowered Inputs must not change.
+	// Mutate pb input slice - lowered Inputs must not change.
 	pb.Input[0] = "ZZZ"
 	if n.Inputs[0] == "ZZZ" {
 		t.Errorf("lowered Inputs aliases pb.Input (mutation leaked)")

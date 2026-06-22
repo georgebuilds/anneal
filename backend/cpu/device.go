@@ -140,7 +140,7 @@ func (d *Device) Run(items []schedule.ExecItem, inputs map[uint32][]float32) (ma
 
 // outputAsF32 converts a kernel-output buffer to the orchestrator's
 // []float32 contract: f32 storage copies verbatim; i32 storage
-// bit-reinterprets per element — the GPU readback path
+// bit-reinterprets per element - the GPU readback path
 // (webgpu.DecodeBytesToFloat32) returns i32 outputs as bit patterns inside
 // f32, matching the tensor layer's bits-in-f32 contract for Int32 data, and
 // the CPU must mirror it exactly. Returns nil for a storage-less buffer.

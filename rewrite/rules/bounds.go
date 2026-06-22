@@ -53,7 +53,7 @@ func BoundsOf(u uop.UOp) Bounds {
 		return Bounds{}
 
 	case uop.OpRange:
-		// Range(upper) — GPU iteration range [0, upper). Lower is implicit zero.
+		// Range(upper) - GPU iteration range [0, upper). Lower is implicit zero.
 		if u.NSrc() == 1 {
 			hi := BoundsOf(u.Src(0))
 			if hi.Valid && hi.Max > 0 {
@@ -63,7 +63,7 @@ func BoundsOf(u uop.UOp) Bounds {
 		return Bounds{}
 	}
 
-	// Binary ALU ops — only for integer dtypes.
+	// Binary ALU ops - only for integer dtypes.
 	if !u.DType().IsInt() && !u.DType().IsBool() {
 		return Bounds{}
 	}
@@ -192,12 +192,12 @@ func BoundsOf(u uop.UOp) Bounds {
 	return Bounds{}
 }
 
-// ── Index dtype selection (Option B Slice 6 — vmax-driven upcast) ───────────
+// ── Index dtype selection (Option B Slice 6 - vmax-driven upcast) ───────────
 
 // IndexDtypeForBound returns the integer DType wide enough to hold any value
 // representable by bound's interval. Returns Int32 when bound's vmax/vmin fit
 // in int32, else Int64. When BoundsOf cannot prove a bound (Valid=false), the
-// helper returns Int64 conservatively — favoring correctness over the i32
+// helper returns Int64 conservatively - favoring correctness over the i32
 // fast path.
 //
 // This is the single source of truth for "is i32 enough for this index

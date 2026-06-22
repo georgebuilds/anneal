@@ -4,7 +4,7 @@ import "github.com/georgebuilds/anneal/uop"
 
 // Buffer identifies one global materialized buffer in the schedule.
 type Buffer struct {
-	UOpIdx uint32  // arena index of the BUFFER uop — unique within this schedule
+	UOpIdx uint32  // arena index of the BUFFER uop - unique within this schedule
 	Size   int64   // number of elements
 	Shape  []int64 // per-dimension sizes; product == Size; 0 marks a symbolic dim
 	DType  *uop.DType
@@ -31,11 +31,11 @@ type Buffer struct {
 	// symbolic positions of Shape. Each entry encodes one dim as an affine
 	// sum: size = sum(Terms[i].Mul * binding[Terms[i].VarName]) + Offset.
 	// Used by Option B Slice 5 for pad/shrink output buffers whose bounds
-	// are Add expressions over distinct DefineVars — outside what the
+	// are Add expressions over distinct DefineVars - outside what the
 	// single-term (Mul, VarName) encoding can carry.
 	//
 	// Indexed parallel to the symbolic positions of Shape (positions where
-	// Shape[i] == 0), in dim order — same as SymDimMul / SymDimVar.
+	// Shape[i] == 0), in dim order - same as SymDimMul / SymDimVar.
 	SymDimAffine []SymDimAffineEntry
 }
 
@@ -48,7 +48,7 @@ type SymDimAffineEntry struct {
 
 // BoundExprOp identifies a node in a serializable expression tree used to
 // evaluate a symbolic range bound at dispatch time. The supported set mirrors
-// codegen's renderSymBoundExpr — Const / Var / Add / Sub / Mul / IDiv / Mod —
+// codegen's renderSymBoundExpr - Const / Var / Add / Sub / Mul / IDiv / Mod -
 // which together cover bare DefineVars, reshape-merge bounds, pad/shrink Adds,
 // and the LOCAL workgroup-count formula `(n + L - 1) / L`.
 type BoundExprOp uint8

@@ -161,7 +161,7 @@ func TestFP8EncodeRTNEReference(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			grid := fp8FiniteValues(f)
 			// The encoder consumes float32, so perturbations must be one
-			// float32 ulp, not one float64 ulp — a float64-only nudge
+			// float32 ulp, not one float64 ulp - a float64-only nudge
 			// vanishes under the f32 rounding of the input and the encoder
 			// would (correctly) still see an exact tie.
 			check := func(x float32) {

@@ -32,7 +32,7 @@ func newAllocator(dev *Device) *allocator {
 }
 
 // Alloc creates a fresh storage buffer sized to hold elems * elemBytes(dt)
-// bytes (or ceil(elems/4) * 16 bytes for image dtypes — one vec4 slot per
+// bytes (or ceil(elems/4) * 16 bytes for image dtypes - one vec4 slot per
 // 4 logical elements). usage controls the wgpu.BufferUsage flag set (leaf
 // inputs skip the CopySrc bit; everything else gets the IO triple).
 func (a *allocator) Alloc(elems int64, dt *uop.DType, usage backend.BufferUsage, label string) (backend.DeviceBuffer, error) {
@@ -54,7 +54,7 @@ func (a *allocator) Alloc(elems int64, dt *uop.DType, usage backend.BufferUsage,
 }
 
 // AllocSlot returns the slot-shared buffer for slot, creating it on first use.
-// elems is the maximum count across all kernels writing this slot — the
+// elems is the maximum count across all kernels writing this slot - the
 // orchestrator computes this before allocation and passes it on the first
 // call; subsequent calls for the same slot simply return the existing buffer
 // (the maxElems on later calls is informational only and is not used to

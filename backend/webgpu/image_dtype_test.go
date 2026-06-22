@@ -20,20 +20,20 @@ func buildImageInputs(x *tensor.Tensor, data []float32) map[uint32][]float32 {
 // matmul over ImageFloat32 operands and the same matmul over Float32
 // operands. Image storage is a layout choice for the GPU buffer (vec4
 // packing); the compute path stays f32, so a correctly-implemented codegen
-// must produce numerically identical results — max-abs-diff == 0.
+// must produce numerically identical results - max-abs-diff == 0.
 //
 // Vec4 slot dispatch (this slice) lifted the former SHAPE CONSTRAINT: image
 // kernels now dispatch one thread per vec4 OUTPUT SLOT (four logical outputs
 // per thread, whole slot written once), so output row strides that are NOT a
-// multiple of 4 — where adjacent rows share a vec4 slot and the old per-lane
-// store cascade raced under naga's Metal lowering — are bit-exact and
+// multiple of 4 - where adjacent rows share a vec4 slot and the old per-lane
+// store cascade raced under naga's Metal lowering - are bit-exact and
 // REQUIRED to pass here.
 //
 // Test shapes:
 //   - 64x64x64: aligned to vec4 in every dim (the canonical aligned case)
 //   - 128x128x128: larger aligned baseline
-//   - 17x32: M not divisible by 4 but N stride is — aligned-stride case
-//   - 64x30: N=30 row stride — the documented race configuration, now required
+//   - 17x32: M not divisible by 4 but N stride is - aligned-stride case
+//   - 64x30: N=30 row stride - the documented race configuration, now required
 //   - 33x17: N=17 row stride, odd everything
 //   - 17x17x17: M, N, K all unaligned
 func TestImageDType_ValueOracle_Matmul(t *testing.T) {

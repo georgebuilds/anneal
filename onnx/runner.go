@@ -144,7 +144,7 @@ func ImportFile(path string, arena *uop.Arena, device string, opts ...ImportOpt)
 // dropped before this function returns.
 //
 // Opset resolution (plan §4): we pick the entry in opset_import whose Domain
-// is "" or "ai.onnx" — that is the primary opset version. opset < 10 is a
+// is "" or "ai.onnx" - that is the primary opset version. opset < 10 is a
 // hard error (plan §4 cutoff); opset > 17 emits a warning (we don't refuse,
 // but in-window correctness is what is exercised by tests).
 func Import(modelBytes []byte, arena *uop.Arena, device string, opts ...ImportOpt) (*Runner, error) {
@@ -180,7 +180,7 @@ func Import(modelBytes []byte, arena *uop.Arena, device string, opts ...ImportOp
 
 	// Intern initializers (structural identity: identical TensorProtos share
 	// the same arena leaf). In structure-only mode, materialise a leaf with
-	// the correct shape + dtype but skip the payload decode — Data() returns
+	// the correct shape + dtype but skip the payload decode - Data() returns
 	// nil. Visualization needs topology, not values.
 	type internEntry struct {
 		v Value
@@ -217,7 +217,7 @@ func Import(modelBytes []byte, arena *uop.Arena, device string, opts ...ImportOp
 
 	// Capture input / output descriptors (with symbolic dims preserved as
 	// fresh DefineVar UOps, but only the *first* time a given dim_param
-	// name is seen — same-name dim_params unify into a single Variable).
+	// name is seen - same-name dim_params unify into a single Variable).
 	r.inputs, err = lowerValueInfos(arena, r.graph.GetInput())
 	if err != nil {
 		return nil, fmt.Errorf("onnx: lowering graph inputs: %w", err)

@@ -64,7 +64,7 @@ func TestBuildDiffusionConstructsForward(t *testing.T) {
 
 // TestTrainDiffusionZeroSteps exercises trainDiffusion with Steps=0: the
 // loop body is skipped, but lr/batch resolution, model assembly, and final
-// wall-time LogText emission all execute. CPU-only — no GPU dispatch.
+// wall-time LogText emission all execute. CPU-only - no GPU dispatch.
 func TestTrainDiffusionZeroSteps(t *testing.T) {
 	var captured strings.Builder
 	cfg := TrainConfig{
@@ -96,7 +96,7 @@ func TestTrainDiffusionSentinelLR(t *testing.T) {
 
 // TestTrainDiffusionFewStepsSmoke runs trainDiffusion with Steps=2 (plus
 // LogText set) on the GPU so the loop body and final sample-sweep both
-// execute. Loss values are not asserted — wiring is the only check.
+// execute. Loss values are not asserted - wiring is the only check.
 // Skipped when no GPU is available so the CPU-only run stays clean.
 func TestTrainDiffusionFewStepsSmoke(t *testing.T) {
 	if testing.Short() {

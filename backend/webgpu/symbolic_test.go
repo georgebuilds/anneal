@@ -34,7 +34,7 @@ func TestSymbolicShapeProof(t *testing.T) {
 	// index expression itself is the range variable (stride 1).
 	a := uop.NewArena(64)
 
-	// r0: symbolic AxisLoop range — bound is a DefineVar so the lowerer
+	// r0: symbolic AxisLoop range - bound is a DefineVar so the lowerer
 	// allocates a params_n slot at codegen time (sorted by var name).
 	nVar := a.DefineVar("n", 1, 1024)
 	r0 := a.New(uop.OpRange, uop.Dtypes.Index, []uop.UOp{nVar},
@@ -44,7 +44,7 @@ func TestSymbolicShapeProof(t *testing.T) {
 	paramA := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(1), nil)   // PARAM(1) = a
 	paramB := a.New(uop.OpParam, uop.Dtypes.Float32, nil, int64(2), nil)   // PARAM(2) = b
 
-	// INDEX(PARAM(k), r0) — 1-D flat access.
+	// INDEX(PARAM(k), r0) - 1-D flat access.
 	indexA := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{paramA, r0}, nil, nil)
 	indexB := a.New(uop.OpIndex, uop.Dtypes.Float32, []uop.UOp{paramB, r0}, nil, nil)
 
@@ -124,7 +124,7 @@ func TestSymbolicShapeProof(t *testing.T) {
 	}
 
 	// ── 7. Print the proof numbers ────────────────────────────────────────
-	t.Logf("=== SYMBOLIC SHAPES SPIKE — SLICE 1 PROOF ===")
+	t.Logf("=== SYMBOLIC SHAPES SPIKE - SLICE 1 PROOF ===")
 	t.Logf("compile count:            1  (compile-once by construction)")
 	t.Logf("dispatch grid  n=8:       %d workgroup(s)", grid8)
 	t.Logf("dispatch grid  n=128:     %d workgroup(s)", grid128)
@@ -133,7 +133,7 @@ func TestSymbolicShapeProof(t *testing.T) {
 
 	// ── 8. Assertions ─────────────────────────────────────────────────────
 	if grid8 == grid128 {
-		t.Errorf("FAIL: dispatch grids equal (%d == %d) — grid must vary with n", grid8, grid128)
+		t.Errorf("FAIL: dispatch grids equal (%d == %d) - grid must vary with n", grid8, grid128)
 	}
 	if len(got8) != int(n8) {
 		t.Errorf("FAIL: n=8 output length %d, want %d", len(got8), n8)
@@ -180,7 +180,7 @@ func TestSymbolicShape_StaticCodegenUnaffected(t *testing.T) {
 
 	// Static kernels must NOT contain params_n.
 	if contains(wgslSrc, "params_n") {
-		t.Error("FAIL: static kernel WGSL contains params_n binding — symbolic path leaked into static codegen")
+		t.Error("FAIL: static kernel WGSL contains params_n binding - symbolic path leaked into static codegen")
 	}
 	// Must still have the concrete literal bound.
 	if !contains(wgslSrc, "4u") {

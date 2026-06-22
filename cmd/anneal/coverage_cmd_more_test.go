@@ -4,7 +4,7 @@
 // the CPU train path (no GPU), the native web-studio runners' error/host
 // paths, the viz/web/doctor command entry points via injectable seams, and
 // main()/run() dispatch. They are written to run under `go test -short` on a
-// GPU-less CI machine — none of them require a real adapter.
+// GPU-less CI machine - none of them require a real adapter.
 //
 // NOTE: tests here set tensor.DefaultExecutor through the train path, so they
 // must NOT use t.Parallel().
@@ -49,7 +49,7 @@ func TestTrainCmdW_CPUPlain(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("trainCmdW exited %d, want 0; output:\n%s", code, out)
 	}
-	for _, want := range []string{"training mlp", "device: cpu", "steps: 2 ", "step 0: loss=", "done — 2 steps"} {
+	for _, want := range []string{"training mlp", "device: cpu", "steps: 2 ", "step 0: loss=", "done - 2 steps"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n%s", want, out)
 		}
@@ -581,7 +581,7 @@ func TestGPT2SampleCmdW_RunError(t *testing.T) {
 // ── graph dump op variety ─────────────────────────────────────────────────
 
 // TestGraphCmdW_Conv dumps the conv example DAG, which contains ReduceAxis,
-// Const, and leaf Buffer nodes — the dumpDAG arms the mlp dump leaves
+// Const, and leaf Buffer nodes - the dumpDAG arms the mlp dump leaves
 // uncovered.
 func TestGraphCmdW_Conv(t *testing.T) {
 	var buf bytes.Buffer
@@ -743,14 +743,14 @@ func TestRunTrainNative_OpenError(t *testing.T) {
 // TestRunGenerateNative_GPUBodies exercises the gpt2 + nanogpt streaming
 // bodies end to end when a real WebGPU adapter is available (the only way to
 // reach them, since both pipelines realize through the GPU executor). When no
-// adapter is present the call still runs — it returns at the device-open
-// error path — so the test contributes coverage on both GPU and GPU-less CI
+// adapter is present the call still runs - it returns at the device-open
+// error path - so the test contributes coverage on both GPU and GPU-less CI
 // without ever skipping. The heavy real-generation work only happens on a GPU
 // machine where it is fast (~seconds), never on the slow CPU interpreter.
 func TestRunGenerateNative_GPUBodies(t *testing.T) {
 	if !hasGPU() {
 		// No adapter: drive runGenerateNative so its device-open error arm
-		// runs (no skip — this still executes and asserts).
+		// runs (no skip - this still executes and asserts).
 		var got []tui.TokenSnapshot
 		err := runGenerateNative(context.Background(), "gpt2", "hi", 1, false,
 			func(s tui.TokenSnapshot) { got = append(got, s) })
@@ -775,7 +775,7 @@ func TestRunGenerateNative_GPUBodies(t *testing.T) {
 	})
 
 	// gpt2: exercises runGPT2Stream end to end. Skipped only when the ~550 MB
-	// weights are not cached and the machine is offline — we never trigger a
+	// weights are not cached and the machine is offline - we never trigger a
 	// network download from the test suite. (This is a missing-asset guard,
 	// not a no-GPU skip.)
 	t.Run("gpt2", func(t *testing.T) {

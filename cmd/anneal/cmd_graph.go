@@ -47,7 +47,7 @@ func graphCmdW(args []string, w io.Writer) int {
 	// Count reachable nodes for header.
 	nodes := uop.TopoSort(result.Output.Node())
 
-	fmt.Fprintf(w, "graph: %s — %s\n", ex.Name, ex.Summary)
+	fmt.Fprintf(w, "graph: %s - %s\n", ex.Name, ex.Summary)
 	fmt.Fprintf(w, "device: webgpu\n")
 	fmt.Fprintf(w, "UOp nodes: %d\n", len(nodes))
 	fmt.Fprintln(w)

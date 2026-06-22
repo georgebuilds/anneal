@@ -183,7 +183,7 @@ func shapeOfNode(u uop.UOp, cache map[uint32][]shape.Sint) {
 		case [][2]int64:
 			// Concrete pad: shape[i] grows by lo+hi. If srcSh[i] is symbolic
 			// (Option-A bare batch dim with concrete pad amounts on it), wrap
-			// the symbolic dim in shape.Add to carry the pad-amount delta —
+			// the symbolic dim in shape.Add to carry the pad-amount delta -
 			// pre-Slice-5 this branch returned srcSh[i] unchanged with a
 			// "pad amount must be 0 (scope guard)" comment, which silently
 			// dropped the delta. Slice 5 surface now allows pad on a symbolic

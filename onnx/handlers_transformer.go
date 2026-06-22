@@ -139,7 +139,7 @@ func softmaxOverLastAxis(ctx *HandlerCtx, x *tensor.Tensor) *tensor.Tensor {
 // softmaxOverAxis computes the numerically-stable softmax of x over `axis`,
 // preserving x's shape. Reductions use keepdim=false followed by an explicit
 // Reshape (matching the nn.LayerNorm convention) so the autodiff shape tracker
-// — and the cpuEval test helper — see the rank-adding step explicitly.
+// - and the cpuEval test helper - see the rank-adding step explicitly.
 // Reductions go through the f32 accumulator pattern so fp16/bf16 inputs don't
 // lose precision.
 func softmaxOverAxis(ctx *HandlerCtx, x *tensor.Tensor, axis int) *tensor.Tensor {

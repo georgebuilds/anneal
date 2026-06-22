@@ -4,7 +4,7 @@
 //
 // Parameter.Name is never populated by the nn package (it is always ""),
 // so this package uses an explicit map[string]*nn.Parameter as its primary
-// API — the caller owns the name mapping:
+// API - the caller owns the name mapping:
 //
 //	params := map[string]*nn.Parameter{
 //	    "l1.weight": linear1.Weight,
@@ -20,7 +20,7 @@
 //
 // # Dtype policy (mirrors tensor/npy)
 //
-// Files are always written as F32 (anneal's native float carry type — lossless).
+// Files are always written as F32 (anneal's native float carry type - lossless).
 // On load, the following conversions are applied:
 //
 //   - F32                      → float32, bit-exact.
@@ -55,7 +55,7 @@ import (
 )
 
 // maxExactInt is the largest integer (absolute value) exactly representable as
-// float32 (2^24 = 16,777,216 — 23 explicit + 1 implicit mantissa bit).
+// float32 (2^24 = 16,777,216 - 23 explicit + 1 implicit mantissa bit).
 // Mirrors the constant in tensor/npy for consistent behaviour.
 const maxExactInt = int64(1 << 24)
 
@@ -149,7 +149,7 @@ func Save(path string, params map[string]*nn.Parameter) error {
 
 // Load reads a safetensors checkpoint and restores the Value slice of each
 // Parameter in into. For every key in into the file must contain a tensor
-// with the same name and shape — a mismatch returns a clear error.
+// with the same name and shape - a mismatch returns a clear error.
 //
 // After Load, call p.Load(arena) to seed a fresh leaf tensor from the
 // restored Value before the next forward pass.

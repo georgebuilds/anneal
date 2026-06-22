@@ -14,7 +14,7 @@ import (
 // The seam is tensor.IsLeaf: any BUFFER-backed Tensor is a differentiation target.
 //
 // Ownership: Value is the canonical weight data and outlives any arena. T is
-// the leaf tensor for the current step's graph — rebuilt each step via Load.
+// the leaf tensor for the current step's graph - rebuilt each step via Load.
 // No arena index or pointer is used as the stable identity for this parameter;
 // Value is found via the Parameter object itself.
 type Parameter struct {
@@ -262,7 +262,7 @@ func (c *Conv2d) Forward(x *tensor.Tensor) *tensor.Tensor {
 	//
 	// Each patch_k is [N, Ho*Wo, 1] padded to [N, Ho*Wo, K] with zeros outside
 	// column k. Summing K such tensors yields the complete im2col without any
-	// concat primitive and without extra materialized buffers — all patches share
+	// concat primitive and without extra materialized buffers - all patches share
 	// the same padded input leaf, accessed at different index offsets.
 	var im2col *tensor.Tensor
 	for ck := int64(0); ck < Cin; ck++ {
@@ -329,10 +329,10 @@ func (c *Conv2d) Params() []*Parameter {
 //
 // When kH ≤ sH AND kW ≤ sW (non-overlapping or stride ≥ kernel):
 //
-//	Rangeify decomposition — shrink/reshape/permute/flatten the window then
+//	Rangeify decomposition - shrink/reshape/permute/flatten the window then
 //	ReduceAxis(OpMax) over the window axis. Backward tie policy: split equally
 //	(each tied max position receives adj/tieCount), matching ReduceAxis(OpMax)
-//	and tinygrad — SPEC §10 canonical policy.
+//	and tinygrad - SPEC §10 canonical policy.
 //
 // When kH > sH OR kW > sW (overlapping):
 //
@@ -400,7 +400,7 @@ func MaxPool2D(x *tensor.Tensor, kH, kW, sH, sW int64) *tensor.Tensor {
 }
 
 // maxPool2DPatch extracts x[n, c, oh*sH+di, ow*sW+dj] for oh∈[0,oH), ow∈[0,oW)
-// using only Shrink and (for stride>1) Reshape — no Pad.
+// using only Shrink and (for stride>1) Reshape - no Pad.
 func maxPool2DPatch(x *tensor.Tensor, N, C, oH, oW, sH, sW, di, dj int64) *tensor.Tensor {
 	slice := x.Shrink([][2]int64{{0, N}, {0, C}, {di, di + oH*sH}, {dj, dj + oW*sW}})
 	if sH == 1 && sW == 1 {

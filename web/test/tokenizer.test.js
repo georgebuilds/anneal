@@ -21,7 +21,7 @@ function lex(src) {
   return tokenize(src).map((t) => ({ text: src.slice(t.start, t.end), kind: t.kind }));
 }
 
-describe('tokenizeWGSL — single token classes', () => {
+describe('tokenizeWGSL - single token classes', () => {
   const cases = [
     // [name, source, expected kind]
     ['keyword: fn',        'fn',          'keyword'],
@@ -55,7 +55,7 @@ describe('tokenizeWGSL — single token classes', () => {
   }
 });
 
-describe('tokenizeWGSL — numbers', () => {
+describe('tokenizeWGSL - numbers', () => {
   const numbers = ['123', '12.5', '0xCAFE', '0XfF', '64u', '1.0f', '3.0h', '7i', '1e9', '2.5e-3', '.5'];
   for (const src of numbers) {
     it('number: ' + src, () => {
@@ -74,7 +74,7 @@ describe('tokenizeWGSL — numbers', () => {
   });
 });
 
-describe('tokenizeWGSL — comments', () => {
+describe('tokenizeWGSL - comments', () => {
   it('line comment runs to end of line, newline excluded', () => {
     const src = '// hello world\nfn';
     expect(lex(src)).toEqual([
@@ -106,7 +106,7 @@ describe('tokenizeWGSL — comments', () => {
   });
 });
 
-describe('tokenizeWGSL — strings', () => {
+describe('tokenizeWGSL - strings', () => {
   it('double-quoted string is one span including quotes', () => {
     expect(lex('"abc"')).toEqual([{ text: '"abc"', kind: 'string' }]);
   });
@@ -127,7 +127,7 @@ describe('tokenizeWGSL — strings', () => {
   });
 });
 
-describe('tokenizeWGSL — attributes', () => {
+describe('tokenizeWGSL - attributes', () => {
   it('attribute captures @ plus the following word', () => {
     expect(lex('@compute')).toEqual([{ text: '@compute', kind: 'attribute' }]);
   });
@@ -144,14 +144,14 @@ describe('tokenizeWGSL — attributes', () => {
   });
 });
 
-describe('tokenizeWGSL — punctuation', () => {
+describe('tokenizeWGSL - punctuation', () => {
   const puncts = ['{', '}', '(', ')', ';', ',', '+', '=', '<', '>', '*'];
   it('each operator/brace is a single-char punct span', () => {
     expect(lex(puncts.join(''))).toEqual(puncts.map((p) => ({ text: p, kind: 'punct' })));
   });
 });
 
-describe('tokenizeWGSL — whitespace + mixed', () => {
+describe('tokenizeWGSL - whitespace + mixed', () => {
   it('whitespace is not emitted as tokens', () => {
     expect(lex('  \t\n fn  ')).toEqual([{ text: 'fn', kind: 'keyword' }]);
   });

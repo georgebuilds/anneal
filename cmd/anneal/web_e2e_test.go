@@ -14,7 +14,7 @@
 //   2. opens a fresh chromedp context with a sensible timeout;
 //   3. drives the studio and asserts ONE behaviour.
 //
-// If Chrome is not available on the host, the harness skips cleanly — tests
+// If Chrome is not available on the host, the harness skips cleanly - tests
 // must NOT fail when the browser is missing. Mirrors the spirit of requireGPU
 // in cli_test.go.
 
@@ -81,7 +81,7 @@ func findChrome() (string, error) {
 //
 // If Chrome cannot be located OR the allocator can't spawn the browser, the
 // test is skipped (not failed). This matches the contract from the task brief
-// — the foundation tests should never block CI on a missing browser.
+// - the foundation tests should never block CI on a missing browser.
 func newE2E(t *testing.T) (string, context.Context) {
 	t.Helper()
 
@@ -113,7 +113,7 @@ func newE2E(t *testing.T) (string, context.Context) {
 	t.Cleanup(browserCancel)
 
 	// Apply the per-test timeout to the browser context itself so any action
-	// — including the implicit Start() inside the first chromedp.Run — is
+	// - including the implicit Start() inside the first chromedp.Run - is
 	// bounded. Without this, a missing-Chrome binary could hang for the full
 	// `go test` timeout (10m default).
 	timedCtx, timeoutCancel := context.WithTimeout(browserCtx, e2eTimeout)
@@ -182,7 +182,7 @@ func TestE2E_NoMissingWasmConsoleError(t *testing.T) {
 func TestE2E_ThemeCycleAndPersist(t *testing.T) {
 	base, ctx := newE2E(t)
 
-	// Clear any persisted theme before we start — other tests may have left
+	// Clear any persisted theme before we start - other tests may have left
 	// state in this browser profile (unlikely; chromedp gives us a clean
 	// user-data-dir per allocator, but belt-and-braces).
 	var before, afterOne, afterReload string

@@ -97,7 +97,7 @@ func testExplainCoverageParity(t *testing.T, cliQuery, wasmName string, wantSym,
 			t.Errorf("CLI explain %s missing 'symbolic rules:' section; output: %s", cliQuery, cliOut)
 		}
 		if len(e.SymbolicRules) == 0 {
-			t.Errorf("WASM Op=%s has 0 symbolic rules; CLI lists them — coverage drift", wasmName)
+			t.Errorf("WASM Op=%s has 0 symbolic rules; CLI lists them - coverage drift", wasmName)
 		}
 	}
 	if wantGrad {
@@ -105,7 +105,7 @@ func testExplainCoverageParity(t *testing.T, cliQuery, wasmName string, wantSym,
 			t.Errorf("CLI explain %s missing 'gradient rules:' section; output: %s", cliQuery, cliOut)
 		}
 		if e.GradientRule == nil {
-			t.Errorf("WASM Op=%s has nil GradientRule; CLI lists a gradient — coverage drift", wasmName)
+			t.Errorf("WASM Op=%s has nil GradientRule; CLI lists a gradient - coverage drift", wasmName)
 		}
 	}
 }

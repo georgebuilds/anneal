@@ -1,17 +1,17 @@
 package webgpu_test
 
-// B5 — persistent beam cache wired into the realize path.
+// B5 - persistent beam cache wired into the realize path.
 //
 // Tests:
-//   TestB5_SKCollisionGuard      — unit test of the value-identity guard. Injects a cache
+//   TestB5_SKCollisionGuard      - unit test of the value-identity guard. Injects a cache
 //                                  entry with a wrong WGSL hash and verifies BeamApplyToItems
 //                                  falls back to identity (unchanged Ast); then with the
 //                                  correct normalized hash verifies opts ARE applied (Ast differs).
-//   TestB5_DefaultModeNoOverhead — sanity: empty disk cache + ANNEAL_BEAM unset produces
+//   TestB5_DefaultModeNoOverhead - sanity: empty disk cache + ANNEAL_BEAM unset produces
 //                                  correct results with zero realize-path change.
-//   TestB5_CacheHitBitIdentical  — end-to-end: search mode populates disk cache, cache-hit
+//   TestB5_CacheHitBitIdentical  - end-to-end: search mode populates disk cache, cache-hit
 //                                  mode produces bit-identical output to identity.
-//   TestB5_StepLevelBenchmark    — 3-condition step-level timing on a 1024³ matmul;
+//   TestB5_StepLevelBenchmark    - 3-condition step-level timing on a 1024³ matmul;
 //                                  numbers feed test_output_b5.txt.
 //
 // Value-identity guard policy:
@@ -251,13 +251,13 @@ func TestB5_StepLevelBenchmark(t *testing.T) {
 		return times
 	}
 
-	// Condition 1 — identity (no cache, no search).
+	// Condition 1 - identity (no cache, no search).
 	codegen.BeamDiskCacheReset()
 	_ = os.Unsetenv("ANNEAL_BEAM")
 	warm()
 	t1 := measure("Cond1-ID")
 
-	// Condition 2 — search mode (populates disk cache; first several iters include search latency).
+	// Condition 2 - search mode (populates disk cache; first several iters include search latency).
 	codegen.BeamDiskCacheReset()
 	_ = os.Setenv("ANNEAL_BEAM", "1")
 	searchStart := time.Now()
@@ -267,7 +267,7 @@ func TestB5_StepLevelBenchmark(t *testing.T) {
 	_ = os.Unsetenv("ANNEAL_BEAM")
 	t.Logf("One-time search cost (warmup+iters): %v", searchCost)
 
-	// Condition 3 — cache-hit (disk cache warm from Cond2, ANNEAL_BEAM unset).
+	// Condition 3 - cache-hit (disk cache warm from Cond2, ANNEAL_BEAM unset).
 	warm()
 	t3 := measure("Cond3-Cache")
 

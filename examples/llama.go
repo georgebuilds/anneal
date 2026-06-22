@@ -12,7 +12,7 @@ import (
 )
 
 // Llama is the modern decoder-only example: a from-scratch char-level language
-// model with the Llama/Qwen/Gemma primitive stack — RMSNorm, grouped-query
+// model with the Llama/Qwen/Gemma primitive stack - RMSNorm, grouped-query
 // attention with RoPE, SwiGLU feed-forward, and tied embeddings. It is the
 // "level-up" companion to nanoGPT (which uses LayerNorm, learned absolute
 // positions, vanilla multi-head attention, and a GELU MLP), and it reuses

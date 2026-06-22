@@ -71,7 +71,7 @@ func Register(e *Example) {
 func Get(name string) (*Example, error) {
 	e, ok := registry[name]
 	if !ok {
-		return nil, fmt.Errorf("example %q not found — available: %s", name, listNames())
+		return nil, fmt.Errorf("example %q not found - available: %s", name, listNames())
 	}
 	return e, nil
 }

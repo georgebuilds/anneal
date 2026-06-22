@@ -13,7 +13,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// StreamToken is one record emitted by SampleStream — a per-token callback
+// StreamToken is one record emitted by SampleStream - a per-token callback
 // payload that carries the id, decoded text fragment, and a logit-summary
 // string the studio's generate view renders in the last-token panel.
 //
@@ -370,7 +370,7 @@ func runKVStep(g *nn.GPT, cache *nn.KVCache, id int32, device string) ([]float32
 	// they cannot be told apart by the scheduler's structural-key order. The
 	// durable fix (tensor/realize.go assignOutputs over CreateScheduleWithOutputs'
 	// per-src output attribution) maps each tensor to ITS OWN output buffer by
-	// node identity, so the batched call is now correct — and avoids the
+	// node identity, so the batched call is now correct - and avoids the
 	// 2*NLayer reschedules/step the old single-output workaround incurred.
 	kvOutputs := make([]*tensor.Tensor, 0, 2*g.NLayer)
 	kvOutputs = append(kvOutputs, kNews...)

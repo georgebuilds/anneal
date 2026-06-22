@@ -63,7 +63,7 @@ func TestHandleReshape_ZeroCopy(t *testing.T) {
 }
 
 func TestHandleReshape_AllowZero(t *testing.T) {
-	// allowzero=1 means 0 is literal — cannot copy.
+	// allowzero=1 means 0 is literal - cannot copy.
 	b := &singleNodeBuilder{
 		opType: "Reshape",
 		attrs:  map[string]Attr{"allowzero": {Kind: AttrInt, I: 1}},
@@ -81,7 +81,7 @@ func TestHandleReshape_AllowZero(t *testing.T) {
 	// mismatch); we just exercise the attribute path.
 	defer func() {
 		if r := recover(); r != nil {
-			// fine — Reshape will reject volume mismatch via panic
+			// fine - Reshape will reject volume mismatch via panic
 			return
 		}
 	}()
@@ -321,7 +321,7 @@ func TestHandleSlice_PositiveStep(t *testing.T) {
 }
 
 // TestHandleSlice_NegativeStepOne verifies the Phase 3 negative-step path.
-// step=-1 with starts=5, ends=1 produces reversed indices 5,4,3,2 on [6] —
+// step=-1 with starts=5, ends=1 produces reversed indices 5,4,3,2 on [6] -
 // shape [4]. step != ±1 stays rejected (covered by punt-list tests).
 func TestHandleSlice_NegativeStepOne(t *testing.T) {
 	b := &singleNodeBuilder{

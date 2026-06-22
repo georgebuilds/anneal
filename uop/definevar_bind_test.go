@@ -6,7 +6,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// definevar_bind_test.go — adversarial coverage for Arena.DefineVar and Arena.Bind.
+// definevar_bind_test.go - adversarial coverage for Arena.DefineVar and Arena.Bind.
 //
 // These wrap the OpDefineVar + OpBind construction used by the Option-A symbolic
 // path (NewSymbolicBatchInput + RealizeWithBinding). Production exercises them
@@ -85,7 +85,7 @@ func TestDefineVarDifferentNameDistinct(t *testing.T) {
 	v2 := a.DefineVar("seq", 1, 64)
 
 	if v1 == v2 {
-		t.Error("DefineVar with different name aliased — name dropped from intern key")
+		t.Error("DefineVar with different name aliased - name dropped from intern key")
 	}
 }
 
@@ -139,10 +139,10 @@ func TestDefineVarReusedBoundsConsts(t *testing.T) {
 		t.Fatal("test setup: different names must produce distinct DefineVars")
 	}
 	if v1.Src(0) != v2.Src(0) {
-		t.Error("Const(min) not shared across DefineVars with same min — Const interning broken")
+		t.Error("Const(min) not shared across DefineVars with same min - Const interning broken")
 	}
 	if v1.Src(1) != v2.Src(1) {
-		t.Error("Const(max+1) not shared across DefineVars with same max — Const interning broken")
+		t.Error("Const(max+1) not shared across DefineVars with same max - Const interning broken")
 	}
 }
 
@@ -188,7 +188,7 @@ func TestBindDifferentValuesDistinct(t *testing.T) {
 	b2 := a.Bind(v, 33)
 
 	if b1 == b2 {
-		t.Error("Bind with different concrete values aliased — val dropped from intern key")
+		t.Error("Bind with different concrete values aliased - val dropped from intern key")
 	}
 }
 
@@ -200,13 +200,13 @@ func TestBindDifferentVarsDistinct(t *testing.T) {
 	b2 := a.Bind(v2, 32)
 
 	if b1 == b2 {
-		t.Error("Bind on different DefineVars aliased — src not part of intern key")
+		t.Error("Bind on different DefineVars aliased - src not part of intern key")
 	}
 }
 
 // TestBindIsInternedNotBypassed pins that OpBind goes through normal interning
 // (not bypassed like OpRange/OpBuffer). If a future refactor adds OpBind to
-// bypassInternSet, every Bind call would allocate a fresh slot — bloating the
+// bypassInternSet, every Bind call would allocate a fresh slot - bloating the
 // arena and breaking equality lookups for binding maps keyed by the Bind UOp.
 func TestBindIsInternedNotBypassed(t *testing.T) {
 	a := uop.NewArena(16)
@@ -223,7 +223,7 @@ func TestBindIsInternedNotBypassed(t *testing.T) {
 }
 
 // TestDefineVarStructuralKeysCrossArena verifies that two arenas with the same
-// DefineVar (same name, bounds) produce the same StructuralKey — necessary for
+// DefineVar (same name, bounds) produce the same StructuralKey - necessary for
 // cross-arena cache lookups (schedule cache + BEAM disk cache).
 func TestDefineVarStructuralKeysCrossArena(t *testing.T) {
 	a1 := uop.NewArena(8)
@@ -261,7 +261,7 @@ func TestDefineVarStructuralKeysNameMatters(t *testing.T) {
 
 	if keys1[v1.Index()] == keys2[v2.Index()] {
 		t.Errorf("DefineVar StructuralKey collision: name=\"batch\" and name=\"seq\" with same bounds "+
-			"share key %016x — VarArg.Name dropped from StructuralKeys", keys1[v1.Index()])
+			"share key %016x - VarArg.Name dropped from StructuralKeys", keys1[v1.Index()])
 	}
 }
 
@@ -283,7 +283,7 @@ func TestDefineVarProvenance(t *testing.T) {
 // because tinygrad has historically rejected degenerate intervals; ours does not.)
 func TestDefineVarTrivialBounds(t *testing.T) {
 	a := uop.NewArena(8)
-	v := a.DefineVar("x", 5, 5) // [5, 6) — singleton
+	v := a.DefineVar("x", 5, 5) // [5, 6) - singleton
 	if v.Src(0).Arg() != int64(5) {
 		t.Errorf("singleton min = %v, want 5", v.Src(0).Arg())
 	}

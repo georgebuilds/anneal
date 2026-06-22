@@ -2,7 +2,7 @@
 // dispatch (run), per-verb help text, usage/error branches that return before
 // any GPU is opened, and the small display helpers (dtTypeName, bufferShape,
 // kernelType, countFusedOps, detectBackend). None of these tests require a
-// WebGPU adapter — every assertion is on textual output or pure-function
+// WebGPU adapter - every assertion is on textual output or pure-function
 // return values reachable on CPU.
 
 package main
@@ -135,7 +135,7 @@ func TestFlagErrorBranches(t *testing.T) {
 }
 
 // TestBadModelBranches verifies the examples.Get error branch (unknown model)
-// in run/graph/kernels — these return before any GPU is opened.
+// in run/graph/kernels - these return before any GPU is opened.
 func TestBadModelBranches(t *testing.T) {
 	cases := map[string]func([]string, *bytes.Buffer) int{
 		"run":     func(a []string, b *bytes.Buffer) int { return runCmdW(a, b) },

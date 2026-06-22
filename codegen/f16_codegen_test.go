@@ -155,7 +155,7 @@ func TestF16_MatmulF32Accumulator(t *testing.T) {
 		}
 		wgsl := res.WGSL
 		if !strings.Contains(wgsl, "for (") {
-			continue // elementwise kernel — skip
+			continue // elementwise kernel - skip
 		}
 		// This is a reduce kernel.
 		foundReduce = true
@@ -203,7 +203,7 @@ func TestF16_CastRoundTrip(t *testing.T) {
 }
 
 // TestF16_BufferTypes verifies that f16 buffers are declared as array<f16> and
-// f32 buffers as array<f32> — no cross-contamination.
+// f32 buffers as array<f32> - no cross-contamination.
 func TestF16_BufferTypes(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{16}, uop.Dtypes.Float16, "webgpu")

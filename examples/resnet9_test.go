@@ -2,7 +2,7 @@ package examples
 
 // CPU-only tests for the resnet9 example. The heavy GPU path (forward
 // realize on the full 64/128/256/512 network) is acknowledged but not
-// exercised here — those concerns live in tensor/nn/resnet9_test.go
+// exercised here - those concerns live in tensor/nn/resnet9_test.go
 // using a scaled-down channel config. This file's load-bearing checks are:
 //   - the example is correctly registered with Build + Train
 //   - buildResNet9 constructs a graph (no Realize) without panic
@@ -61,7 +61,7 @@ func TestBuildResNet9ConstructsForward(t *testing.T) {
 
 func TestResNet9CrossEntropyShape(t *testing.T) {
 	// Build the cross-entropy loss graph against synthetic logits +
-	// one-hot targets. No Realize — just confirm the graph composes and
+	// one-hot targets. No Realize - just confirm the graph composes and
 	// returns a scalar tensor (shape []).
 	const B = int64(2)
 	const C = int64(10)
@@ -134,7 +134,7 @@ func synthCIFAR10(nSamples int, rng *rand.Rand) *resnet9data.CIFAR10 {
 
 // requireGPUForResNet9Test is the per-package GPU bootstrap mirroring the
 // one in nanogpt_test.go. We can't share it (Go forbids cross-test-file
-// symbol leaks via t.Helper alone — there's no conflict, this is just a
+// symbol leaks via t.Helper alone - there's no conflict, this is just a
 // per-test isolation choice that keeps each smoke test self-contained).
 func requireGPUForResNet9Test(t *testing.T) {
 	t.Helper()
@@ -153,7 +153,7 @@ func requireGPUForResNet9Test(t *testing.T) {
 
 // TestResNet9EvalLossSmoke wires the eval helper end to end against a tiny
 // synthetic dataset on the GPU. The check is intentionally weak (finite,
-// non-NaN, non-Inf) — the loss value is not under test, only the wiring
+// non-NaN, non-Inf) - the loss value is not under test, only the wiring
 // (Batch -> OneHot -> Load -> Forward -> Realize -> Data[0]). Skipped when
 // no GPU is available so the CPU-only test run stays clean.
 func TestResNet9EvalLossSmoke(t *testing.T) {
@@ -180,7 +180,7 @@ func TestResNet9EvalLossSmoke(t *testing.T) {
 // TestRunResNet9LogTextEmits drives runResNet9 with zero steps against the
 // tiny in-memory fixture; the loop body is skipped (Steps=0, LogEvery=0)
 // but the lr/batch fallback resolution, model assembly, and final wall-time
-// LogText emission all execute. CPU-only — no GPU dispatch, no Realize.
+// LogText emission all execute. CPU-only - no GPU dispatch, no Realize.
 func TestRunResNet9LogTextEmits(t *testing.T) {
 	ds := synthCIFAR10(4, rand.New(rand.NewSource(31)))
 

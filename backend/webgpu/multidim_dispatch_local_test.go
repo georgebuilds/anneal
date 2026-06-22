@@ -1,6 +1,6 @@
 package webgpu_test
 
-// Multi-dim symbolic dispatch — regression test for OptLocal on a [n, m]
+// Multi-dim symbolic dispatch - regression test for OptLocal on a [n, m]
 // elementwise kernel. After this slice the lowerer no longer collapses sym
 // kernels into a single (dim=0, level=0) group; each axis lands in its own
 // dispatch dim and the executor computes per-dim workgroup counts from the
@@ -8,7 +8,7 @@ package webgpu_test
 //
 // The test is the value-oracle for "LOCAL works on multi-dim sym":
 //   1. Build a [n, m] sym elementwise kernel.
-//   2. Apply OptLocal(axis=1, L=8) — the inner axis, multi-of-L bindings only.
+//   2. Apply OptLocal(axis=1, L=8) - the inner axis, multi-of-L bindings only.
 //   3. Run on the real GPU under several (n, m) bindings.
 //   4. Compare to a CPU oracle; expect max-abs-diff 0.
 //
@@ -172,7 +172,7 @@ func TestPerfMultiDimSymLocal(t *testing.T) {
 	}
 	// Buffer-allocation overhead dominates a single DispatchSymKernelWithBinding
 	// call (the path re-creates GPU buffers per dispatch), so the absolute numbers
-	// also include that bookkeeping. Both legs pay the same overhead — the
+	// also include that bookkeeping. Both legs pay the same overhead - the
 	// relative comparison still reflects the GPU dispatch cost.
 }
 

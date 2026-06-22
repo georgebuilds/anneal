@@ -31,7 +31,7 @@ func trainCmdW(args []string, w io.Writer) int {
 
 	fs := flag.NewFlagSet("train", flag.ContinueOnError)
 	device := fs.String("device", "webgpu", "target device")
-	debug := fs.Int("debug", 0, "debug verbosity level (0–3)")
+	debug := fs.Int("debug", 0, "debug verbosity level (0-3)")
 	viz := fs.Bool("viz", false, "enable graph visualization")
 	steps := fs.Int("steps", 100, "number of training steps")
 	lr := fs.Float64("lr", 0.05, "learning rate")
@@ -170,7 +170,7 @@ func trainCmdW(args []string, w io.Writer) int {
 	}
 
 	// Plain output path: used for --plain, NO_COLOR, non-TTY output, and tests.
-	_, _ = fmt.Fprintf(w, "training %s — %s\n", ex.Name, ex.Summary)
+	_, _ = fmt.Fprintf(w, "training %s - %s\n", ex.Name, ex.Summary)
 	_, _ = fmt.Fprintf(w, "device: %s (%s)\n", backend, adapterName)
 	_, _ = fmt.Fprintf(w, "steps: %d · lr: %.3f · batch: %d\n", cfg.Steps, cfg.LR, cfg.Batch)
 	if bw != nil {
@@ -195,7 +195,7 @@ func trainCmdW(args []string, w io.Writer) int {
 	cfg.SnapshotFn = func(snap tui.Snapshot) {
 		// Byte-identical to the pre-W5 logFn line: "step %d: loss=%.6f\n".
 		// Anything else the Snapshot carries (compiler stats, sample text)
-		// is invisible on the plain path by design — the CLI line format
+		// is invisible on the plain path by design - the CLI line format
 		// is pinned by spec §11.5.
 		_, _ = fmt.Fprintf(w, "step %d: loss=%.6f\n", snap.Step, snap.Loss)
 		if bw != nil {
@@ -214,7 +214,7 @@ func trainCmdW(args []string, w io.Writer) int {
 		}
 		return 1
 	}
-	_, _ = fmt.Fprintf(w, "\ndone — %d steps\n", cfg.Steps)
+	_, _ = fmt.Fprintf(w, "\ndone - %d steps\n", cfg.Steps)
 	if bw != nil {
 		_ = bw.Finalize(time.Since(startWall).Milliseconds())
 	}
@@ -239,7 +239,7 @@ func snapshotShimLogFn(base *tui.Snapshot, startWall time.Time, sink func(tui.Sn
 		snap.Loss = loss
 		snap.HasLoss = true
 		snap.WallMs = time.Since(startWall).Milliseconds()
-		// The shim only knows "a step was logged" — it does not know that
+		// The shim only knows "a step was logged" - it does not know that
 		// training has completed. PhaseDone is set by the orchestrator
 		// after Example.Train returns; here we always emit PhaseTraining
 		// so the "done" status only flips once on the explicit DoneMsg.
@@ -250,7 +250,7 @@ func snapshotShimLogFn(base *tui.Snapshot, startWall time.Time, sink func(tui.Sn
 
 // maybeOpenBundle opens a bundle.Writer when enable is true (per --bundle
 // or ANNEAL_BUNDLE=1), or returns nil. A failure to open is logged but
-// does not block training — the bundle is a sink, not a precondition.
+// does not block training - the bundle is a sink, not a precondition.
 func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, device string, cfg examples.TrainConfig) *bundle.Writer {
 	if !enable {
 		return nil
@@ -266,7 +266,7 @@ func maybeOpenBundle(w io.Writer, enable bool, model, adapter, backendName, devi
 		return nil
 	}
 	// Provenance: version + adapter + backend. WGSL hash and git rev are
-	// left empty here — the trainer-side stats hook will fill them in a
+	// left empty here - the trainer-side stats hook will fill them in a
 	// future W step once the headless snapshot channel exists.
 	if err := bw.SetProvenance(version, "", adapter, backendName, "", nil); err != nil {
 		_, _ = fmt.Fprintf(w, "bundle: warn (set provenance): %v\n", err)

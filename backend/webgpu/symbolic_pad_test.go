@@ -1,6 +1,6 @@
 package webgpu_test
 
-// Slice 5 — Pad / Shrink on a symbolic axis, possibly with symbolic amounts.
+// Slice 5 - Pad / Shrink on a symbolic axis, possibly with symbolic amounts.
 //
 // (A) Pad on symbolic axis with concrete amounts: [n,4] → Pad(0, (1,2)) → [n+3,4]
 // (B) Pad on concrete axis with symbolic amount:  [n,4] → Pad(1, (0,k)) → [n,4+k]
@@ -36,7 +36,7 @@ func buildSymInput2D(t *testing.T, a *uop.Arena, name string, n int64, dim2 int6
 	return ta
 }
 
-// TestSymbolicPadConcreteAmount — Slice 5 deliverable (A).
+// TestSymbolicPadConcreteAmount - Slice 5 deliverable (A).
 //
 // For n ∈ {3, 5, 8}: Pad axis 0 of [n,4] with (lo=1, hi=2) → [n+3, 4].
 // The first 1 row and last 2 rows must be zero; the middle n rows must
@@ -90,7 +90,7 @@ func TestSymbolicPadConcreteAmount(t *testing.T) {
 	t.Logf("SymCompiledCount after pad-A: %d", dev.SymCompiledCount())
 }
 
-// TestSymbolicPadSymbolicAmount — pad axis 1 of [n,4] by symbolic hi=k.
+// TestSymbolicPadSymbolicAmount - pad axis 1 of [n,4] by symbolic hi=k.
 //
 // Output [n, 4+k]; the trailing k columns are zero. Two symbolic dims at
 // dispatch: axis 0 is `n`, axis 1 is `4+k`. The lowerer/executor surface
@@ -155,7 +155,7 @@ func TestSymbolicPadSymbolicAmount(t *testing.T) {
 	t.Logf("SymCompiledCount after pad-B: %d", dev.SymCompiledCount())
 }
 
-// TestSymbolicPadFullSymbolic — Slice 5 deliverable (C).
+// TestSymbolicPadFullSymbolic - Slice 5 deliverable (C).
 //
 // Pad axis 0 with (lo=0, hi=k) on a symbolic-axis tensor [n,4]. Output [n+k, 4].
 func TestSymbolicPadFullSymbolic(t *testing.T) {
@@ -210,7 +210,7 @@ func TestSymbolicPadFullSymbolic(t *testing.T) {
 	}
 }
 
-// TestPadShrinkRoundTrip — Slice 5 deliverable (D).
+// TestPadShrinkRoundTrip - Slice 5 deliverable (D).
 //
 // Pad then Shrink with matching amounts must round-trip identically; we
 // exercise the symbolic-pad-amount case from (B).
@@ -258,7 +258,7 @@ func TestPadShrinkRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPadShrinkReject — Slice 5 deliverable (E).
+// TestPadShrinkReject - Slice 5 deliverable (E).
 //
 // Negative pad amounts and out-of-range shrink bounds must panic with the
 // tinygrad-shaped message.
@@ -300,13 +300,13 @@ func TestPadShrinkReject(t *testing.T) {
 	})
 }
 
-// TestSymbolicPadWGSLSpotCheck — Slice 5 deliverable: WGSL spot-check.
+// TestSymbolicPadWGSLSpotCheck - Slice 5 deliverable: WGSL spot-check.
 //
 // (Originally targeted case (B), which is now Skip()'d as a scope-breach
 // reproducer.) Captures the rendered WGSL for the symbolic-pad-on-
 // symbolic-axis case (C) at n=3,k=2 and logs the kernel verbatim. The
 // pad predicate emits `(gid_x >= (i32(params_n.n0) + i32(params_n.n1)))`
-// — a u32 ALU expression mixing the output's symbolic dim bound and the
+// - a u32 ALU expression mixing the output's symbolic dim bound and the
 // pad upper-bound test referencing both binding slots.
 func TestSymbolicPadWGSLSpotCheck(t *testing.T) {
 	a := uop.NewArena(64)

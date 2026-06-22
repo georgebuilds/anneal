@@ -1,6 +1,6 @@
 //go:build !js
 
-// Tests for W7 — the generate view markup + /sse/generate wire contract.
+// Tests for W7 - the generate view markup + /sse/generate wire contract.
 //
 // Markup tests (TestWebGenerate_*) pin the studio.html surface (controls,
 // token stream live region, click-through, prompt input, compare toggle,
@@ -599,7 +599,7 @@ func TestSSEGenerate_CompareToggle(t *testing.T) {
 }
 
 // TestSSEGenerate_WarmingFrameOnFirstFrame pins the first SSE frame has
-// phase="init" — the contract the studio reads to hide the warming hint.
+// phase="init" - the contract the studio reads to hide the warming hint.
 // This documents the wire contract that the production runner emits a
 // PhaseInit frame before any token; stubs in tests follow the same
 // convention.

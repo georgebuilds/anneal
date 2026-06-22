@@ -368,7 +368,7 @@ func TestSintFromShapeDim(t *testing.T) {
 	if v, ok := s.ConstValue(); !ok || v != 12 {
 		t.Errorf("concrete ShapeDim → %v", s)
 	}
-	// Symbolic dim — VarName must be registered in the arena before rebuild.
+	// Symbolic dim - VarName must be registered in the arena before rebuild.
 	a.DefineVar("b", 1, 32)
 	dsym := uop.ShapeDim{Sym: true, VarName: "b", Mul: 1}
 	ssym := SintFromShapeDim(a, dsym)

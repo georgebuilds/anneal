@@ -28,7 +28,7 @@ func TestSaveDiskMapLockedMkdirFails(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	// Create a regular file, then make diskPath descend through it as if it
-	// were a directory — MkdirAll must fail.
+	// were a directory - MkdirAll must fail.
 	blocker := filepath.Join(tmpDir, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)

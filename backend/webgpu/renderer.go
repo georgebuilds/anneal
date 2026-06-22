@@ -7,7 +7,7 @@ import (
 )
 
 // renderer is the WebGPU implementation of backend.Renderer. It is a thin
-// shim over codegen.RenderWGSL — the codegen package owns the lowerer and
+// shim over codegen.RenderWGSL - the codegen package owns the lowerer and
 // WGSL emission; this type exists so the orchestrator can speak to a
 // backend-agnostic Renderer interface.
 //

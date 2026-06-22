@@ -63,7 +63,7 @@ func Concat(tensors []*Tensor, axis int) *Tensor {
 	// shape formula yields structurally distinct Sint expressions for the two
 	// sides which do not re-intern equal, breaking the subsequent broadcast-Add.
 	// Detect and reject this case loudly rather than emit silently-wrong graphs.
-	// Concat along a *concrete* axis (the common case in CNN imports — Concat
+	// Concat along a *concrete* axis (the common case in CNN imports - Concat
 	// of feature-channel slices, classifier-tail shape glue) is fully supported.
 	if _, axisConcrete := axisDims[0].ConstValue(); !axisConcrete {
 		panic(fmt.Sprintf("tensor: Concat: concat along symbolic axis %d not supported in v1 (Pad+Add shape canonicalisation breaks on Sub(Add, Neg) vs Add(_, _) asymmetry)", axis))

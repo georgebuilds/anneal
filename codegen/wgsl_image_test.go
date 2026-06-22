@@ -90,13 +90,13 @@ func TestWGSL_ImageDType_NormalizeWGSL_Stable(t *testing.T) {
 	h2 := codegen.BeamWGSLHash(w2)
 	if h1 != h2 {
 		t.Fatalf("normalizeWGSL not byte-stable across arenas for image kernel: "+
-			"hash1=%s hash2=%s — SPEC §10 BEAM disk-cache invariant violated.\n"+
+			"hash1=%s hash2=%s - SPEC §10 BEAM disk-cache invariant violated.\n"+
 			"shader1:\n%s\nshader2:\n%s", h1, h2, w1, w2)
 	}
 }
 
 // TestWGSL_ImageDType_LoadStoreEmit_NonImage_Bypass exercises the scalar
-// path: a Float32 kernel must not emit any vec4 packing — the image fork
+// path: a Float32 kernel must not emit any vec4 packing - the image fork
 // is gated on dtype.IsImage and must stay off for scalar tensors.
 func TestWGSL_ImageDType_LoadStoreEmit_NonImage_Bypass(t *testing.T) {
 	a := uop.NewArena(1024)
@@ -107,7 +107,7 @@ func TestWGSL_ImageDType_LoadStoreEmit_NonImage_Bypass(t *testing.T) {
 	items := schedule.CreateSchedule(sink, "webgpu")
 	wgsl := codegen.RenderWGSL(items[0]).WGSL
 	if strings.Contains(wgsl, "/ 4u") || strings.Contains(wgsl, "vec4<f32>") {
-		t.Errorf("scalar f32 kernel should not emit vec4 packing — image fork triggered on a non-image dtype.\nfull shader:\n%s", wgsl)
+		t.Errorf("scalar f32 kernel should not emit vec4 packing - image fork triggered on a non-image dtype.\nfull shader:\n%s", wgsl)
 	}
 }
 

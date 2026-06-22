@@ -79,7 +79,7 @@ func isHostInput(opType string, v Value) bool {
 	}
 	// Shape, Size, and Identity (when passing through a device tensor)
 	// are host ops that can be evaluated when the input is device-tier
-	// — we read v.Tensor().ShapeSints() without realising. Other host ops
+	// - we read v.Tensor().ShapeSints() without realising. Other host ops
 	// (host arithmetic, host Concat, Range, ConstantOfShape) require host
 	// inputs.
 	switch opType {

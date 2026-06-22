@@ -77,7 +77,7 @@ func TestUpatDriftCheck(t *testing.T) {
 		t.Fatalf("parseUpatPairs(%s): %v", upatPath, err)
 	}
 	if len(upatPairs) == 0 {
-		t.Fatalf("parseUpatPairs returned 0 pairs — file missing or empty?")
+		t.Fatalf("parseUpatPairs returned 0 pairs - file missing or empty?")
 	}
 
 	// Build the curated (op, handler) set and the covered-ops set from allRules.
@@ -88,7 +88,7 @@ func TestUpatDriftCheck(t *testing.T) {
 			continue
 		}
 		if r.handler == "" {
-			t.Errorf("symbolic ruleEntry missing handler: ops=%v pattern=%q — add handler field in cmd_explain.go", r.ops, r.pattern)
+			t.Errorf("symbolic ruleEntry missing handler: ops=%v pattern=%q - add handler field in cmd_explain.go", r.ops, r.pattern)
 			continue
 		}
 		for _, op := range r.ops {
@@ -110,7 +110,7 @@ func TestUpatDriftCheck(t *testing.T) {
 	for pair := range relevantUpatPairs {
 		if !curatedPairs[pair] {
 			parts := strings.SplitN(pair, ":", 2)
-			t.Errorf(".upat defines rule (%s, %s) but allRules has no matching symbolic entry — update cmd_explain.go", parts[0], parts[1])
+			t.Errorf(".upat defines rule (%s, %s) but allRules has no matching symbolic entry - update cmd_explain.go", parts[0], parts[1])
 		}
 	}
 
@@ -118,7 +118,7 @@ func TestUpatDriftCheck(t *testing.T) {
 	for pair := range curatedPairs {
 		if !upatPairs[pair] {
 			parts := strings.SplitN(pair, ":", 2)
-			t.Errorf("allRules has symbolic entry (%s, %s) but symbolic.upat has no matching rule — stale entry in cmd_explain.go?", parts[0], parts[1])
+			t.Errorf("allRules has symbolic entry (%s, %s) but symbolic.upat has no matching rule - stale entry in cmd_explain.go?", parts[0], parts[1])
 		}
 	}
 }
@@ -150,13 +150,13 @@ func TestGradientDriftCheck(t *testing.T) {
 	for op := range registered {
 		if !curated[op] {
 			t.Errorf("op %s is registered in tensor.Gradient but has no curated entry in "+
-				"allRules — add a gradient ruleEntry in cmd_explain.go for it", op)
+				"allRules - add a gradient ruleEntry in cmd_explain.go for it", op)
 		}
 	}
 	for op := range curated {
 		if !registered[op] {
 			t.Errorf("op %s has a curated gradient ruleEntry in allRules but is not registered "+
-				"in tensor.Gradient.rules — either register it or remove the curated entry", op)
+				"in tensor.Gradient.rules - either register it or remove the curated entry", op)
 		}
 	}
 }

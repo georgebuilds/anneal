@@ -120,7 +120,7 @@ func TestMLPForward(t *testing.T) {
 		t.Fatal("MLP output node must be valid")
 	}
 
-	// Verify no eager computation occurred — node types are graph ops, not data.
+	// Verify no eager computation occurred - node types are graph ops, not data.
 	if out.Node().Op() == uop.OpConst || out.Node().Op() == uop.OpBuffer {
 		t.Fatal("MLP output should be a computed graph node, not a leaf")
 	}
@@ -194,7 +194,7 @@ func TestSmallConvNet(t *testing.T) {
 	h2 := nn.ReLU(conv2.Forward(h1))
 	shapeEq(t, h2.Shape(), []int64{1, 8, 4, 4})
 
-	// flatten: [1, 8*4*4=128] — but fc expects 8*2*2=32; use a 2x2 sub-region
+	// flatten: [1, 8*4*4=128] - but fc expects 8*2*2=32; use a 2x2 sub-region
 	// to keep the test self-contained without a pool layer.
 	h3 := h2.Shrink([][2]int64{{0, 1}, {0, 8}, {0, 2}, {0, 2}}).Flatten()
 	shapeEq(t, h3.Shape(), []int64{32})

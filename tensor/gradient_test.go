@@ -189,7 +189,7 @@ func evalNode(u uop.UOp, shapes map[uint32][]int64, data map[uint32][]float32, b
 		}
 		data[idx] = out
 
-	// Binary elementwise — both srcs must have same shape after broadcasting.
+	// Binary elementwise - both srcs must have same shape after broadcasting.
 	case uop.OpAdd, uop.OpSub, uop.OpMul, uop.OpMax, uop.OpCmpEq, uop.OpCmpLt, uop.OpFDiv:
 		shapes[idx] = getSh(0)
 		s0, s1 := getDat(0), getDat(1)
@@ -624,7 +624,7 @@ func TestGradRecip(t *testing.T) {
 	checkGrads(t, loss, x, xData, []int64{3}, bufs, bSh, 1e-3, 1e-3)
 }
 
-// ── Exp/Log composition (no direct rule — chain rule through Exp2/Log2/Mul) ──
+// ── Exp/Log composition (no direct rule - chain rule through Exp2/Log2/Mul) ──
 
 // TestGradExpComposition verifies that Exp (= exp2(x/ln2)) differentiates
 // correctly via chain rule through the primitive rules, with no custom rule.
@@ -691,7 +691,7 @@ func TestGradMul(t *testing.T) {
 func TestGradDiamond(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{3}, uop.Dtypes.Float32, "cpu")
-	// loss = x * x + x  (x is shared by two consumers — adjoint must be summed)
+	// loss = x * x + x  (x is shared by two consumers - adjoint must be summed)
 	loss := x.Mul(x).Add(x).Sum(nil, false)
 
 	xData := testData([]int64{3}, 0.5)

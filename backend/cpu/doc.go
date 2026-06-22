@@ -1,7 +1,7 @@
 // Package cpu is a pure-Go CPU backend for anneal. It implements
 // backend.Executor by walking the kernel SINK-rooted UOp AST on the host
 // rather than rendering WGSL and dispatching on a GPU. There is no codegen
-// step, no Renderer/Compiler/Program — Device.Run interprets the IR
+// step, no Renderer/Compiler/Program - Device.Run interprets the IR
 // directly against host-side []float32 / []int32 buffers.
 //
 // The backend covers the static (non-symbolic) op set the MLP demo needs:

@@ -30,7 +30,7 @@ func reportBeam(label string, r codegen.BeamResult) string {
 	if r.MinMicros < r.BaseMicros {
 		verdict = fmt.Sprintf("found win (%.2fx speedup)", r.BaseMicros/r.MinMicros)
 	}
-	fmt.Printf("[B4] %-30s baseline=%8.2fµs  winner=%8.2fµs  opts=%v  searched=%d  wall=%.0fms — %s\n",
+	fmt.Printf("[B4] %-30s baseline=%8.2fµs  winner=%8.2fµs  opts=%v  searched=%d  wall=%.0fms - %s\n",
 		label, r.BaseMicros, r.MinMicros, r.Opts, r.Searched, float64(r.WallNs)/1e6, verdict)
 	return verdict
 }
@@ -170,7 +170,7 @@ func TestB4_BeamSearch_Matmul1024(t *testing.T) {
 	gotOpt := firstFinalOutput(t, itemsOpt, resOpt)
 
 	if !approxEq(gotOpt, gotDef, 0) {
-		t.Errorf("matmul_1024³: value mismatch — beam winner not bit-exact vs identity")
+		t.Errorf("matmul_1024³: value mismatch - beam winner not bit-exact vs identity")
 	}
 }
 

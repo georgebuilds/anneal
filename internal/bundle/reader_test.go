@@ -131,7 +131,7 @@ func TestKernelRejectsBadNames(t *testing.T) {
 
 func TestReaderEmptyForMissingFiles(t *testing.T) {
 	// A bundle with only manifest and graph should still return empty
-	// slices for loss/generation/events/kernels — no errors.
+	// slices for loss/generation/events/kernels - no errors.
 	root := t.TempDir()
 	w, err := NewWriter(root, "sparse", KindSaved)
 	if err != nil {

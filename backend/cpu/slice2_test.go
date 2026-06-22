@@ -1,6 +1,6 @@
 package cpu_test
 
-// CPU backend Slice 2 test suite — full UOp coverage beyond the Slice 1
+// CPU backend Slice 2 test suite - full UOp coverage beyond the Slice 1
 // MLP/conv surface, per notes/cpu_slice2_preflight.md:
 //
 //   - pad / shrink / permute / expand movement (rangeify-dissolved index
@@ -67,7 +67,7 @@ func realizeOrFatal(t *testing.T, out *tensor.Tensor, label string) []float32 {
 // ── Movement ops ──────────────────────────────────────────────────────────────
 
 // TestCPU_Pad exercises the OpAnd validity-mask chain that pad lowers to
-// (schedule/index.go) — the op Slice 1 lacked. Pads on both dims so the
+// (schedule/index.go) - the op Slice 1 lacked. Pads on both dims so the
 // mask is a two-term conjunction.
 func TestCPU_Pad(t *testing.T) {
 	useCPU(t)
@@ -220,7 +220,7 @@ var narrowDtypes = []struct {
 }
 
 // TestCPU_NarrowDtypeAdd asserts z = x + y over narrow-dtype buffers is
-// BIT-EXACT against Q(Q(a)+Q(b)) — the contract shared with the GPU store
+// BIT-EXACT against Q(Q(a)+Q(b)) - the contract shared with the GPU store
 // helpers. For a single binary op this holds for all four dtypes (one f32
 // add of on-grid values is exact, then one RTNE narrowing).
 func TestCPU_NarrowDtypeAdd(t *testing.T) {

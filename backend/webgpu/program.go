@@ -12,7 +12,7 @@ import (
 // program wraps a compiled compute pipeline plus its bind-group layout. It is
 // the WebGPU implementation of backend.Program.
 //
-// Lifetime: programs are owned by the compiler's cache (compiler.cache) — they
+// Lifetime: programs are owned by the compiler's cache (compiler.cache) - they
 // outlive a single Run / RunSymbolic call and are released only when the device
 // is closed.
 //

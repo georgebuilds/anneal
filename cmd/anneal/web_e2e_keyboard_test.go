@@ -2,7 +2,7 @@
 
 // E2E coverage for the studio's keyboard surface: `g <key>` chords, the `/`
 // search focus, the `?` help modal (open / Esc-close / focus trap), and the
-// `aria-current` flip on navigation. All assertions live in the real DOM —
+// `aria-current` flip on navigation. All assertions live in the real DOM -
 // the chord state machine in studio.js runs end to end.
 
 package main
@@ -30,7 +30,7 @@ func pressChord(dest string) chromedp.Action {
 
 // TestE2E_ChordNavigation drives every documented `g <key>` chord and
 // asserts the URL path matches the routing table. We don't navigate via the
-// nav buttons here — that's what TestE2E_AriaCurrent... covers — we drive
+// nav buttons here - that's what TestE2E_AriaCurrent... covers - we drive
 // the keyboard handler so the chord + leader-timer logic is real.
 func TestE2E_ChordNavigation(t *testing.T) {
 	base, ctx := newE2E(t)

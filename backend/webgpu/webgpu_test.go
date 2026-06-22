@@ -80,7 +80,7 @@ func seededLeafInputs(items []schedule.ExecItem, seed uint64) map[uint32][]float
 func requireNonDegenerate(t *testing.T, label string, ref []float32) {
 	t.Helper()
 	if len(ref) == 0 {
-		t.Fatalf("%s: reference output is empty — oracle comparison is vacuous", label)
+		t.Fatalf("%s: reference output is empty - oracle comparison is vacuous", label)
 	}
 	allZero, allSame := true, true
 	for _, v := range ref {
@@ -92,10 +92,10 @@ func requireNonDegenerate(t *testing.T, label string, ref []float32) {
 		}
 	}
 	if allZero {
-		t.Fatalf("%s: reference output is all-zero — oracle comparison is vacuous (zero leaf inputs?)", label)
+		t.Fatalf("%s: reference output is all-zero - oracle comparison is vacuous (zero leaf inputs?)", label)
 	}
 	if allSame && len(ref) > 1 {
-		t.Fatalf("%s: reference output is constant (%g) — degenerate oracle", label, ref[0])
+		t.Fatalf("%s: reference output is constant (%g) - degenerate oracle", label, ref[0])
 	}
 }
 
@@ -104,7 +104,7 @@ func requireDevice(t *testing.T) *webgpu.Device {
 	t.Helper()
 	dev, err := webgpu.Open()
 	if err != nil {
-		t.Skipf("no GPU device available (%v) — build with CGO_ENABLED=0 and ensure Metal/Vulkan is present", err)
+		t.Skipf("no GPU device available (%v) - build with CGO_ENABLED=0 and ensure Metal/Vulkan is present", err)
 	}
 	t.Cleanup(dev.Close)
 	return dev
@@ -113,7 +113,7 @@ func requireDevice(t *testing.T) *webgpu.Device {
 // skipIfSoftwareGPU skips the calling test when the active adapter is a
 // software rasterizer (e.g. Mesa llvmpipe in CI). Timing/benchmark tests
 // produce no useful signal on software adapters and run orders of magnitude
-// slower — long enough to blow Go's default 10-minute per-package timeout.
+// slower - long enough to blow Go's default 10-minute per-package timeout.
 func skipIfSoftwareGPU(t *testing.T, dev *webgpu.Device) {
 	t.Helper()
 	if isSoftwareAdapter(dev.AdapterName()) {
@@ -165,7 +165,7 @@ func firstFinalOutput(t *testing.T, items []schedule.ExecItem, outputs map[uint3
 // finalOutputs returns the data for every final output buffer (written by a
 // kernel, read by none) in schedule order. Tensor node indices do NOT match
 // the kernel STORE buffer's UOpIdx, so outputs[someTensor.Node().Index()]
-// silently returns nil — always resolve outputs through this helper.
+// silently returns nil - always resolve outputs through this helper.
 func finalOutputs(t *testing.T, items []schedule.ExecItem, outputs map[uint32][]float32) [][]float32 {
 	t.Helper()
 	readByAny := make(map[uint32]bool)
@@ -561,10 +561,10 @@ func TestValueOracle_MSEBackwardFD(t *testing.T) {
 	// gW≈[4.4,5.2,5.95,6.8,7.5,8.4].
 	tol := 1e-2
 	if !approxEq(gpuGx, fdGx, tol) {
-		t.Fatalf("gx mismatch — matmul backward incorrect:\n  GPU: %v\n   FD: %v", gpuGx, fdGx)
+		t.Fatalf("gx mismatch - matmul backward incorrect:\n  GPU: %v\n   FD: %v", gpuGx, fdGx)
 	}
 	if !approxEq(gpuGW, fdGW, tol) {
-		t.Fatalf("gW mismatch — matmul backward incorrect:\n  GPU: %v\n   FD: %v", gpuGW, fdGW)
+		t.Fatalf("gW mismatch - matmul backward incorrect:\n  GPU: %v\n   FD: %v", gpuGW, fdGW)
 	}
 	t.Logf("gx: GPU=%v  FD=%v  ✓", gpuGx, fdGx)
 	t.Logf("gW: GPU=%v  FD=%v  ✓", gpuGW, fdGW)

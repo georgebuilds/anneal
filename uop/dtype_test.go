@@ -192,7 +192,7 @@ func TestDTypeAsMapKey(t *testing.T) {
 	v := uop.Dtypes.Float32.Vec(4)
 	m[v] = "f32x4"
 	if m[uop.Dtypes.Float32.Vec(4)] != "f32x4" {
-		t.Error("Vec(4) map lookup failed — interning broken")
+		t.Error("Vec(4) map lookup failed - interning broken")
 	}
 }
 
@@ -381,7 +381,7 @@ func TestDTypeStructuralHashGolden(t *testing.T) {
 	for _, tc := range cases {
 		h := tc.dt.StructuralHash()
 		if h != tc.golden {
-			t.Errorf("%s: StructuralHash()=0x%016x, want golden 0x%016x — "+
+			t.Errorf("%s: StructuralHash()=0x%016x, want golden 0x%016x - "+
 				"algorithm or field layout changed, or hash is no longer address-independent",
 				tc.name, h, tc.golden)
 		}
@@ -405,7 +405,7 @@ func TestStructuralKeysGolden(t *testing.T) {
 	got := keys[c.Index()]
 	t.Logf("const(1.0 f32) structural key: 0x%016x (golden: 0x%016x)", got, golden)
 	if got != golden {
-		t.Errorf("StructuralKeys: 0x%016x != golden 0x%016x — "+
+		t.Errorf("StructuralKeys: 0x%016x != golden 0x%016x - "+
 			"dtype address-dependence reintroduced, or hash algorithm changed",
 			got, golden)
 	}

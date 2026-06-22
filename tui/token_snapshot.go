@@ -2,7 +2,7 @@ package tui
 
 // TokenSnapshot is the wire format for the W7 /sse/generate stream. It is a
 // parallel type to Snapshot (which is loss-shaped): TokenSnapshot is
-// token-shaped — one value pushed per emitted token plus a final PhaseDone
+// token-shaped - one value pushed per emitted token plus a final PhaseDone
 // terminator. The two types share Phase encoding so the studio's SSE
 // vocabulary stays uniform.
 //
@@ -53,7 +53,7 @@ type TokenSnapshot struct {
 
 	// Phase mirrors Snapshot's Phase enum so consumers can route on the
 	// same string vocabulary ("init" / "generating" / "done" / "error").
-	// PhaseTraining is reused as PhaseGenerating on the wire — see the
+	// PhaseTraining is reused as PhaseGenerating on the wire - see the
 	// Phase.String comment in snapshot.go; we don't add a new phase value
 	// because the studio's CSS / a11y states already key off these four.
 	Phase Phase `json:"phase"`

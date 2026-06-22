@@ -4,7 +4,7 @@
 // bytes to the WASM worker, and renders the topology immediately. This file
 // owns the summary the worker returns: a deterministic graph_id (sha256
 // prefix of the model bytes), the imported graph JSON (forward topology
-// only — no backward, no kernels), the input / output descriptors, the
+// only - no backward, no kernels), the input / output descriptors, the
 // node + initializer counts, and the curated list of unsupported ops with
 // a short human-readable reason for each.
 //
@@ -105,7 +105,7 @@ func BuildImportSummary(modelBytes []byte) (*ImportSummary, error) {
 	}
 
 	// Populate the imported graph JSON. We render a lightweight topology
-	// document keyed off the lowered Node list — this is the visualize
+	// document keyed off the lowered Node list - this is the visualize
 	// payload the studio renders without ever touching the (absent) values.
 	gjson, err := importedGraphJSON(graphID, r)
 	if err == nil {
@@ -225,7 +225,7 @@ var importedOpReasons = map[string]string{
 // here, so unknown shapes render empty), and edges drawn from each input-
 // name's producer to the node.
 //
-// This is the v1 dropzone rendering — the studio's visualize view consumes
+// This is the v1 dropzone rendering - the studio's visualize view consumes
 // the same GraphData shape it gets from BuildGraph(name), so the existing
 // renderer drops in unchanged.
 func importedGraphJSON(graphID string, r *onnx.Runner) (json.RawMessage, error) {
@@ -302,7 +302,7 @@ func importedGraphJSON(graphID string, r *onnx.Runner) (json.RawMessage, error) 
 				edgeRecs = append(edgeRecs, ed{From: from, To: thisID})
 			}
 			// initializers and unresolved names go without an explicit edge
-			// for v1 — the topology renders cleanly without dangling lines.
+			// for v1 - the topology renders cleanly without dangling lines.
 		}
 	}
 

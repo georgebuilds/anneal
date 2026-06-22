@@ -14,7 +14,7 @@ import (
 // structurally isomorphic non-leaf tensors must assign each tensor its OWN
 // result, not a sibling's.
 //
-// Each output is a [2,2]=[2,3]@[3,2] matmul — identical shape AND identical
+// Each output is a [2,2]=[2,3]@[3,2] matmul - identical shape AND identical
 // graph structure across all N, so the kernels are genuinely isomorphic and
 // CANNOT be disambiguated by shape or structure. Only the input DATA differs.
 // The old positional-zip assignOutputs matched final-output buffers to tensors
@@ -88,7 +88,7 @@ func TestMultiOutputAttribution_IsomorphicKernels(t *testing.T) {
 		}
 		for i := range want {
 			if d := math.Abs(float64(got[i] - want[i])); d > 1e-4 {
-				t.Errorf("output %d idx %d: got %f want %f (diff %g) — buffer attribution scramble",
+				t.Errorf("output %d idx %d: got %f want %f (diff %g) - buffer attribution scramble",
 					k, i, got[i], want[i], d)
 			}
 		}

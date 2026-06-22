@@ -15,7 +15,7 @@ import (
 )
 
 // TestWebVisualize_StubReplaced pins that the visualize view markup is the
-// W4 pane (iframe + drawer), not the W0–W3 stub copy.
+// W4 pane (iframe + drawer), not the W0-W3 stub copy.
 func TestWebVisualize_StubReplaced(t *testing.T) {
 	srv := newWebServer(t)
 	resp, body := get(t, srv, "/")
@@ -59,7 +59,7 @@ func TestWebVisualize_IframeSandbox(t *testing.T) {
 	if !strings.Contains(m, `sandbox="allow-scripts allow-same-origin"`) {
 		t.Errorf("viz-iframe sandbox attribute does not match contract: %s", m)
 	}
-	// And it MUST carry a title (WCAG 4.1.2 — iframes need accessible names).
+	// And it MUST carry a title (WCAG 4.1.2 - iframes need accessible names).
 	if !regexp.MustCompile(`title="[^"]+"`).MatchString(m) {
 		t.Errorf("viz-iframe missing title attribute (WCAG 4.1.2): %s", m)
 	}

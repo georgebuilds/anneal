@@ -9,7 +9,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// concatHelpers — value-oracle pre-realize checks.
+// concatHelpers - value-oracle pre-realize checks.
 //
 // Concat is built as Pad+Add (no OpCat) so its forward correctness is fully
 // determined by the underlying Pad/Add op semantics. We assert the composed
@@ -167,7 +167,7 @@ func TestConcat_NonConcatDimMismatch_Panics(t *testing.T) {
 			t.Fatalf("expected panic on non-concat-axis dim mismatch")
 		}
 	}()
-	// Concat along axis 1; x has dim0=2, y has dim0=3 — mismatch.
+	// Concat along axis 1; x has dim0=2, y has dim0=3 - mismatch.
 	_ = tensor.Concat([]*tensor.Tensor{x, y, z}, 1)
 }
 

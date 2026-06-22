@@ -1,4 +1,4 @@
-// opt.go — Opt seam: the four composable kernel transforms and their apply entry point.
+// opt.go - Opt seam: the four composable kernel transforms and their apply entry point.
 //
 // An Opt{Kind, Axis, Arg} describes one kernel transformation. ApplyOpt rewrites a
 // kernel SINK-rooted AST before Lower/RenderWGSL. This is the only extension point for
@@ -7,7 +7,7 @@
 // Four composable transforms:
 //   - OptLocal(axis, localSize): multi-dim @workgroup_size + 2D/3D dispatch. Also fixes
 //     the WebGPU 65535 1D-dispatch limit by spreading workgroups across dimensions.
-//   - OptTile(axis, TS): shared-memory tiling on a reduce axis — var<workgroup> tile
+//   - OptTile(axis, TS): shared-memory tiling on a reduce axis - var<workgroup> tile
 //     buffers, workgroupBarrier(), coalesced + branchless tile loads.
 //   - OptUpcast(axis, factor): per-thread register-blocked micro-tile; rejects reduce
 //     and Symbolic axes.
@@ -74,7 +74,7 @@ const (
 	// OptVec4Load rebinds BOTH input params of an OptTile-tagged tilable-matmul
 	// kernel as array<vec4<f32>> storage buffers and rewrites the shared-memory
 	// tile fills in emitTiledReduce to whole-vec4 global loads (4 elements per
-	// load — a genuine 128-bit `device float4*` load under the naga MSL
+	// load - a genuine 128-bit `device float4*` load under the naga MSL
 	// lowering, unlike OptVectorize's compute-only vec4 packaging). Axis and
 	// Arg are unused. Compose after OptTile (any of the tile-only / +OptUpcast
 	// / +OptVectorize stacks). Eligibility needs the kernel's buffer shapes, so
@@ -130,7 +130,7 @@ func ApplyOptBufs(sink uop.UOp, opt Opt, bufs []schedule.Buffer) uop.UOp {
 //
 // Two gates share this predicate:
 //   - applyTile: applicability (only this shape can be tiled);
-//   - applyLocal: whether a NON-DIVISIBLE local split is allowed — the
+//   - applyLocal: whether a NON-DIVISIBLE local split is allowed - the
 //     tiled-reduce lowerer masks every load and store by the real operand
 //     extents, so LOCAL padding never leaks into memory there, while the
 //     static store path indexes the output with the padded strides and has
@@ -197,8 +197,8 @@ func tileTagParse(tag any) (ts int, vec4 bool, ok bool) {
 
 // vec4LoadTagSuffix marks an OptTile-tagged reduce whose input params are
 // vec4-bound (OptVec4Load applied). Appended to the "tile:<TS>" tag so
-// KernelHasTiledReduce's "tile:" prefix check — and therefore OptUpcast /
-// OptVectorize composability — is unaffected.
+// KernelHasTiledReduce's "tile:" prefix check - and therefore OptUpcast /
+// OptVectorize composability - is unaffected.
 const vec4LoadTagSuffix = ":vec4"
 
 // applyVec4Load implements OptVec4Load: re-tags the kernel's tiled reduce as
@@ -206,14 +206,14 @@ const vec4LoadTagSuffix = ":vec4"
 // renderer binds both input params as array<vec4<f32>>.
 //
 // Eligibility (ALL must hold; anything else refuses by returning sink
-// unchanged — the applyTile inapplicability convention, which ActionSpace's
+// unchanged - the applyTile inapplicability convention, which ActionSpace's
 // no-op filter and spray-mode callers treat as "skip this kernel"):
 //
 //  1. tilableMatmulReduce shape (terminal Mul(Index, Index) reduce, no
 //     indirect reads).
 //  2. OptTile already applied (the reduce carries a "tile:<TS>" tag) and
-//     OptVec4Load not already applied (no ":vec4" suffix — idempotent).
-//  3. TS % 4 == 0 — vec4 column bases inside a tile stay 4-aligned.
+//     OptVec4Load not already applied (no ":vec4" suffix - idempotent).
+//  3. TS % 4 == 0 - vec4 column bases inside a tile stay 4-aligned.
 //  4. No symbolic ranges in END or the reduce, and no symbolic dims in either
 //     input param's shape (Shape[i] == 0 sentinel).
 //  5. Both input params pass vec4LoadParamEligible (f32 non-image 2-D with
@@ -222,13 +222,13 @@ const vec4LoadTagSuffix = ":vec4"
 //
 // Alignment consequence the lowerer relies on: with the stride-1 extent E ≡ 0
 // (mod 4) and every loaded column base ≡ 0 (mod 4), a vec4 slot is either
-// fully in-range or fully out-of-range in the column dimension — one
+// fully in-range or fully out-of-range in the column dimension - one
 // slot-granular select per load fully replaces the scalar path's per-element
 // masks (no partial slots can exist).
 //
 // Tag-only rebuild correctness: the uop arena interns the tag (hashNode mixes
 // node.tag), so the re-tagged reduce is a NEW node and the rebuilt sink's
-// index differs from the input's — the ActionSpace no-op filter sees a real
+// index differs from the input's - the ActionSpace no-op filter sees a real
 // transform.
 func applyVec4Load(sink uop.UOp, bufs []schedule.Buffer) uop.UOp {
 	reduce, ok := tilableMatmulReduce(sink)
@@ -281,7 +281,7 @@ func applyVec4Load(sink uop.UOp, bufs []schedule.Buffer) uop.UOp {
 // vec4LoadParamEligible reports whether the paramIdx-th kernel buffer can be
 // bound as array<vec4<f32>>:
 //
-//   - an input (paramIdx >= 1 — the output store stays scalar in v1);
+//   - an input (paramIdx >= 1 - the output store stays scalar in v1);
 //   - dtype scalar Float32, not image storage (image dtypes already bind
 //     vec4 with their own lane-select load path), not symbolic;
 //   - 2-D shape (the tiled-reduce lowerer's operand layout) with the
@@ -289,10 +289,10 @@ func applyVec4Load(sink uop.UOp, bufs []schedule.Buffer) uop.UOp {
 //   - total element count ≡ 0 (mod 4), so the f32 buffer's byte size is a
 //     multiple of 16 and the array<vec4<f32>> binding view is exactly
 //     Size/4 slots. (Implied by Shape[1] % 4 == 0 for a 2-D buffer, but
-//     checked explicitly — it is the binding-validity invariant. Probed
+//     checked explicitly - it is the binding-validity invariant. Probed
 //     empirically: gogpu/wgpu's Metal HAL does NOT reject a vec4 binding
 //     over a non-multiple-of-16 buffer, naga's clamped bounds checks are
-//     the only guard — so eligibility, not the runtime, is what keeps reads
+//     the only guard - so eligibility, not the runtime, is what keeps reads
 //     inside floor(n/4) slots.)
 func vec4LoadParamEligible(paramIdx int, bufs []schedule.Buffer) bool {
 	if paramIdx < 1 || paramIdx >= len(bufs) {
@@ -339,9 +339,9 @@ func Vec4LoadParams(sink uop.UOp) map[int]bool {
 // localSplitDivides reports whether OptLocal(axisIdx, localSize) on sink
 // targets a concrete AxisLoop range whose extent localSize divides. Used by
 // ActionSpace to pre-filter BEAM's OptLocal proposals: a non-divisible split
-// is either refused by applyLocal (non-tilable kernels — the probe would
+// is either refused by applyLocal (non-tilable kernels - the probe would
 // no-op anyway) or, on tilable-matmul kernels, only correct when a later
-// OptTile routes the kernel through the masked tiled-store path — a
+// OptTile routes the kernel through the masked tiled-store path - a
 // composition BEAM cannot guarantee, so it never proposes the padding split.
 // Returns false when the axisIdx-th AxisLoop range is missing or symbolic
 // (the symbolic bound cannot be divisibility-checked at search time).
@@ -416,7 +416,7 @@ func applyLocal(sink uop.UOp, axisIdx int, localSize int) uop.UOp {
 	// padding is the tiled-reduce path (emitTiledReduce bounds every load
 	// and store by the real operand extents), so the non-divisible split is
 	// allowed exactly when the kernel has the tilable Mul(Index, Index)
-	// reduce shape OptTile accepts — the sanctioned OptLocal→OptTile
+	// reduce shape OptTile accepts - the sanctioned OptLocal→OptTile
 	// composition. Everything else refuses by returning sink unchanged, the
 	// same inapplicability signal applyTile uses; ActionSpace's no-op filter
 	// and spray-mode callers already treat that as "skip this kernel".
@@ -657,7 +657,7 @@ func applyTile(sink uop.UOp, axisIdx int, tileSize int) uop.UOp {
 }
 
 // applyUpcast splits the axisIdx-th eligible END-level parallel range (AxisWorkgroup,
-// AxisLoop, or AxisLocal — whichever appears first, in END order, that does NOT
+// AxisLoop, or AxisLocal - whichever appears first, in END order, that does NOT
 // already have an immediately-following AxisUpcast partner) into:
 //   - outer range of size N/factor, keeping the original AxisType and ID
 //   - inner range of size factor, with AxisType=AxisUpcast and a fresh ID

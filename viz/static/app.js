@@ -1,4 +1,4 @@
-// anneal viz — scrub-timeline UOp graph renderer.
+// anneal viz - scrub-timeline UOp graph renderer.
 //
 // Loads the real timeline from WASM (anneal.wasm) or the native REST API, lays
 // out the union of all stages once with a layered DAG algorithm, then scrubs
@@ -234,7 +234,7 @@ function makeShape(kind) {
 //
 // Render the SVG skeleton once per loaded timeline (union nodes + edges in
 // fixed positions). applyStage() then mutates per-node attributes to reflect
-// the current stage's overrides — cheap and avoids re-laying out.
+// the current stage's overrides - cheap and avoids re-laying out.
 
 let timelineState = null; // { data, pos, nodeEls, edgeEls, currentStage }
 
@@ -619,7 +619,7 @@ async function loadAndRender(name) {
     applyStage(startStage);
 
     const src = window._wasmReady ? 'WASM' : 'REST API';
-    setStatus(`${name} — real compiler via ${src} · ${data.stages.length} stages · arrows to scrub`);
+    setStatus(`${name} - real compiler via ${src} · ${data.stages.length} stages · arrows to scrub`);
   } catch (e) {
     setStatus('error: ' + e.message, true);
     console.error(e);

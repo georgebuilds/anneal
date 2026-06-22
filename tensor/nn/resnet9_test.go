@@ -8,7 +8,7 @@ package nn_test
 //      (~6.57M scalars) and the public introspection helpers (Convs, BNs,
 //      Params) return the expected counts and orderings.
 //   2. TestResNet9Forward       : forward on [B,3,32,32] produces a [B,10]
-//      logit tensor with finite values. Smoke gate, NOT a value oracle —
+//      logit tensor with finite values. Smoke gate, NOT a value oracle -
 //      the architecture's correctness is asserted via the FD checks on
 //      sub-modules (Conv, BN, MaxPool, Linear) elsewhere in this package.
 //   3. TestResNet9TrainStep     : one full step (forward → loss → backward
@@ -93,7 +93,7 @@ func TestResNet9Forward(t *testing.T) {
 	const B = int64(1)
 	a := uop.NewArena(1 << 24) // 16 MiB; ResNet-9 graph is large.
 	// Use the smallest scale that still exercises every Conv/BN/Pool/residual
-	// edge — the full 64/128/256/512 graph is ~10K UOps and tail-latency
+	// edge - the full 64/128/256/512 graph is ~10K UOps and tail-latency
 	// blows the test budget. The architecture's correctness is asserted via
 	// FD checks on sub-modules elsewhere; this test only validates that the
 	// composition produces a [B, numClasses] tensor of finite values.
@@ -138,7 +138,7 @@ func TestResNet9Forward(t *testing.T) {
 //
 // Conv weights are randomly initialised before Load. The default Conv2d
 // constructor leaves Weight.Value zero, which makes every BN's input
-// identically zero and the batch mean trivially zero — the EMA update
+// identically zero and the batch mean trivially zero - the EMA update
 // (1-m)*0 + m*0 = 0 would then produce no observable RunningMean change,
 // causing this test's "unchanged after PostStep" assertion to fail even
 // though PostStep is correct. Mirrors initResNet9Small in examples/resnet9.go.
@@ -190,7 +190,7 @@ func TestResNet9TrainStep(t *testing.T) {
 	x.SetData(xData)
 
 	logits := m.Forward(x)
-	// MSE-style loss against zero targets — keeps the loss closed-form and
+	// MSE-style loss against zero targets - keeps the loss closed-form and
 	// avoids needing a softmax/cross-entropy implementation here.
 	loss := logits.Mul(logits).Sum(nil, false)
 	grads := tensor.Backward(loss, paramTensors(m.Params()))
@@ -242,7 +242,7 @@ func TestResNet9TrainStep(t *testing.T) {
 }
 
 // TestResNet9TrainEvalPostStepNoForward exercises Train/Eval/PostStep without
-// running a backward pass — useful while the backward-codegen issue is open
+// running a backward pass - useful while the backward-codegen issue is open
 // and TestResNet9TrainStep is skipped. PostStep without a preceding Forward
 // must be a no-op on every BN submodule.
 func TestResNet9TrainEvalPostStepNoForward(t *testing.T) {

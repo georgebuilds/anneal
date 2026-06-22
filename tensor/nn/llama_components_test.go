@@ -12,7 +12,7 @@ package nn_test
 //     7e-2 for softmax/norm/rope chains).
 //   - Every heavy softmax/norm-chain FD block is guarded by `if !testing.Short()`
 //     so `go test -short` (lavapipe CI) skips the kernel-heavy backward passes
-//     that OOM the runner — same discipline as gpt_test.go/vit_test.go.
+//     that OOM the runner - same discipline as gpt_test.go/vit_test.go.
 //
 // Tiny configs throughout (nEmbd=16, nHead=2, nKVHead=1, headDim=8, B=2, T=4,
 // blockSize=4, vocab=8) keep the GPU work small.

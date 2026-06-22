@@ -1,6 +1,6 @@
 package webgpu_test
 
-// Slice 3 — Reshape across a symbolic axis (Option B).
+// Slice 3 - Reshape across a symbolic axis (Option B).
 //
 // Three deliverables:
 //
@@ -50,7 +50,7 @@ func build2DSymbolicInput(t *testing.T, a *uop.Arena, name string, n int64) *ten
 	return ta
 }
 
-// TestReshapeSymbolicRoundTrip — Slice 3 deliverable (A).
+// TestReshapeSymbolicRoundTrip - Slice 3 deliverable (A).
 //
 // For each n ∈ {3, 7, 11}:
 //
@@ -136,11 +136,11 @@ func TestReshapeSymbolicRoundTrip(t *testing.T) {
 	count := dev.SymCompiledCount()
 	t.Logf("symbolic kernels compiled across n=3,7,11: %d", count)
 	if count > 4 {
-		t.Errorf("SymCompiledCount = %d, expected a small constant (≤ 4) — compile-once broken", count)
+		t.Errorf("SymCompiledCount = %d, expected a small constant (≤ 4) - compile-once broken", count)
 	}
 }
 
-// TestReshapeSymbolicSubproductMismatch — Slice 3 deliverable (B).
+// TestReshapeSymbolicSubproductMismatch - Slice 3 deliverable (B).
 //
 // Constructs two distinct DefineVars n and m and attempts a Reshape from
 // [n, 4] to [m, 8]. Pre-Slice-3 this silently succeeded; post-Slice-3 it
@@ -169,7 +169,7 @@ func TestReshapeSymbolicSubproductMismatch(t *testing.T) {
 	_ = ta.ReshapeSints([]shape.Sint{shape.SymInt{Node: mDef}, shape.ConstInt{V: 8}})
 }
 
-// TestReshapeSymbolicWGSLSpotCheck — Slice 3 deliverable (C).
+// TestReshapeSymbolicWGSLSpotCheck - Slice 3 deliverable (C).
 //
 // For the [n,4]→[n*4] merge case at n=3, capture the emitted WGSL source
 // and verify the symbolic dim's bound renders as a u32 ALU expression

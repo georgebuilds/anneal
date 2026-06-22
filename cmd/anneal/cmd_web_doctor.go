@@ -1,6 +1,6 @@
 //go:build !js
 
-// W9 — /api/device: the native binary's adapter / device probe surfaced as
+// W9 - /api/device: the native binary's adapter / device probe surfaced as
 // JSON. Spec: notes/anneal_web_spec.md §5.8.
 //
 // The doctor view is server-tier: the native binary knows its adapter, the
@@ -57,7 +57,7 @@ var deviceProbeFn deviceProbe = probeWebGPU
 // probeWebGPU opens a transient WebGPU device, reads its diagnostic fields,
 // and closes it. Errors are surfaced verbatim through the JSON envelope.
 func probeWebGPU() (string, bool, uint64, error) {
-	// Lock to an OS thread for the open/close — webgpu.Open spins up a GPU
+	// Lock to an OS thread for the open/close - webgpu.Open spins up a GPU
 	// owner goroutine on darwin that holds an OS thread, but the locking
 	// here protects callers that hop threads between Open and Close.
 	runtime.LockOSThread()
@@ -72,7 +72,7 @@ func probeWebGPU() (string, bool, uint64, error) {
 }
 
 // handleAPIDevice writes the device info JSON. Returns 200 even on probe
-// failure — the studio expects a parseable JSON body and renders the
+// failure - the studio expects a parseable JSON body and renders the
 // embedded error string inline rather than treating a missing adapter as
 // an HTTP error.
 func handleAPIDevice(w http.ResponseWriter, r *http.Request) {

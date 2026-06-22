@@ -10,7 +10,7 @@ import (
 
 // elementwiseRig runs a single binary-op model on x=initializer, y=initializer
 // and returns the output tensor. Values flow as leaf data; the handler's job
-// is to emit the right primitive — we assert the root op and that the two
+// is to emit the right primitive - we assert the root op and that the two
 // operand leaves carry the input data unmodified (value oracle: the output
 // computation is fully determined by (rootOp, leaf0, leaf1)).
 func elementwiseRig(t *testing.T, opType string, xData, yData []float32, opset int64) *tensor.Tensor {

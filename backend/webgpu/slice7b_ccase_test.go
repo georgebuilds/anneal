@@ -1,6 +1,6 @@
 package webgpu_test
 
-// Slice 7b — C1/C2/C3/C4 value-oracle tests.
+// Slice 7b - C1/C2/C3/C4 value-oracle tests.
 //
 // These tests hand-build symbolic kernels at the arena level (mirroring
 // buildMultiVarKernel in symbolic_multivar_test.go) so they exercise the
@@ -73,7 +73,7 @@ func mixedSymElemBuf(bufIdx uint32, shape []int64, symVar string, symMul int64) 
 // buildC1Kernel returns (item, varNames, defVars) for c[i,j] = a[i,j] + b[i,j]
 // where c, a, b are all shape [n, m] (both symbolic). loopRanges = [rN, rM].
 // Inputs and output are accessed via hand-flattened single-dim OpIndex
-// expressions so emitIndex (multi-dim stride math) is not exercised — the
+// expressions so emitIndex (multi-dim stride math) is not exercised - the
 // test isolates globalStrides + trailingProduct + per-(dim,level) strides.
 func buildC1Kernel(a *uop.Arena, varN, varM string) schedule.ExecItem {
 	defN := a.DefineVar(varN, 1, 100)
@@ -189,7 +189,7 @@ func TestC1Elementwise(t *testing.T) {
 // ── C2: [4, n] elementwise (sym non-outermost) ─────────────────────────────
 
 // buildC2Kernel returns a kernel for c[i,j] = a[i,j] + b[i,j] where shape is
-// [4, n] — n is the inner symbolic dim. loopRanges = [r_4 concrete, rN sym].
+// [4, n] - n is the inner symbolic dim. loopRanges = [r_4 concrete, rN sym].
 // This exercises the STOP-2 regression case: globalStrides[i] must NOT be 0
 // for the dim left of a sym dim; the stride for r_4 must be sym n.
 func buildC2Kernel(a *uop.Arena, varN string) schedule.ExecItem {
@@ -343,7 +343,7 @@ func buildC3Kernel(a *uop.Arena, varN, varK string) schedule.ExecItem {
 	// Simpler: load a[i*4 + j] for any j < (4+k) but only USE it where j < 4.
 	// The shader will compute a[i*4 + j] for j in [0, 4+k); we mask the store
 	// result with a Where: (j < 4) ? a[i*4+j] : 0.
-	// But for j >= 4 the address i*4 + j ≥ i*4 + 4 — past the row end. We must
+	// But for j >= 4 the address i*4 + j ≥ i*4 + 4 - past the row end. We must
 	// either clamp the address or do the mask before reading. Tinygrad clamps
 	// via select() inside the body. Use select(0, a[i*4 + min(j,3)], j<4) so the
 	// read is always in-bounds.

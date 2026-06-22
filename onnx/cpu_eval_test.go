@@ -15,7 +15,7 @@ import (
 // binary ALU, Where, Cast (no-op at f32 host level), Reshape/Permute/Expand/
 // Pad/Shrink/Flip, ReduceAxis.
 //
-// This is the value oracle for handler tests under CGO_ENABLED=0 — there is
+// This is the value oracle for handler tests under CGO_ENABLED=0 - there is
 // no GPU executor available, so we materialise the graph here on the CPU and
 // compare against hand-computed expected values.
 //
@@ -167,7 +167,7 @@ func (s *cpuEvalState) evalNoCache(u uop.UOp, sh []shape.Sint) (cpuArr, error) {
 		}
 		return cpuArr{data: out, shape: src.shape}, nil
 	}
-	// Binary ALU (broadcasted at the graph level — operands already same shape).
+	// Binary ALU (broadcasted at the graph level - operands already same shape).
 	if u.NSrc() == 2 {
 		a, err := s.eval(u.Src(0), nil)
 		if err != nil {
@@ -537,7 +537,7 @@ func cpuReduceAxis(src cpuArr, u uop.UOp) (cpuArr, error) {
 	for _, a := range arg.Axes {
 		axesSet[a] = true
 	}
-	// Output dims: copy non-reduced, drop reduced (no keepdim here — the
+	// Output dims: copy non-reduced, drop reduced (no keepdim here - the
 	// frontend `reduce` already handled keepdim by inserting size-1 dims
 	// into the ShapeTracker; the reduce node itself drops reduced axes).
 	var outDims []int64

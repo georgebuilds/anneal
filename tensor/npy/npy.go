@@ -14,7 +14,7 @@
 //   - All other dtypes (complex, float16, structured, …) → a descriptive error.
 //
 // Fortran-order (column-major) arrays are transposed to C (row-major) order.
-// Parse is pure Go — no cgo, no runtime Python.
+// Parse is pure Go - no cgo, no runtime Python.
 package npy
 
 import (

@@ -2,7 +2,7 @@ package backend
 
 // KernelMeta carries binding-layout info that Compiler needs beyond raw kernel
 // source. Source alone underspecifies the bind-group layout because the layout
-// depends on which bindings are storage vs. uniform, and how many of each — info
+// depends on which bindings are storage vs. uniform, and how many of each - info
 // the renderer already knows.
 //
 // NumStorageBuffers is the number of @group(0) storage-buffer bindings (the

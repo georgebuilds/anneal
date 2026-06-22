@@ -1,34 +1,34 @@
 package tensor_test
 
-// JIT capture/replay tests — six proofs required by the spec.
+// JIT capture/replay tests - six proofs required by the spec.
 //
-// Proof 1 — Replay correctness vs non-JIT (TestJITReplayMatchesNonJIT):
-//   Runs an MLP training loop in two parallel threads — one via JIT, one
-//   via normal Realize — from identical initial weights.  Asserts max-abs-diff
+// Proof 1 - Replay correctness vs non-JIT (TestJITReplayMatchesNonJIT):
+//   Runs an MLP training loop in two parallel threads - one via JIT, one
+//   via normal Realize - from identical initial weights.  Asserts max-abs-diff
 //   == 0 between the gradient tensors on every step.  Proves that remapped
 //   leaf data reaches the right buffer slots and that stale-weight replay is
 //   absent.
 //
-// Proof 2 — Training converges under JIT (TestJITConvergence):
+// Proof 2 - Training converges under JIT (TestJITConvergence):
 //   Trains the same 2→8→1 MLP via JIT for 2000 steps.  Reports loss
 //   trajectory, ratio, and Pearson.  Requires ratio < 0.03 and Pearson > 0.97.
 //
-// Proof 3 — Replay skips scheduling (TestJITSkipsScheduling):
+// Proof 3 - Replay skips scheduling (TestJITSkipsScheduling):
 //   After the capture step, resets schedule cache stats, runs five replays, and
 //   asserts hits == 0 AND misses == 0, proving JIT never calls CreateSchedule
-//   on replay — in contrast to the schedule-cache-only path, which still calls
+//   on replay - in contrast to the schedule-cache-only path, which still calls
 //   CreateSchedule (hitting the arena-local cache) every step.
 //
-// Proof 4 — Symbolic replay at a different bind (TestJITSymbolicReplayDifferentBatch):
+// Proof 4 - Symbolic replay at a different bind (TestJITSymbolicReplayDifferentBatch):
 //   Captures a dynamic-batch (symbolic) element-wise computation at batch=8,
 //   replays at batch=32, and verifies the output against a CPU reference.
 //
-// Proof 5 — Mismatch falls back safely (TestJITMismatchFallback):
+// Proof 5 - Mismatch falls back safely (TestJITMismatchFallback):
 //   Captures a computation with leaf size L, then calls JIT with leaves of
 //   different size.  Asserts that JIT re-captures (captures==2) and produces
 //   the correct output rather than replaying the stale plan.
 //
-// Proof 6 — Value oracle unchanged: go build and full suite remain green
+// Proof 6 - Value oracle unchanged: go build and full suite remain green
 //   (checked externally; no test encodes this directly).
 
 import (
@@ -309,7 +309,7 @@ func sumJITStats(jits []*tensor.JIT) (caps, reps int64) {
 //	(c) total captures == nParams (one capture per param); all other calls replay
 //
 // These metrics confirm that JIT replay correctly picks up weight updates at
-// every step — a silent stale-weight bug would prevent convergence.
+// every step - a silent stale-weight bug would prevent convergence.
 func TestJITConvergence(t *testing.T) {
 	requireGPUJIT(t)
 
@@ -476,7 +476,7 @@ func pearsonJIT(x, y []float32) float32 {
 //
 // Contrast with the arena-cache-only path: calling Realize in a training loop
 // with a fresh arena each step always triggers a cache miss (no cross-arena
-// cache).  JIT skips CreateSchedule entirely — no misses, no hits.
+// cache).  JIT skips CreateSchedule entirely - no misses, no hits.
 func TestJITSkipsScheduling(t *testing.T) {
 	requireGPUJIT(t)
 
@@ -490,7 +490,7 @@ func TestJITSkipsScheduling(t *testing.T) {
 	params, l1, l2 := makeJITModel(7, device)
 	jit := tensor.NewJIT()
 
-	// Build and realize a single gradient via JIT — this is the capture step.
+	// Build and realize a single gradient via JIT - this is the capture step.
 	runOneStep := func() {
 		t.Helper()
 		a := uop.NewArena(65536)
@@ -526,7 +526,7 @@ func TestJITSkipsScheduling(t *testing.T) {
 	// scheduling from replay-phase scheduling.
 	schedule.ResetScheduleCache()
 
-	// Steps 2..N+1: replays — must not call CreateSchedule at all.
+	// Steps 2..N+1: replays - must not call CreateSchedule at all.
 	for i := 0; i < nReplays; i++ {
 		runOneStep()
 	}
@@ -619,7 +619,7 @@ func TestJITSymbolicReplayDifferentBatch(t *testing.T) {
 		t.Fatalf("after capture: want 1 capture, got %d", caps1)
 	}
 
-	// Replay at batch=32 — different binding, same schedule.
+	// Replay at batch=32 - different binding, same schedule.
 	runBatch(32, "replay-batch32")
 	caps2, reps2 := jit.JITStats()
 	if caps2 != 1 {
@@ -743,12 +743,12 @@ func TestJITMismatchFallback(t *testing.T) {
 //
 // The adversarial scenario:
 //
-//	capture:  la.Sub(lb)       — Sub(src[0]=la, src[1]=lb) — DFS: [la(0), lb(1)]
-//	replay:   lb.Neg().Add(la) — Add(Neg(lb), la)          — DFS: [lb(0), la(1)]
+//	capture:  la.Sub(lb)       - Sub(src[0]=la, src[1]=lb) - DFS: [la(0), lb(1)]
+//	replay:   lb.Neg().Add(la) - Add(Neg(lb), la)          - DFS: [lb(0), la(1)]
 //
 // Both expressions compute a−b semantically, but they have different UOp graph
 // structures (Sub vs Add(Neg,_)). The count-only guard sees 2 same-size leaves
-// and fires a replay — remapping la_cap←lb.data and lb_cap←la.data — which
+// and fires a replay - remapping la_cap←lb.data and lb_cap←la.data - which
 // makes the captured Sub plan compute b−a instead of a−b: a wrong result.
 //
 // After the fix the JIT adds an output-level structural key to the match guard.
@@ -766,7 +766,7 @@ func TestJITOrdinalSwapIsCaught(t *testing.T) {
 	aData := []float32{1.0}
 	bData := []float32{10.0}
 
-	// Step 1 — capture: la.Sub(lb) = 1−10 = −9.
+	// Step 1 - capture: la.Sub(lb) = 1−10 = −9.
 	// DFS-ordinal order: [la(0), lb(1)]
 	{
 		a := uop.NewArena(256)
@@ -787,9 +787,9 @@ func TestJITOrdinalSwapIsCaught(t *testing.T) {
 		}
 	}
 
-	// Step 2 — ordinal-swap probe: lb.Neg().Add(la) = −lb+la = a−b = −9.
-	// Graph structure: Add(Neg(lb), la) — lb is DFS-ordinal 0, la is ordinal 1 (swapped).
-	// Count-only guard: 2 leaves, sizes [1,1] — matches capture → WRONG replay on current code.
+	// Step 2 - ordinal-swap probe: lb.Neg().Add(la) = −lb+la = a−b = −9.
+	// Graph structure: Add(Neg(lb), la) - lb is DFS-ordinal 0, la is ordinal 1 (swapped).
+	// Count-only guard: 2 leaves, sizes [1,1] - matches capture → WRONG replay on current code.
 	// Remapped replay of Sub plan: la_cap←lb.data=10, lb_cap←la.data=1 → 10−1=+9 ≠ −9.
 	{
 		a := uop.NewArena(256)

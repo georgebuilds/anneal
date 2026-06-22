@@ -141,7 +141,7 @@ func handleSqueeze(ctx *HandlerCtx) ([]Value, error) {
 	for i, s := range sh {
 		if len(axes) > 0 {
 			if normAxes[i] {
-				// must be 1 — assert.
+				// must be 1 - assert.
 				v, ok := s.ConstValue()
 				if !ok || v != 1 {
 					return nil, fmt.Errorf("squeeze: axis %d is not 1", i)
@@ -472,7 +472,7 @@ func broadcastTargetSints(a, b []shape.Sint) []shape.Sint {
 			out[i] = a[ai]
 		default:
 			// Fall back to b (target). Mismatches will surface as
-			// "cannot expand non-unit dim" downstream — which is the
+			// "cannot expand non-unit dim" downstream - which is the
 			// right loud failure.
 			out[i] = b[bi]
 		}

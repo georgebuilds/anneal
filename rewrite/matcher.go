@@ -28,7 +28,7 @@ type pdictEntry struct {
 
 // PatternMatcher is an op-indexed dispatch table of (pattern, handler) rules.
 //
-// Rule order is significant — earlier rules win. Internally, pdict maps each op to
+// Rule order is significant - earlier rules win. Internally, pdict maps each op to
 // the list of rules that may match nodes of that op, enabling O(rules-for-this-op)
 // dispatch rather than a linear scan over all rules.
 //

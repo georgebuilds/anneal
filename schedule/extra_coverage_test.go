@@ -8,7 +8,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// extra_coverage_test.go — white-box (package schedule) coverage for the
+// extra_coverage_test.go - white-box (package schedule) coverage for the
 // rangeify index-propagation branches that the existing end-to-end suite leaves
 // dark: OpGather / OpScatterAdd dissolution, the symbolic-arg shapeOfNode
 // branches (PadSintArg / ShrinkSintArg / ShapeSintArg buffers / OpBitcast), and

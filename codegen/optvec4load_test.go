@@ -1,6 +1,6 @@
 package codegen_test
 
-// OptVec4Load — apply-time eligibility, tag encoding, renderer bindings, and
+// OptVec4Load - apply-time eligibility, tag encoding, renderer bindings, and
 // BEAM action-space integration. GPU value oracles live in
 // backend/webgpu/vec4load_test.go.
 
@@ -35,7 +35,7 @@ func applySeq(t *testing.T, item schedule.ExecItem, opts []codegen.Opt) uop.UOp 
 
 // TestOptVec4Load_TagEncodingAndIdempotence pins the encoding: applying
 // OptVec4Load after OptTile re-tags the reduce "tile:<TS>:vec4" (a NEW
-// interned node — the no-op filter must see a real transform), and a second
+// interned node - the no-op filter must see a real transform), and a second
 // application refuses (idempotent).
 func TestOptVec4Load_TagEncodingAndIdempotence(t *testing.T) {
 	item := matmulItem(t, 64, 64, 64)
@@ -60,11 +60,11 @@ func TestOptVec4Load_TagEncodingAndIdempotence(t *testing.T) {
 	}
 	// Composability gate intact: KernelHasTiledReduce still sees a tile tag.
 	if !codegen.KernelHasTiledReduce(v1) {
-		t.Error("KernelHasTiledReduce false after OptVec4Load — OptUpcast/OptVectorize composition broken")
+		t.Error("KernelHasTiledReduce false after OptVec4Load - OptUpcast/OptVectorize composition broken")
 	}
 	// Idempotence: second application refuses.
 	if v2 := codegen.ApplyOptBufs(v1, codegen.Opt{Kind: codegen.OptVec4Load}, item.Bufs); v2.Index() != v1.Index() {
-		t.Error("second OptVec4Load application transformed the sink — must refuse (idempotent)")
+		t.Error("second OptVec4Load application transformed the sink - must refuse (idempotent)")
 	}
 }
 
@@ -77,7 +77,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 	t.Run("without_OptTile", func(t *testing.T) {
 		item := matmulItem(t, 64, 64, 64)
 		if got := codegen.ApplyOptBufs(item.Ast, vec4, item.Bufs); got.Index() != item.Ast.Index() {
-			t.Error("OptVec4Load applied without OptTile — must refuse (compose-after contract)")
+			t.Error("OptVec4Load applied without OptTile - must refuse (compose-after contract)")
 		}
 	})
 
@@ -87,7 +87,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 		item := matmulItem(t, 64, 17, 64)
 		tiled := applySeq(t, item, tileOpts(16))
 		if got := codegen.ApplyOptBufs(tiled, vec4, item.Bufs); got.Index() != tiled.Index() {
-			t.Error("OptVec4Load applied with K=17 — A tile loads would need partial vec4 slots")
+			t.Error("OptVec4Load applied with K=17 - A tile loads would need partial vec4 slots")
 		}
 	})
 
@@ -95,12 +95,12 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 		item := matmulItem(t, 64, 64, 30)
 		tiled := applySeq(t, item, tileOpts(16))
 		if got := codegen.ApplyOptBufs(tiled, vec4, item.Bufs); got.Index() != tiled.Index() {
-			t.Error("OptVec4Load applied with N=30 — B tile loads would need partial vec4 slots")
+			t.Error("OptVec4Load applied with N=30 - B tile loads would need partial vec4 slots")
 		}
 	})
 
 	t.Run("non_tilable_kernel", func(t *testing.T) {
-		item := elemwiseItem(t) // [6,6] add — no Mul(Index,Index) reduce
+		item := elemwiseItem(t) // [6,6] add - no Mul(Index,Index) reduce
 		if got := codegen.ApplyOptBufs(item.Ast, vec4, item.Bufs); got.Index() != item.Ast.Index() {
 			t.Error("OptVec4Load applied to a non-tilable elementwise kernel")
 		}
@@ -109,7 +109,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 	t.Run("symbolic_kernel", func(t *testing.T) {
 		// Symbolic batch matmul: [n,64] @ [64,64]. The A param carries a
 		// symbolic dim (Shape[0]==0 sentinel) and the kernel has symbolic
-		// ranges — both independently force refusal.
+		// ranges - both independently force refusal.
 		a := uop.NewArena(1 << 16)
 		A := tensor.NewSymbolicBatchInput(a, "n", 1, 64, []int64{64}, uop.Dtypes.Float32, "webgpu")
 		B := tensor.NewLeaf(a, []int64{64, 64}, uop.Dtypes.Float32, "webgpu")
@@ -131,7 +131,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 	t.Run("image_dtype_param", func(t *testing.T) {
 		// Doctor the buffer table: same tiled matmul AST, but param 1 claims
 		// image storage. Image dtypes already bind array<vec4<f32>> with the
-		// lane-select load path — OptVec4Load must not stack on top.
+		// lane-select load path - OptVec4Load must not stack on top.
 		item := matmulItem(t, 64, 64, 64)
 		tiled := applySeq(t, item, tileOpts(16))
 		bufs := append([]schedule.Buffer{}, item.Bufs...)
@@ -155,7 +155,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 		item := matmulItem(t, 64, 64, 64)
 		tiled := applySeq(t, item, tileOpts(16))
 		if got := codegen.ApplyOpt(tiled, vec4); got.Index() != tiled.Index() {
-			t.Error("bare ApplyOpt (no buffer table) applied OptVec4Load — shape eligibility cannot be proven without Bufs")
+			t.Error("bare ApplyOpt (no buffer table) applied OptVec4Load - shape eligibility cannot be proven without Bufs")
 		}
 	})
 
@@ -169,7 +169,7 @@ func TestOptVec4Load_Refusals(t *testing.T) {
 			{Kind: codegen.OptTile, Axis: 0, Arg: 6},
 		})
 		if got := codegen.ApplyOptBufs(tiled, vec4, item.Bufs); got.Index() != tiled.Index() {
-			t.Error("OptVec4Load applied with TS=6 — tile column bases would be misaligned")
+			t.Error("OptVec4Load applied with TS=6 - tile column bases would be misaligned")
 		}
 	})
 }
@@ -201,7 +201,7 @@ func TestOptVec4Load_WGSLStructure(t *testing.T) {
 			item := matmulItem(t, 64, 64, 64)
 			identity := codegen.RenderWGSL(item).WGSL
 			if strings.Contains(identity, "array<vec4<f32>>") {
-				t.Fatal("identity f32 matmul already binds array<vec4<f32>> — test premise broken")
+				t.Fatal("identity f32 matmul already binds array<vec4<f32>> - test premise broken")
 			}
 
 			opted := codegen.ApplyOpts(item, tc.opts)
@@ -248,7 +248,7 @@ func TestOptVec4Load_RenderReproducible(t *testing.T) {
 	}
 }
 
-// retagTiledReduce rebuilds sink with its tiled reduce's tag replaced —
+// retagTiledReduce rebuilds sink with its tiled reduce's tag replaced -
 // bypassing applyVec4Load's eligibility gate to pin the lowerer's fail-loud
 // backstops against hand-built tags.
 func retagTiledReduce(t *testing.T, sink uop.UOp, newTag string) uop.UOp {
@@ -295,7 +295,7 @@ func expectRenderPanic(t *testing.T, item schedule.ExecItem, wantSubstr string) 
 // hand-composed sequences only; BEAM cannot reach these).
 func TestOptVec4Load_LowererFailLoudBackstops(t *testing.T) {
 	t.Run("unaligned_TS_tag", func(t *testing.T) {
-		// TS=6 tile (legitimate) re-tagged ":vec4" (illegitimate — TS%4!=0).
+		// TS=6 tile (legitimate) re-tagged ":vec4" (illegitimate - TS%4!=0).
 		item := matmulItem(t, 64, 24, 64)
 		tiled := applySeq(t, item, []codegen.Opt{
 			{Kind: codegen.OptLocal, Axis: 0, Arg: 8},
@@ -413,7 +413,7 @@ func TestActionSpace_Vec4Load(t *testing.T) {
 		t.Error("ActionSpace did not propose OptVec4Load on a tiled 64³ matmul")
 	}
 	if hasVec4(codegen.ActionSpace(tiled)) {
-		t.Error("ActionSpace without buffer info proposed OptVec4Load — shape gate cannot run")
+		t.Error("ActionSpace without buffer info proposed OptVec4Load - shape gate cannot run")
 	}
 
 	irr := matmulItem(t, 64, 17, 64)

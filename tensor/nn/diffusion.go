@@ -61,7 +61,7 @@ func MakeAlphaBars(alphas []float32) []float32 {
 //	emb[b, 2i+1] = cos(t / 10000^(2i/embedDim))
 //
 // embedDim must be even. The embedding is constructed entirely host-side and
-// uploaded as a fresh BUFFER leaf — the time index is a host-controlled scalar
+// uploaded as a fresh BUFFER leaf - the time index is a host-controlled scalar
 // per sample, not a graph computation.
 func SinusoidalTimeEmbed(a *uop.Arena, tValues []int32, embedDim int64, dtype *uop.DType, device string) *tensor.Tensor {
 	if embedDim <= 0 || embedDim%2 != 0 {

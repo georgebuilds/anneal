@@ -1,7 +1,7 @@
 User-agent: *
 Allow: /
 
-# AI crawlers — allow full indexing of this open-source project
+# AI crawlers - allow full indexing of this open-source project
 User-agent: GPTBot
 Allow: /
 

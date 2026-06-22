@@ -222,7 +222,7 @@ func TestMulAccFolds(t *testing.T) {
 }
 
 // genMatchPow: the Pow matcher fires on two const operands. Pow is not handled
-// by execALU, so foldConstALU returns false and the node is left unchanged —
+// by execALU, so foldConstALU returns false and the node is left unchanged -
 // this still exercises the generated matcher path.
 func TestPowMatcherLeavesNodeWhenUnfoldable(t *testing.T) {
 	a := arena()

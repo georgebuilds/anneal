@@ -297,7 +297,7 @@ func anyNonFiniteGrad(grads map[*tensor.Tensor]*tensor.Tensor, params []*nn.Para
 // (Pascanu et al.); without it the first few steps on pretrained weights can
 // take destructive Adam steps. Operates on the host-side gradient buffers
 // (grads are already realized via tensor.Realize before this call), so it is a
-// plain float32 pass — no graph ops. maxNorm <= 0 disables clipping.
+// plain float32 pass - no graph ops. maxNorm <= 0 disables clipping.
 func clipGradsByGlobalNorm(grads map[*tensor.Tensor]*tensor.Tensor, params []*nn.Parameter, maxNorm float32) {
 	if maxNorm <= 0 {
 		return

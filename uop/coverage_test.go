@@ -36,7 +36,7 @@ func TestTopoSortSharedSubgraph(t *testing.T) {
 	x := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(1), nil)
 	y := a.New(uop.OpConst, uop.Dtypes.Float32, nil, float64(2), nil)
 	s := a.New(uop.OpAdd, uop.Dtypes.Float32, []uop.UOp{x, y}, nil, nil)
-	// mul(s, s) — same subgraph appears twice in src, must appear once in topo
+	// mul(s, s) - same subgraph appears twice in src, must appear once in topo
 	mul := a.New(uop.OpMul, uop.Dtypes.Float32, []uop.UOp{s, s}, nil, nil)
 
 	order := uop.TopoSort(mul)

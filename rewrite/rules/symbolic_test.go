@@ -768,13 +768,13 @@ func TestCmpUOpDtypeTiebreaker(t *testing.T) {
 	floatVar1 := a1.New(uop.OpDefineVar, uop.Dtypes.Float32, nil, "v", nil)
 	// forward: int at src[0], float at src[1]
 	ne1fwd := sym(a1.New(uop.OpCmpNe, uop.Dtypes.Bool, []uop.UOp{intVar1, floatVar1}, nil, nil))
-	// reverse: float at src[0], int at src[1] — needs a swap
+	// reverse: float at src[0], int at src[1] - needs a swap
 	ne1rev := sym(a1.New(uop.OpCmpNe, uop.Dtypes.Bool, []uop.UOp{floatVar1, intVar1}, nil, nil))
 	if ne1fwd != ne1rev {
 		t.Errorf("arena A: CmpNe(int,float) and CmpNe(float,int) canonicalized to different nodes")
 	}
 
-	// Arena B: float32 var allocated before int32 var (lower index) — reversed order.
+	// Arena B: float32 var allocated before int32 var (lower index) - reversed order.
 	// With the old index tiebreaker this would flip the canonical src ordering.
 	a2 := arena()
 	floatVar2 := a2.New(uop.OpDefineVar, uop.Dtypes.Float32, nil, "v", nil)

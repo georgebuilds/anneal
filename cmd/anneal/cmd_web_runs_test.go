@@ -286,7 +286,7 @@ func TestRunsEndpointRejectsPathTraversal(t *testing.T) {
 	// Encoded path-traversal in the bundle id. Must be 404 with the JSON
 	// error shape, never a 500 or 200 against an unintended path.
 	// (A literal "/api/runs/.." is normalized by net/http before reaching
-	// the handler — that path collapses to "/api/runs" via a 301 redirect,
+	// the handler - that path collapses to "/api/runs" via a 301 redirect,
 	// which is the stdlib's job, not the bundle reader's.)
 	for _, p := range []string{
 		"/api/runs/..%2Fetc",

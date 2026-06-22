@@ -1,4 +1,4 @@
-// Tests for viz.BuildInspect — the WASM-buildable path that drives the W9
+// Tests for viz.BuildInspect - the WASM-buildable path that drives the W9
 // tensor-inspect dropzone. These tests run on native (no build tag); the
 // same call applies in the WASM environment via the annealInspectTensor
 // bridge. Fixtures live under tensor/npy/testdata + tensor/safetensors/testdata

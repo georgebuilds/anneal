@@ -4,7 +4,7 @@
 // surface (dropzone region, result section, action links, privacy claim) and
 // the studio.js wiring (initStudioDropzone, annealImportONNX call). The
 // privacy contract (spec §1.3 / §8) is asserted by the absence of any
-// /api/onnx/* server endpoint — TestWebOnnx_NoServerEndpoint enumerates the
+// /api/onnx/* server endpoint - TestWebOnnx_NoServerEndpoint enumerates the
 // canonical paths and proves the server has no handler for them.
 
 package main
@@ -106,7 +106,7 @@ func TestWebOnnx_FilePickerLabeled(t *testing.T) {
 	}
 }
 
-// TestWebOnnx_PrivacyClaimInHint pins the privacy claim — the dropzone hint
+// TestWebOnnx_PrivacyClaimInHint pins the privacy claim - the dropzone hint
 // must say "never leave the tab" so users see the WASM-tier contract before
 // they drop a file.
 func TestWebOnnx_PrivacyClaimInHint(t *testing.T) {
@@ -195,7 +195,7 @@ func TestWebOnnx_RendererWired(t *testing.T) {
 
 // TestWebOnnx_NoServerEndpoint asserts the privacy contract: there is NO
 // /api/onnx/* server endpoint. The import is WASM-tier; model bytes never
-// reach even the local server. This is spec §1.3 / §8 in test form — any
+// reach even the local server. This is spec §1.3 / §8 in test form - any
 // future PR that adds a server-side ONNX path must justify breaking the
 // dropzone's load-bearing privacy claim.
 func TestWebOnnx_NoServerEndpoint(t *testing.T) {

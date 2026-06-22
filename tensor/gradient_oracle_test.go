@@ -150,7 +150,7 @@ func applyGradRule(u uop.UOp, nodeT *Tensor, adj *Tensor, shapeCache map[uint32]
 				if v, ok := srcSints[i].ConstValue(); ok {
 					sv = v
 				} else {
-					continue // symbolic src dim — never 1, not broadcast
+					continue // symbolic src dim - never 1, not broadcast
 				}
 			}
 			if sv == 1 {

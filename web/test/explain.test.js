@@ -73,7 +73,7 @@ describe('opFromExplainPath', () => {
   });
 });
 
-describe('renderExplainView — success path', () => {
+describe('renderExplainView - success path', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/x/Mul' });
     studio.wasm.call = vi
@@ -141,7 +141,7 @@ describe('renderExplainView — success path', () => {
   });
 });
 
-describe('selectOp — switches the explained op', () => {
+describe('selectOp - switches the explained op', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/x/Add' });
     studio.wasm.call = vi
@@ -181,7 +181,7 @@ describe('selectOp — switches the explained op', () => {
   });
 });
 
-describe('drawMiniGraph — direct invocation', () => {
+describe('drawMiniGraph - direct invocation', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/x/Add' });
   });
@@ -218,7 +218,7 @@ describe('drawMiniGraph — direct invocation', () => {
   });
 });
 
-describe('renderExplainView — error branch', () => {
+describe('renderExplainView - error branch', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/x/Add' });
   });

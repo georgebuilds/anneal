@@ -583,8 +583,8 @@ func TestE2E_MobileNetV2_DepthwiseBlock_PuntsLoudly(t *testing.T) {
 //
 // Note: in real older exports the messy chain is more elaborate (includes the
 // trailing Reshape's shape input built from Shape+Gather+Concat). The version
-// below covers the same handler surface — every host op in the chain is
-// exercised — without modelling the full PyTorch-internal glue verbatim.
+// below covers the same handler surface - every host op in the chain is
+// exercised - without modelling the full PyTorch-internal glue verbatim.
 func TestE2E_ClassifierTail_BitExact(t *testing.T) {
 	const (
 		N        = int64(2)
@@ -659,7 +659,7 @@ func buildClassifierTailMessy(N, C, H, W, NumClass int64, w *cnnWeights) *onnxpb
 	g.Input = []*onnxpb.ValueInfoProto{makeVI("x", onnxpb.TensorProto_FLOAT, []int64{N, C, H, W})}
 	g.Output = []*onnxpb.ValueInfoProto{makeVI("y", onnxpb.TensorProto_FLOAT, []int64{N, NumClass})}
 	g.Node = append(g.Node,
-		// Constants for shape arithmetic — emitted as Constant nodes so the
+		// Constants for shape arithmetic - emitted as Constant nodes so the
 		// host-tier Constant handler intercepts and produces HostInts.
 		&onnxpb.NodeProto{
 			Name: "const_gather_idx", OpType: "Constant",
@@ -689,7 +689,7 @@ func buildClassifierTailMessy(N, C, H, W, NumClass int64, w *cnnWeights) *onnxpb
 			Output:    []string{"gathered"},
 			Attribute: []*onnxpb.AttributeProto{intAttr("axis", 0)},
 		},
-		// Unsqueeze axes=[0] on the gathered scalar/vector — host op, no-op on
+		// Unsqueeze axes=[0] on the gathered scalar/vector - host op, no-op on
 		// the int payload but exercises the opset 11-vs-13 migration path.
 		&onnxpb.NodeProto{
 			Name: "uns", OpType: "Unsqueeze",

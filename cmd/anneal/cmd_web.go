@@ -1,6 +1,6 @@
 //go:build !js
 
-// anneal web — serve the studio (the local browser surface).
+// anneal web - serve the studio (the local browser surface).
 //
 // Foundation (W0): static embed only, plus stub endpoints for the API surfaces
 // that subsequent W steps fill in. The studio's HTML/CSS/JS/worker scaffold
@@ -180,7 +180,7 @@ func runsHandler() http.HandlerFunc {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/runs")
 		rest = strings.TrimPrefix(rest, "/")
 
-		// POST /api/runs — reserved for "save current run" in W6+.
+		// POST /api/runs - reserved for "save current run" in W6+.
 		if rest == "" && r.Method == http.MethodPost {
 			writeJSONError(w, http.StatusNotImplemented, "phase ID pending",
 				"save current run is not yet wired (lands in W6+)")
@@ -193,7 +193,7 @@ func runsHandler() http.HandlerFunc {
 			return
 		}
 
-		// GET /api/runs — list all bundles.
+		// GET /api/runs - list all bundles.
 		if rest == "" {
 			summaries, err := bundle.ListBundles(root)
 			if err != nil {

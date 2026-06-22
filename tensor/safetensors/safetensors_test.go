@@ -22,7 +22,7 @@ func requireFixture(t *testing.T, name string) string {
 	t.Helper()
 	path := testdataDir + "/" + name
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("fixture %q missing — regenerate with:\n\tpython3 tensor/safetensors/testdata/gen_fixtures.py\nRequires: pip install safetensors numpy", path)
+		t.Fatalf("fixture %q missing - regenerate with:\n\tpython3 tensor/safetensors/testdata/gen_fixtures.py\nRequires: pip install safetensors numpy", path)
 	}
 	return path
 }
@@ -80,7 +80,7 @@ func TestLoadFixture_F64Exact(t *testing.T) {
 	}
 	v := tensors["v"]
 	assertShape(t, v.Shape, []int64{4})
-	// Fixture: [0.0, 1.0, 2.0, 100.0] as F64 — all exactly representable in F32.
+	// Fixture: [0.0, 1.0, 2.0, 100.0] as F64 - all exactly representable in F32.
 	assertData(t, "f64_exact", v.Data, []float32{0, 1, 2, 100})
 	t.Logf("F64→F32: shape=%v data=%v", v.Shape, v.Data)
 }
@@ -139,7 +139,7 @@ func TestLoadFixture_F16(t *testing.T) {
 	}
 	h := tensors["h"]
 	assertShape(t, h.Shape, []int64{4})
-	// Fixture: [1.0, 2.0, 0.5, 4.0] in F16 — all exactly representable in F32.
+	// Fixture: [1.0, 2.0, 0.5, 4.0] in F16 - all exactly representable in F32.
 	assertData(t, "f16", h.Data, []float32{1.0, 2.0, 0.5, 4.0})
 	t.Logf("F16→F32: shape=%v data=%v", h.Shape, h.Data)
 }

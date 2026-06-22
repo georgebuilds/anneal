@@ -1,13 +1,13 @@
 package webgpu_test
 
-// Diagnostic experiments — read-only timing tests, no IR changes, no new Opt kinds.
+// Diagnostic experiments - read-only timing tests, no IR changes, no new Opt kinds.
 // Hypothesis inventory:
-//   H1 – default 1D is near real Metal ceiling (auto-vectorized)
-//   H2 – M3 f32 ALU peak is much lower than headline TFLOPs
-//   H3 – smem→register load latency dominates after OptTile (B3 not fixing the right thing)
+//   H1 - default 1D is near real Metal ceiling (auto-vectorized)
+//   H2 - M3 f32 ALU peak is much lower than headline TFLOPs
+//   H3 - smem→register load latency dominates after OptTile (B3 not fixing the right thing)
 //
 // Exp 1: workgroup-size sweep on default matmul 1024³ (OptLocal only, TS∈{4,8,16,32})
-// Exp 2: pure-FMA throughput probe — no hot-loop global memory, ≈ 2*1024³ FLOPs
+// Exp 2: pure-FMA throughput probe - no hot-loop global memory, ≈ 2*1024³ FLOPs
 // Exp 3: OptTile-only at TS∈{8,16,32} on 1024³ (no OptUpcast)
 // Exp 4: OptUpcast factor sweep (MR=NR∈{2,4}) on B2-tiled kernel; note below explains why
 //         OptUpcast on the bare default (no OptTile) is not currently lowerer-supported.
@@ -36,7 +36,7 @@ func diagGFLOPS(N int64, minMicros float64) float64 {
 	return (2.0 * float64(N*N*N)) / (minMicros * 1e3)
 }
 
-// TestDiag_WorkgroupSweep (Exp 1) — measures 1024³ matmul at workgroup sizes
+// TestDiag_WorkgroupSweep (Exp 1) - measures 1024³ matmul at workgroup sizes
 // WS = TS*TS (TS∈{4,8,16,32}) using two symmetric OptLocal passes. Tests whether
 // occupancy / wavefront count is the performance lever.
 func TestDiag_WorkgroupSweep(t *testing.T) {
@@ -67,7 +67,7 @@ func TestDiag_WorkgroupSweep(t *testing.T) {
 	}
 }
 
-// TestDiag_FMAProbe (Exp 2) — injects a raw WGSL kernel with no smem and no
+// TestDiag_FMAProbe (Exp 2) - injects a raw WGSL kernel with no smem and no
 // hot-loop global memory. Measures raw f32 ALU throughput as a ceiling proxy.
 //
 // Kernel: workgroup_size=(256,1,1), dispatch=(4096,1,1).
@@ -125,7 +125,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		res.MinMicros, gflops, probeFlops)
 }
 
-// TestDiag_TileNoUpcast (Exp 3) — measures 1024³ matmul with OptTile only (no
+// TestDiag_TileNoUpcast (Exp 3) - measures 1024³ matmul with OptTile only (no
 // OptUpcast). TS∈{8,16,32}. Isolates smem-tiling benefit from register blocking.
 func TestDiag_TileNoUpcast(t *testing.T) {
 	dev := requireDevice(t)
@@ -157,11 +157,11 @@ func TestDiag_TileNoUpcast(t *testing.T) {
 	}
 }
 
-// TestDiag_UpcastFactorSweep (Exp 4) — sweeps OptUpcast factor (MR=NR∈{1,2,4}) on
+// TestDiag_UpcastFactorSweep (Exp 4) - sweeps OptUpcast factor (MR=NR∈{1,2,4}) on
 // a B2-tiled (TS=16) base kernel. MR=NR=1 is pure B2 (no upcast); MR=NR=4 is B3.
 //
 // NOTE: OptUpcast on the bare default kernel (no OptTile, no OptLocal) is not
-// supported by the current lowerer — AxisUpcast ranges outside the tiled-reduce
+// supported by the current lowerer - AxisUpcast ranges outside the tiled-reduce
 // path receive placeholder expression "0", so each thread computes only row M*F+0
 // (not the full F-wide stripe). This would give silently wrong outputs. The useful
 // diagnostic equivalent is the factor sweep below: it directly shows how the

@@ -12,7 +12,7 @@ import (
 // JIT captures an execution plan on the first Realize call and replays it on
 // subsequent calls with updated leaf data.
 //
-// # Arena boundary contract — Design B (stable-identity remap)
+// # Arena boundary contract - Design B (stable-identity remap)
 //
 // Each training step creates a fresh arena (a := uop.NewArena(...)), so the
 // ExecItem.Bufs[*].UOpIdx values recorded from the capture step are indices in
@@ -26,7 +26,7 @@ import (
 //  2. Replay: DFS-walk the fresh tensors in the same way, producing the same
 //     number of leaves in the same ordinal order.  Map captured slot i →
 //     fresh leaf i: replayInputs[capturedLeaves[i].uopIdx] = freshLeaves[i].data.
-//     Then call Run(capturedItems, replayInputs) directly — no sink construction,
+//     Then call Run(capturedItems, replayInputs) directly - no sink construction,
 //     no scheduling, no leaf DFS for the executor.
 //
 // Positional mapping is bijective because DFS order is determined by graph
@@ -48,7 +48,7 @@ type JIT struct {
 	captured bool
 	symbolic bool // true when capture used RealizeWithBinding
 
-	// Frozen plan — no arena references (Ast zeroed, UOpIdxs are plain uint32).
+	// Frozen plan - no arena references (Ast zeroed, UOpIdxs are plain uint32).
 	items     []schedule.ExecItem
 	capLeaves []capturedLeaf   // leaves in DFS-visit order from capture arena
 	capOuts   []capturedOutput // final-output UOpIdx → tensors-slice position
@@ -146,7 +146,7 @@ func (j *JIT) storeCapture(tensors []*Tensor, fl []jitLeaf, symbolic bool) error
 	a := tensors[0].arena()
 	device := tensors[0].device
 
-	// Rebuild the sink — because OpSink is interned, the same srcs → same index
+	// Rebuild the sink - because OpSink is interned, the same srcs → same index
 	// within this arena → CreateSchedule below is guaranteed to be a cache hit.
 	srcs := make([]uop.UOp, len(tensors))
 	for i, t := range tensors {
@@ -270,7 +270,7 @@ type jitLeaf struct {
 //
 // Two calls return the same value iff every output tensor has a structurally
 // identical UOp subgraph (same ops, dtypes, tree shape, and arg values in each
-// position) — regardless of arena-local node indices or leaf data.
+// position) - regardless of arena-local node indices or leaf data.
 //
 // Because structural keys are computed bottom-up over the arena's node slice,
 // and tensor output nodes always precede any scheduler-added nodes (which have
@@ -340,7 +340,7 @@ func jitDFSLeaves(tensors []*Tensor) []jitLeaf {
 // jitOutputMapping records, at capture time, which output buffer (capture-arena
 // UOpIdx) maps to which tensor position, by NODE IDENTITY. outBufBySrc[i] is the
 // output BUFFER index attributed to the i-th requested tensor (caller order) by
-// schedule.CreateScheduleWithOutputs — the same durable attribution Realize uses
+// schedule.CreateScheduleWithOutputs - the same durable attribution Realize uses
 // in assignOutputs. On replay, applyOutputs writes outputs[co.uopIdx] into
 // tensors[co.tensorPos].data. Resolving by identity (not by structural order)
 // is what keeps genuinely isomorphic multi-output kernels from scrambling.

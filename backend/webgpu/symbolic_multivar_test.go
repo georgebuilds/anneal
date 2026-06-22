@@ -7,7 +7,7 @@ package webgpu_test
 // N ∈ {2, 5, 8}.
 //
 // Construction (per N):
-//   - One concrete AxisLoop dispatch axis (size = 4) — the output index i.
+//   - One concrete AxisLoop dispatch axis (size = 4) - the output index i.
 //   - N symbolic AxisReduce loops, each bounded by its own DefineVar v_j.
 //   - Inner reduce expression: i + 1 (a const-per-iteration value).
 //   - Reduce op: ADD.
@@ -21,7 +21,7 @@ package webgpu_test
 // the emitted WGSL (TestSymbolicMultiVarSlotOrdering).
 //
 // Independent regression: TestSymbolicMultiVarStaticEmission ensures the
-// static (no-DefineVar) kernel WGSL is unchanged by the Slice 2 patch — no
+// static (no-DefineVar) kernel WGSL is unchanged by the Slice 2 patch - no
 // stray "params_n" / "ParamsN" leaked into the static path.
 
 import (
@@ -139,7 +139,7 @@ func TestSymbolicMultiVar(t *testing.T) {
 
 		// Build a binding map with small distinct values. Multiplication is
 		// commutative so identical-product permutations can't be detected via
-		// the reduction result — slot-naming is independently proved by
+		// the reduction result - slot-naming is independently proved by
 		// TestSymbolicMultiVarSlotOrdering (WGSL inspection). Here we just
 		// need product * (i+1) to stay within f32's exact-integer range
 		// (≈ 2^24 = 16.7M); pick a cycle of small primes that keeps the
@@ -238,7 +238,7 @@ func TestSymbolicMultiVarSlotOrdering(t *testing.T) {
 	//   a -> n0, m -> n1, z -> n2.
 	// Verify the rendered WGSL has loops referencing params_n.n0 for "a"'s loop,
 	// n1 for "m"'s loop, n2 for "z"'s loop. We can't read the WGSL directly to
-	// know which loop is which — but the construction order is r1=a, r2=m, r3=z
+	// know which loop is which - but the construction order is r1=a, r2=m, r3=z
 	// (because we pass varNames=["a","m","z"] which is also sorted, so loop IDs
 	// match slot indices). We then re-build with construction-order ["z","a","m"]
 	// (NOT sorted) and assert the WGSL still has the right slot-to-var pairing

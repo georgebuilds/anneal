@@ -23,7 +23,7 @@ func parseFlags(name string, args []string) (*parsedFlags, []string, error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 
 	device := fs.String("device", "webgpu", "target device")
-	debug := fs.Int("debug", 0, "debug verbosity level (0–3)")
+	debug := fs.Int("debug", 0, "debug verbosity level (0-3)")
 	viz := fs.Bool("viz", false, "enable graph visualization")
 
 	if err := fs.Parse(args); err != nil {

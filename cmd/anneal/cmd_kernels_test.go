@@ -98,8 +98,8 @@ func testKernelsParity(t *testing.T, model string) {
 		// Extract the WGSL from the CLI chunk. The CLI prints the kernel
 		// header (type/output/inputs lines), then a blank line, then the
 		// full WGSL. The first WGSL line is one of:
-		//   - "enable f16;"            — f16-using kernel prelude
-		//   - "@group(0) @binding(..." — storage buffer declarations
+		//   - "enable f16;"            - f16-using kernel prelude
+		//   - "@group(0) @binding(..." - storage buffer declarations
 		// We anchor on these; @compute appears later (after the bindings).
 		wgslStart := strings.Index(cli, "enable f16;")
 		if wgslStart < 0 {

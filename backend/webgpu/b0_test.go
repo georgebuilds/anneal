@@ -104,7 +104,7 @@ func TestB0_TimingHarness_Stability(t *testing.T) {
 	dev := requireDevice(t)
 	software := isSoftwareAdapter(dev.AdapterName())
 	if software {
-		t.Logf("software adapter detected (%s) — skipping 512³/1024³ benches and floor check", dev.AdapterName())
+		t.Logf("software adapter detected (%s) - skipping 512³/1024³ benches and floor check", dev.AdapterName())
 	}
 
 	runBench := func(M, K, N int64) {
@@ -124,14 +124,14 @@ func TestB0_TimingHarness_Stability(t *testing.T) {
 			M, K, N, res.MinMicros, res.MedianMicros, res.MaxMicros, res.CV)
 
 		if res.CV > 0.05 {
-			t.Logf("Matmul %dx%dx%d: elevated variance (cv=%.4f max/min=%.2fx), possible GPU contention — min is still the authoritative signal",
+			t.Logf("Matmul %dx%dx%d: elevated variance (cv=%.4f max/min=%.2fx), possible GPU contention - min is still the authoritative signal",
 				M, K, N, res.CV, res.MaxMicros/res.MinMicros)
 		}
 
 		if M == 512 && !software {
 			limit := CONFIG_REFERENCE_MIN_MICROS_512 * 1.5
 			if res.MinMicros > limit {
-				t.Errorf("Matmul %dx%dx%d: min=%.2fµs exceeds reference floor %.0fµs * 1.5 = %.0fµs — genuine kernel regression (recalibrate CONFIG_REFERENCE_MIN_MICROS_512 if on a different machine)",
+				t.Errorf("Matmul %dx%dx%d: min=%.2fµs exceeds reference floor %.0fµs * 1.5 = %.0fµs - genuine kernel regression (recalibrate CONFIG_REFERENCE_MIN_MICROS_512 if on a different machine)",
 					M, K, N, res.MinMicros, CONFIG_REFERENCE_MIN_MICROS_512, limit)
 			}
 		}

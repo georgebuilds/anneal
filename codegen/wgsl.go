@@ -54,7 +54,7 @@ const bf16RTNEPrelude = `fn _bf16_rtne_bits(x: f32) -> u32 {
 // fp8E4M3RTNEPrelude narrows an f32 to the fp8 e4m3fn grid and returns the
 // quantized value's full f32 bit pattern (decoded storage, the fp8 analogue
 // of bf16's upper-16-bits scheme: the storage word is bitcast<f32>-loadable).
-// Mirrors uop.Float32ToFP8E4M3 instruction for instruction — RTNE rounding,
+// Mirrors uop.Float32ToFP8E4M3 instruction for instruction - RTNE rounding,
 // finite overflow and ±Inf saturate to ±448 (CUDA satfinite convention),
 // NaN canonicalizes to f32 qNaN. _fp8e4m3_val_bits reconstructs the f32 bits
 // of an unsigned 8-bit magnitude code (mirrors uop.FP8E4M3ToFloat32).
@@ -190,7 +190,7 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 	// OptVec4Load: params converted by the ":vec4" reduce tag bind as
 	// array<vec4<f32>> so tile loads become genuine 128-bit loads.
 	// Vec4LoadParams (opt.go) is the single derivation point; the dtype-level
-	// element type (WGSLTypeInfoFor, image precedent) stays untouched — this
+	// element type (WGSLTypeInfoFor, image precedent) stays untouched - this
 	// is a per-param opt-driven override at the binding-emission seam.
 	vec4Params := Vec4LoadParams(item.Ast)
 	for i := 0; i < ki.NumParams; i++ {
@@ -321,9 +321,9 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 
 			// Slice 7b: when ins.StrideExpr is non-empty, the stride is a
 			// symbolic WGSL u32 expression (non-outermost sym dim case);
-			// otherwise the int64 Stride path emits byte-identical Slice 1–7a.
+			// otherwise the int64 Stride path emits byte-identical Slice 1-7a.
 			// For symbolic INNER ranges, ins.SymBoundExpr carries the rendered
-			// sym bound to mod against — the outermost-sym path leaves it
+			// sym bound to mod against - the outermost-sym path leaves it
 			// empty (the trailingProduct bound guarantees the quotient is
 			// already in range).
 			var divided string
@@ -338,13 +338,13 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 			if ins.Symbolic {
 				if ins.SymBoundExpr != "" {
 					if ins.StrideExpr == "" && ins.Stride == 1 {
-						// divided is a bare identifier — no precedence wrap needed.
+						// divided is a bare identifier - no precedence wrap needed.
 						expr = fmt.Sprintf("i32(%s %% %s)", divided, ins.SymBoundExpr)
 					} else {
 						expr = fmt.Sprintf("i32((%s) %% %s)", divided, ins.SymBoundExpr)
 					}
 				} else if ins.StrideExpr == "" && ins.Stride == 1 {
-					// Outermost-sym single-dim path — avoid extra parens around base.
+					// Outermost-sym single-dim path - avoid extra parens around base.
 					expr = fmt.Sprintf("i32(%s)", base)
 				} else {
 					expr = fmt.Sprintf("i32(%s)", divided)
@@ -378,7 +378,7 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 					// SPEC §10 vmax-driven dtype: IndexDtypeForBound selected
 					// Int64 for this bound; WGSL has no i64, so render i32 and
 					// document the downgrade (tinygrad PR #8268 edge case).
-					fmt.Fprintf(&b, "%s// note: bound vmax exceeds int32; WGSL has no i64 — rendering as i32 (tinygrad #8268)\n", indent())
+					fmt.Fprintf(&b, "%s// note: bound vmax exceeds int32; WGSL has no i64 - rendering as i32 (tinygrad #8268)\n", indent())
 				}
 				fmt.Fprintf(&b, "%sfor (var r%d: i32 = 0; r%d < i32(%s); r%d++) {\n",
 					indent(), ins.RangeID, ins.RangeID, symBound, ins.RangeID)
@@ -432,8 +432,8 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 			// Image slot dispatch: this thread owns one whole vec4 output slot
 			// (gid_x) and is its only writer, which removes the per-lane store
 			// race by construction. Tail lanes (flat logical index >= numel)
-			// are masked by the _img_flat guard: the body — and every load in
-			// it — is skipped and the component keeps its 0.0 initialization;
+			// are masked by the _img_flat guard: the body - and every load in
+			// it - is skipped and the component keeps its 0.0 initialization;
 			// the allocator pads image buffers to whole slots (BufferByteSize),
 			// so the full-slot store in InstrImgLaneEnd stays in bounds.
 			numSlots := (ins.TotalN + 3) / 4
@@ -467,7 +467,7 @@ func renderInstrs(instrs []Instr, item schedule.ExecItem, ws [3]int, wc [3]int) 
 			idxExpr := ins.IndexExpr
 			switch {
 			case ins.DType != nil && ins.DType.IsImage():
-				// Image storage, legacy per-lane path — reached only by
+				// Image storage, legacy per-lane path - reached only by
 				// SYMBOLIC image kernels (static ones take the vec4 slot
 				// dispatch via InstrImgLane*; lower.go keys on the output
 				// dtype). Buffer is bound as array<vec4<f32>>; logical

@@ -117,7 +117,7 @@ func TestE2E_ResNet9_OnnxRuntimeGolden(t *testing.T) {
 		m, tol, len(got), gotShape)
 	if m > tol {
 		// Log the per-element comparison for the first 8 elements when
-		// the assertion fails — this is the value-oracle discipline.
+		// the assertion fails - this is the value-oracle discipline.
 		n := 8
 		if len(got) < n {
 			n = len(got)

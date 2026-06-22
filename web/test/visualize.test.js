@@ -77,7 +77,7 @@ describe('nodeIdFromQuery', () => {
   });
 });
 
-describe('renderVisualizeView — deep-link success path', () => {
+describe('renderVisualizeView - deep-link success path', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/v/mlp?node=n7' });
     studio.wasm.call = vi
@@ -165,7 +165,7 @@ describe('closeNodeInspector', () => {
   });
 });
 
-describe('renderVisualizeView — error branch', () => {
+describe('renderVisualizeView - error branch', () => {
   beforeEach(async () => {
     studio = await loadStudio({ path: '/v/mlp?node=n3' });
   });

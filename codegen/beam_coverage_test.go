@@ -94,7 +94,7 @@ func TestBeamDiskCacheResetAndInject(t *testing.T) {
 
 	const sk uint64 = 0x123
 	codegen.BeamDiskCacheInject(sk, []codegen.Opt{{Kind: codegen.OptTile, Axis: 1, Arg: 16}}, "deadbeefdeadbeef")
-	// No direct read API — but BeamApplyToItems is the user. Verify via the apply path below.
+	// No direct read API - but BeamApplyToItems is the user. Verify via the apply path below.
 }
 
 // ── BeamWGSLHash ─────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ const (
 	// intermediate, output, and any buffer that may be read back to the host.
 	BufferUsageIO BufferUsage = iota
 	// BufferUsageLeafInput is for leaf input buffers that are only written
-	// from the host and read by kernels — never read back. WebGPU allows the
+	// from the host and read by kernels - never read back. WebGPU allows the
 	// implementation to drop the CopySrc bit for these.
 	BufferUsageLeafInput
 )

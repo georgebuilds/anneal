@@ -140,7 +140,7 @@ describe('renderTrainView', () => {
   });
 });
 
-describe('trainStart — happy path streaming', () => {
+describe('trainStart - happy path streaming', () => {
   it('opens an EventSource with model/steps/bundle params and toggles buttons', () => {
     const sel = document.getElementById('train-model');
     sel.value = 'mlp';
@@ -345,7 +345,7 @@ describe('trainCancel', () => {
   });
 });
 
-describe('trainStart — no EventSource / error branch', () => {
+describe('trainStart - no EventSource / error branch', () => {
   it('falls back to idle UI when EventSource construction throws', () => {
     vi.useFakeTimers();
     // Replace EventSource with one whose constructor throws (simulates an

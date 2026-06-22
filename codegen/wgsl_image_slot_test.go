@@ -45,7 +45,7 @@ func buildImageMatmul(t *testing.T, M, K, N int64) []schedule.ExecItem {
 // TestWGSL_ImageSlotDispatch_StorePattern pins the vec4 slot-dispatch store
 // shape for image-output kernels: one thread per vec4 slot, a 4-lane loop
 // with per-lane masking, and a single full-slot store. The legacy per-lane
-// cascade to storage (data0[_img_slot].x = ...) must be gone — it is what
+// cascade to storage (data0[_img_slot].x = ...) must be gone - it is what
 // raced when the output row stride was not a multiple of 4.
 func TestWGSL_ImageSlotDispatch_StorePattern(t *testing.T) {
 	item := buildImageElementwise1D(t, 256)
@@ -63,7 +63,7 @@ func TestWGSL_ImageSlotDispatch_StorePattern(t *testing.T) {
 	if strings.Contains(wgsl, "data0[_img_slot]") {
 		t.Errorf("image kernel WGSL still uses the legacy per-lane storage cascade (race-prone)\nfull shader:\n%s", wgsl)
 	}
-	// Exactly one write to data0 — the whole-slot store.
+	// Exactly one write to data0 - the whole-slot store.
 	if n := strings.Count(wgsl, "data0["); n != 1 {
 		t.Errorf("expected exactly 1 data0 store (whole-slot write), got %d\nfull shader:\n%s", n, wgsl)
 	}
@@ -172,7 +172,7 @@ func TestWGSL_ImageSlotDispatch_NonImageUnchanged(t *testing.T) {
 // TestActionSpace_ImageKernelEmpty pins the BEAM exclusion: image-output
 // kernels get an empty action space (every Opt would push the kernel off the
 // deterministic slot dispatch and back onto the race-prone cascade), while
-// the same kernel in scalar f32 form keeps a non-empty space — proving the
+// the same kernel in scalar f32 form keeps a non-empty space - proving the
 // filter keys on the output dtype, not on kernel shape.
 func TestActionSpace_ImageKernelEmpty(t *testing.T) {
 	items := buildImageMatmul(t, 16, 16, 16)
@@ -187,7 +187,7 @@ func TestActionSpace_ImageKernelEmpty(t *testing.T) {
 	sink := a.New(uop.OpSink, uop.Dtypes.Void, []uop.UOp{out.Node()}, nil, nil)
 	scalarItems := schedule.CreateSchedule(sink, "webgpu")
 	if got := codegen.ActionSpace(scalarItems[len(scalarItems)-1].Ast); len(got) == 0 {
-		t.Errorf("ActionSpace(scalar f32 matmul) is empty — filter is over-broad")
+		t.Errorf("ActionSpace(scalar f32 matmul) is empty - filter is over-broad")
 	}
 }
 
@@ -199,7 +199,7 @@ func TestLower_ImageKernel_HandOptPanics(t *testing.T) {
 	item := buildImageElementwise1D(t, 256)
 	opted := codegen.ApplyOpt(item.Ast, codegen.Opt{Kind: codegen.OptLocal, Axis: 0, Arg: 8})
 	if opted.Index() == item.Ast.Index() {
-		t.Fatalf("OptLocal did not transform the image kernel — panic guard untestable")
+		t.Fatalf("OptLocal did not transform the image kernel - panic guard untestable")
 	}
 	item.SetAst(opted)
 	defer func() {

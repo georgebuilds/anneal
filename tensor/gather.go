@@ -122,8 +122,8 @@ func gatherShape(dataShape, idxShape []shape.Sint, dim int) []shape.Sint {
 // over [V * D] output threads. Each thread linearly reduces over the [B]
 // reduce axis, masking by sortedIdx[b] == v. This is O(V * D * B) work but
 // race-free, deterministic, and JIT-friendly (the dispatch grid is graph-keyed
-// and never changes between captures and replays). Choice (b) — dispatch
-// over numSegments * D — was rejected because numSegments is data-dependent
+// and never changes between captures and replays). Choice (b) - dispatch
+// over numSegments * D - was rejected because numSegments is data-dependent
 // and forces a per-call dispatch-geometry recompute, breaking the JIT plan.
 //
 // v1 scope: requires dim == 0 and a 1-D index tensor. Both backward fixture 1

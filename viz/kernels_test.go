@@ -1,7 +1,7 @@
-// Tests for viz.BuildKernels — the WASM-buildable path that drives the W2
+// Tests for viz.BuildKernels - the WASM-buildable path that drives the W2
 // kernels view. These tests run on native (no //go:build !js tag) so the
 // same exercise applies in the WASM environment via direct Go calls (the
-// kernel set is structurally the same in both targets — DD2).
+// kernel set is structurally the same in both targets - DD2).
 
 package viz
 

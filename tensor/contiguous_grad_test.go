@@ -37,7 +37,7 @@ func TestContiguousGradientPassesThrough(t *testing.T) {
 		loss := sq.Sum(nil, false)
 		g := tensor.Backward(loss, []*tensor.Tensor{x})[x]
 		if g == nil {
-			t.Fatalf("no gradient (contig=%v) — Contiguous acted as a gradient barrier", contig)
+			t.Fatalf("no gradient (contig=%v) - Contiguous acted as a gradient barrier", contig)
 		}
 		if err := tensor.Realize(g); err != nil {
 			t.Fatalf("realize: %v", err)

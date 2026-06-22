@@ -9,7 +9,7 @@ import (
 	"github.com/georgebuilds/anneal/uop"
 )
 
-// symbolic_bound_test.go — black-box coverage for addBuffers' symbolic
+// symbolic_bound_test.go - black-box coverage for addBuffers' symbolic
 // derived-bound output-buffer encoding. Two paths are exercised:
 //
 //   - ShapeSintArg "narrow" path: a reshape-merge [n,4] → [n*4] gives the

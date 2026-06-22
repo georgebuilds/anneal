@@ -4,7 +4,7 @@
 // JSON document the studio's kernels view renders.
 //
 // DD2: the WGSL text is the real compiler's output, not a mock. This file is
-// the same on native and js/wasm — no build tags, no backend/webgpu import.
+// the same on native and js/wasm - no build tags, no backend/webgpu import.
 // The compile target check in TestWebKernels_WASMBuildable (cmd_web_test.go)
 // pins this.
 
@@ -197,9 +197,9 @@ var letPattern = regexp.MustCompile(`\blet\s+t(\d+)\s*:`)
 // span's phase (the line is part of the same fused subexpression).
 //
 // Phases produced:
-//   - "fwd"   — line belongs to a forward-pass UOp
-//   - "bwd"   — line belongs to a backward-pass UOp
-//   - "fused" — line is structural (storage bindings, @compute header, loop
+//   - "fwd"   - line belongs to a forward-pass UOp
+//   - "bwd"   - line belongs to a backward-pass UOp
+//   - "fused" - line is structural (storage bindings, @compute header, loop
 //     control, the @binding declarations, etc.) AND no prior span
 //     has been seen yet.
 //

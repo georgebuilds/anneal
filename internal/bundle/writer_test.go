@@ -257,7 +257,7 @@ func TestWriterRoundTrip(t *testing.T) {
 		if gotLoss[i].Step != want.Step || gotLoss[i].WallMs != want.WallMs {
 			t.Errorf("loss[%d] mismatch: got %+v, want %+v", i, gotLoss[i], want)
 		}
-		// float32 round-trip via %g — exact for these values.
+		// float32 round-trip via %g - exact for these values.
 		if gotLoss[i].Loss != want.Loss {
 			t.Errorf("loss[%d].Loss = %v, want %v", i, gotLoss[i].Loss, want.Loss)
 		}
@@ -464,7 +464,7 @@ func TestManifestKeyOrderingDeterministic(t *testing.T) {
 		BundleVersion: 1,
 		Kind:          KindTrain,
 		Model:         "mlp",
-		// Same map, different insertion order — relies on sorted output.
+		// Same map, different insertion order - relies on sorted output.
 		SymBinds:  map[string]int64{"T": 128, "A": 1, "B": 16},
 		CreatedAt: now,
 	}

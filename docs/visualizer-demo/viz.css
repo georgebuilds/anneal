@@ -1,4 +1,4 @@
-/* anneal viz — design tokens from DESIGN.md §3.3 */
+/* anneal viz - design tokens from DESIGN.md §3.3 */
 
 /* ── dark theme (default, terminal-native brand colors) ──────────────────── */
 :root {
@@ -8,22 +8,22 @@
   --muted:   #8A817A;
   --faint:   #5C544D;
 
-  /* forward = teal (#00ADD8) — Go-lineage nod + DD1 forward-pass semantic */
+  /* forward = teal (#00ADD8) - Go-lineage nod + DD1 forward-pass semantic */
   --fwd-fill:   #003847;
   --fwd-stroke: #00ADD8;
   --fwd-text:   #E8E2DA;
 
-  /* backward = ember (#FF7A45) — gradient pass */
+  /* backward = ember (#FF7A45) - gradient pass */
   --bwd-fill:   #3D1200;
   --bwd-stroke: #FF7A45;
   --bwd-text:   #E8E2DA;
 
-  /* reduce/kernel boundary = gold (#F2C57C) — where kernels materialise */
+  /* reduce/kernel boundary = gold (#F2C57C) - where kernels materialise */
   --red-fill:   #3D2A00;
   --red-stroke: #F2C57C;
   --red-text:   #14110F;
 
-  /* leaf buffer node — prominent input/parameter marker */
+  /* leaf buffer node - prominent input/parameter marker */
   --leaf-fill:   #005566;
   --leaf-stroke: #00ADD8;
 
@@ -33,7 +33,7 @@
   --edge-red: rgba(242, 197, 124, 0.6);
 }
 
-/* ── light theme — per-theme variants for legibility on paper background ── */
+/* ── light theme - per-theme variants for legibility on paper background ── */
 /* Brand semantic preserved (teal=forward, ember=backward, gold=kernel)       */
 /* Hex values darkened to maintain WCAG AA contrast (≥4.5:1) on #FBF8F3      */
 [data-theme="light"] {
@@ -43,17 +43,17 @@
   --muted:   #5C544D;
   --faint:   #8A817A;
 
-  /* forward: #006F9E — luminance ≈0.16, contrast ≈4.88:1 on #FBF8F3 ✓ */
+  /* forward: #006F9E - luminance ≈0.16, contrast ≈4.88:1 on #FBF8F3 ✓ */
   --fwd-fill:   #D5EFF6;
   --fwd-stroke: #006F9E;
   --fwd-text:   #14110F;
 
-  /* backward: #B84A16 — luminance ≈0.16, contrast ≈4.79:1 on #FBF8F3 ✓ */
+  /* backward: #B84A16 - luminance ≈0.16, contrast ≈4.79:1 on #FBF8F3 ✓ */
   --bwd-fill:   #FFE5D9;
   --bwd-stroke: #B84A16;
   --bwd-text:   #14110F;
 
-  /* reduce/kernel: #7A5800 — luminance ≈0.13, contrast ≈5.72:1 on #FBF8F3 ✓ */
+  /* reduce/kernel: #7A5800 - luminance ≈0.13, contrast ≈5.72:1 on #FBF8F3 ✓ */
   --red-fill:   #FFF0CE;
   --red-stroke: #7A5800;
   --red-text:   #14110F;
@@ -223,7 +223,7 @@ main {
 
 /* Tick rail: discrete labelled stops above the slider. Clicking a tick jumps
    the slider to that stage; the active tick goes gold (the fusion colour, used
-   here as the "where you are" highlight — consistent DD1 semantic).
+   here as the "where you are" highlight - consistent DD1 semantic).
    Two encoding channels (DESIGN.md §9): color + weight/scale. */
 .timeline-track {
   display: flex;
@@ -273,12 +273,12 @@ main {
   transition: background 0.18s, border-color 0.18s, transform 0.18s;
 }
 .timeline-tick.active .tick-dot {
-  background: var(--red-stroke);  /* gold — current position */
+  background: var(--red-stroke);  /* gold - current position */
   border-color: var(--red-stroke);
   transform: scale(1.25);
 }
 .timeline-tick.visited .tick-dot {
-  background: var(--fwd-stroke);   /* teal — already traversed */
+  background: var(--fwd-stroke);   /* teal - already traversed */
   border-color: var(--fwd-stroke);
 }
 .timeline-tick.active { color: var(--text); font-weight: 600; }
@@ -320,7 +320,7 @@ main {
   cursor: pointer;
 }
 
-/* Hidden nodes/edges (per-stage masking) — fade smoothly so the transition    */
+/* Hidden nodes/edges (per-stage masking) - fade smoothly so the transition    */
 /* between stages reads as nodes joining the graph, not popping in.           */
 .node.hidden, .edge.hidden { opacity: 0; pointer-events: none; }
 .node, .edge { transition: opacity 0.25s ease, fill 0.2s, stroke 0.2s; }
@@ -410,11 +410,11 @@ footer {
   flex-wrap: wrap;
 }
 
-/* forward: solid circle — color + shape encoding (§9: never color alone) */
+/* forward: solid circle - color + shape encoding (§9: never color alone) */
 .legend-item.forward  { color: var(--fwd-stroke); }
-/* backward: dashed circle — color + dashed border shape */
+/* backward: dashed circle - color + dashed border shape */
 .legend-item.backward { color: var(--bwd-stroke); }
-/* reduce: diamond — color + shape */
+/* reduce: diamond - color + shape */
 .legend-item.reduce   { color: var(--red-stroke); }
-/* leaf: rounded rect — color + shape */
+/* leaf: rounded rect - color + shape */
 .legend-item.leaf     { color: var(--fwd-stroke); opacity: 0.8; }

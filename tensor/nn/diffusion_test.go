@@ -13,7 +13,7 @@ package nn_test
 //   5. TestDDPMDenoiserForwardShape      : Forward returns the input shape.
 //   6. TestDDPMDenoiserParamsCount       : Params() count = 10 (5 W + 5 B).
 //   7. TestDDPMDenoiserFDGrad            : end-to-end FD-grad on Conv1.Weight
-//                                          (tol 1e-2, lax — many composed ops).
+//                                          (tol 1e-2, lax - many composed ops).
 //   8. TestDDPMLossDecreasesOverSteps    : Adam loop drives MSE loss to <= 0.5x
 //                                          initial value within 200 steps.
 
@@ -101,7 +101,7 @@ func TestSiLUFDGrad(t *testing.T) {
 // ── 2. Sinusoidal time embedding shape + values ──────────────────────────────
 
 func TestSinusoidalTimeEmbedShapeAndValues(t *testing.T) {
-	// CPU-only — purely host-side construction + SetData.
+	// CPU-only - purely host-side construction + SetData.
 	const embedDim = int64(8)
 	tVals := []int32{0, 1, 5}
 	a := uop.NewArena(1 << 14)

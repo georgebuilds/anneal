@@ -14,7 +14,7 @@ import (
 // fp8 (e4m3fn / e5m2) is storage-only with f32 compute: the u32 storage word
 // holds the fp8-quantized value's full f32 bit pattern (decoded storage, the
 // same scheme as bf16), loads are a free bitcast<f32>, and RTNE narrowing to
-// the fp8 grid happens at the store boundary. No device extension is needed —
+// the fp8 grid happens at the store boundary. No device extension is needed -
 // unlike the f16 tests, these run on any adapter.
 //
 // The host oracle uses uop.DType.Quantize, whose bit-twiddling the WGSL
@@ -150,7 +150,7 @@ func TestFP8_SumReduce(t *testing.T) {
 			var sum float32
 			for i := range vals {
 				// Integers in [-4, 4]: exact on both fp8 grids (e5m2's coarsest
-				// step below 8 is 1), and 64 of them sum within ±256 — exact in
+				// step below 8 is 1), and 64 of them sum within ±256 - exact in
 				// f32 under any accumulation order.
 				vals[i] = float32(rng.Intn(9) - 4)
 				sum += vals[i]

@@ -12,7 +12,7 @@ import (
 // ListBundles walks rootDir one level deep and returns one BundleSummary
 // per valid bundle (a directory whose name matches bundleNameRe and that
 // contains a parseable manifest.json). Invalid or unreadable entries are
-// silently skipped — a half-written bundle does not break the listing.
+// silently skipped - a half-written bundle does not break the listing.
 //
 // The result is sorted by Manifest.CreatedAt descending (newest first).
 // An empty rootDir returns an empty slice (not nil) so the JSON encoder

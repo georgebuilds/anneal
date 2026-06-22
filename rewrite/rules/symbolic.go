@@ -18,19 +18,19 @@ var SymbolicV0 = buildSymbolicV0()
 // This is the original buildSymbolic renamed for differential testing.
 //
 // Rule ordering (earlier rules win):
-//  1. Constant folding — all ALU ops with all-Const sources.
-//  2. Cast/Bitcast folding — cast of a single Const source.
-//  3. Identity cast — Cast(x) → x when dtypes already match.
-//  4. Arithmetic identities — x+0, x*1, x*0, x−0, x^0, x//1, x//−1.
-//  5. Boolean neutral/absorbing elements — x&true, x|false, x&false, x|true, x&0.
-//  6. Self-cancellation (same-name captures) — x−x, x^x, x%x, x//x, x<x, x!=x.
-//  7. Idempotent — x|x, x&x, max(x,x).
-//  8. Boolean algebra — bool*bool→bool&bool, bool+bool→bool|bool.
-//  9. Double-XOR / modulo idempotent — (x^y)^y→x, (x%y)%y→x%y.
+//  1. Constant folding - all ALU ops with all-Const sources.
+//  2. Cast/Bitcast folding - cast of a single Const source.
+//  3. Identity cast - Cast(x) → x when dtypes already match.
+//  4. Arithmetic identities - x+0, x*1, x*0, x−0, x^0, x//1, x//−1.
+//  5. Boolean neutral/absorbing elements - x&true, x|false, x&false, x|true, x&0.
+//  6. Self-cancellation (same-name captures) - x−x, x^x, x%x, x//x, x<x, x!=x.
+//  7. Idempotent - x|x, x&x, max(x,x).
+//  8. Boolean algebra - bool*bool→bool&bool, bool+bool→bool|bool.
+//  9. Double-XOR / modulo idempotent - (x^y)^y→x, (x%y)%y→x%y.
 //
-// 10. Where (ternary) — cond.where(v,v)→v; const_cond.where(a,b)→a or b.
-// 11. Bound-based comparison folding — CmpLt/CmpNe when intervals resolve result.
-// 12. Commutative canonicalization — sort binary operands so constants end up at
+// 10. Where (ternary) - cond.where(v,v)→v; const_cond.where(a,b)→a or b.
+// 11. Bound-based comparison folding - CmpLt/CmpNe when intervals resolve result.
+// 12. Commutative canonicalization - sort binary operands so constants end up at
 //
 //	src[1], enabling identity rules on the re-processed canonical node.
 func buildSymbolicV0() *rewrite.PatternMatcher {

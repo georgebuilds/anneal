@@ -80,7 +80,7 @@ func TestTrainLlamaDatasetError(t *testing.T) {
 // TestTrainLlamaWrapperHandoff covers the thin trainLlama wrapper (loadDataset
 // seam -> defaultLlamaConfig -> runLlama). The injected corpus is deliberately
 // shorter than the default block_size+1 so runLlama returns its corpus-length
-// guard immediately after the cheap setup — no Realize and no 100-token greedy
+// guard immediately after the cheap setup - no Realize and no 100-token greedy
 // generation on the full default model, so this stays fast on CPU. The actual
 // train-loop body (forward/backward/Adam/eval/generate) is covered by the
 // tiny-config runLlama tests below and by TestRunLlamaCPUFullLoop. Mirrors

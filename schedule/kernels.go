@@ -75,7 +75,7 @@ func rebuildWithParams(a *uop.Arena, inner uop.UOp, paramMap map[uint32]uop.UOp)
 // boundary). startIdx must be the arena length before the current GetKernelGraph
 // call so that AFTER nodes from prior Realize calls on the same arena are excluded.
 //
-// Intermediate AFTER nodes are not reachable from SINK via graph edges — they are
+// Intermediate AFTER nodes are not reachable from SINK via graph edges - they are
 // referenced only through the BUFFER nodes inside downstream kernels' bodies,
 // which is why an arena scan is necessary rather than a graph traversal.
 //
@@ -90,7 +90,7 @@ func findAfterNodes(a *uop.Arena, startIdx uint32, keys []uint64) []uop.UOp {
 			afters = append(afters, u)
 		}
 	}
-	// Sort by structural key of the END node (Src(1)) — captures full kernel body —
+	// Sort by structural key of the END node (Src(1)) - captures full kernel body -
 	// rather than by output buffer arena index (construction-order artifact).
 	// For genuinely isomorphic kernels (same structural key), stable order preserves
 	// arena-scan order; any fixed order is correct since they are interchangeable.
@@ -113,7 +113,7 @@ func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32, keys []uint64) (u
 	calls := make([]uop.UOp, len(afters))
 
 	for i, after := range afters {
-		outBuf := after.Src(0) // BUFFER node — the kernel's output
+		outBuf := after.Src(0) // BUFFER node - the kernel's output
 		inner := after.Src(1)  // END node
 
 		// Collect all BUFFER nodes reachable from inner (DFS, stop at BUFFER).
@@ -131,7 +131,7 @@ func splitKernels(a *uop.Arena, sink uop.UOp, startIdx uint32, keys []uint64) (u
 
 		// Input buffers are kept in DFS encounter order from collectBuffers (src[0]
 		// before src[1] at every node).  This order is a pure function of graph
-		// structure — it does not depend on arena construction order — making PARAM
+		// structure - it does not depend on arena construction order - making PARAM
 		// numbering deterministic.  For genuinely isomorphic input buffers (same
 		// structural key), DFS encounter order is the correct stable tiebreak.
 
@@ -242,7 +242,7 @@ func createSchedule(calls []uop.UOp, keys []uint64) []uop.UOp {
 // bufSize extracts the element count from a BUFFER node's arg.
 // Leaf buffers carry []int64 shape (product gives size); scheduler-allocated
 // buffers carry int64 directly. Symbolic buffers (arg=nil, src[0]=DefineVar)
-// return 0 — the actual size is determined at dispatch time from the binding.
+// return 0 - the actual size is determined at dispatch time from the binding.
 func bufSize(bufNode uop.UOp) int64 {
 	switch v := bufNode.Arg().(type) {
 	case nil:
@@ -262,7 +262,7 @@ func bufSize(bufNode uop.UOp) int64 {
 		// Same as ShapeSintArg: bound resolved at dispatch.
 		return 0
 	case string:
-		// Special buffers (e.g. "randn") — return 1 as a safe fallback.
+		// Special buffers (e.g. "randn") - return 1 as a safe fallback.
 		return 1
 	default:
 		return 1
@@ -326,7 +326,7 @@ func linearToSchedule(ordered []uop.UOp) []ExecItem {
 // bufShape extracts the per-dimension shape from a BUFFER node's arg.
 // Leaf buffers carry []int64 shape; scheduler-allocated buffers carry []int64
 // after the Phase 7b fix (old int64 total-size is treated as [n]).
-// Symbolic input buffers (arg=nil) return nil — shape is dynamic.
+// Symbolic input buffers (arg=nil) return nil - shape is dynamic.
 func bufShape(bufNode uop.UOp) []int64 {
 	switch v := bufNode.Arg().(type) {
 	case nil:
@@ -368,7 +368,7 @@ func bufShape(bufNode uop.UOp) []int64 {
 // BUFFER node's arg. Returns (nil, nil) for buffers with no derived-bound
 // dims (all multipliers implicitly 1 and dim-order matches name-sorted
 // symVar order; matches Slice 1/2 behaviour). When non-nil, both slices
-// are parallel to the symbolic positions of bufShape — length equals count
+// are parallel to the symbolic positions of bufShape - length equals count
 // of symbolic dims.
 //
 // Supported bound shapes:
@@ -389,7 +389,7 @@ func bufSymDimMul(bufNode uop.UOp) (muls []int64, vars []string) {
 		if !d.Sym {
 			continue
 		}
-		// ShapeDim already carries (VarName, Mul) structurally — no need to
+		// ShapeDim already carries (VarName, Mul) structurally - no need to
 		// walk a UOp bound expression (Option B Slice 4 hygiene).
 		muls = append(muls, d.Mul)
 		vars = append(vars, d.VarName)
@@ -545,7 +545,7 @@ func CreateSchedule(sink uop.UOp, device string) []ExecItem {
 // input SINK (i.e. per requested output tensor, in CALLER order). Entry i is
 // the arena index of the BUFFER node holding the i-th requested output's
 // result, or 0 when that src materialises no kernel output (a leaf passed
-// directly to Realize — its data was caller-provided).
+// directly to Realize - its data was caller-provided).
 //
 // This mapping is the durable fix for multi-output attribution: callers must
 // zip requested tensors onto their OWN output buffer by node identity rather

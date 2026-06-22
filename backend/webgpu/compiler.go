@@ -52,7 +52,7 @@ func (c *compiler) SymbolicCount() int { return len(c.symCache) }
 
 // Compile returns a Program for src. If a Program with this source already
 // exists in the cache, the cached entry is returned (and the orchestrator
-// must NOT release it — the cache owns the lifetime; Close drains the cache).
+// must NOT release it - the cache owns the lifetime; Close drains the cache).
 //
 // meta.NumStorageBuffers is the number of storage-buffer bindings (PARAM 0
 // is read_write; PARAM 1..N-1 are read-only). meta.HasParamsUniform adds a

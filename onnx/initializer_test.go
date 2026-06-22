@@ -125,7 +125,7 @@ func TestTensorFromProto_FLOAT16_RoundTrip(t *testing.T) {
 	if tt.DType() != uop.Dtypes.Float16 {
 		t.Errorf("dtype=%v, want f16", tt.DType())
 	}
-	// SetData re-quantises through f16 — the values we picked are exactly
+	// SetData re-quantises through f16 - the values we picked are exactly
 	// representable so the round-trip is bit-exact.
 	sliceApproxEq32(t, tt.Data(), want, 0)
 }
@@ -833,7 +833,7 @@ func TestInitializerHashKey_StructuralIdentity(t *testing.T) {
 // Int32Data path, Int64Data, DoubleData, and Uint64Data fields. The contract
 // says structurally equivalent inputs must alias even when carried in
 // different storage fields IF the encoded bytes match; we don't test that
-// equivalence — we test that the typed fields are mixed in at all, by
+// equivalence - we test that the typed fields are mixed in at all, by
 // observing different values change the hash.
 func TestInitializerHashKey_TypedFieldsAffectHash(t *testing.T) {
 	base := func() *onnxpb.TensorProto {

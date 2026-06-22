@@ -151,7 +151,7 @@ func TestRunGPT2FinetuneCorpusTooShort(t *testing.T) {
 // TestGPT2FinetuneJITGPU exercises the JIT-wrapped training loop on the GPU
 // backend with a small tied model: step 1 captures the schedule, steps 2-3
 // replay it. Asserts the loop completes with finite losses (JIT replay zeroes
-// the AST, so this would crash on the CPU interpreter — the trainer correctly
+// the AST, so this would crash on the CPU interpreter - the trainer correctly
 // uses JIT only on non-cpu devices). This is the small-scale guard for the path
 // the real GPT-2 fine-tune drives.
 func TestGPT2FinetuneJITGPU(t *testing.T) {
