@@ -12,6 +12,7 @@ ignore:
   - "examples/resnet9.go"
   - "examples/diffusion.go"
   - "examples/dit.go"
+  - "examples/meanflow.go"
   - "examples/dynmlp.go"
   # GPT-2 fine-tune production entrypoints: depend on the ~548 MB HuggingFace
   # checkpoint + a GPU realize loop, uncoverable in CI. The reusable training
