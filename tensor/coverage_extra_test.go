@@ -163,7 +163,10 @@ func TestMin_KeepDim(t *testing.T) {
 	a := newArena()
 	x := tensor.NewLeaf(a, []int64{2, 3}, uop.Dtypes.Float32, "cpu")
 	m := x.Min([]int{1}, true)
-	ra := m.Node().Arg().(uop.ReduceArg)
+	// keepdim is a dropped reduce plus an explicit reshape, so the reduce is the
+	// reshape's source.
+	red := m.Node().Src(0)
+	ra := red.Arg().(uop.ReduceArg)
 	if ra.Op != uop.OpMin {
 		t.Fatalf("reduce op: got %v want OpMin", ra.Op)
 	}

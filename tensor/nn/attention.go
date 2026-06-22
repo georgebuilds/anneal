@@ -252,14 +252,13 @@ func (m *CausalSelfAttention) Forward(x *tensor.Tensor) *tensor.Tensor {
 	// Mask leaf: a fresh BUFFER seeded with the precomputed top-left T x T
 	// submatrix of m.maskData. Fixed (non-trainable) leaf, not in Params().
 	//
-	// IMPORTANT shape-tracker contract: we reduce with keepdim=FALSE and then
-	// add back the 1-dim via an explicit Reshape. tensor/gradient.go
-	// shapeOfNode for OpReduceAxis only sees the ReduceArg, which carries
-	// axes but not keepdim; if forward uses keepdim=true directly the backward
-	// shape rule recovers the reduced shape and any subsequent broadcast
-	// Expand from the reduced tensor fails at grad time with a Reshape size
-	// mismatch. keepdim=false + explicit Reshape makes the rank-adding step
-	// visible to the autodiff shape tracker.
+	// We reduce with keepdim=FALSE and add the 1-dim back via an explicit Reshape.
+	// This used to be REQUIRED: a reduce node carries no keepdim flag, so the
+	// UOp-level shapeOfNode (gradient + scheduler) reconstructed a keepdim=true
+	// reduce as the dropped shape, which broke the backward shape rule and the
+	// scheduler. tensor.reduce now decomposes keepdim=true into exactly this (a
+	// dropped reduce + reshape), so keepdim=true is safe everywhere; this explicit
+	// form is identical and is kept as-is to document the rank-adding step.
 	//
 	// Numerical-stability NOTE: a standard softmax subtracts the per-row max
 	// before exp. We do NOT use the reduce-max shift here: its gradient routes
