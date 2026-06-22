@@ -238,7 +238,8 @@ html[data-model="llama"]   .variant[data-model="llama"],
 html[data-model="vit"]     .variant[data-model="vit"],
 html[data-model="resnet9"] .variant[data-model="resnet9"],
 html[data-model="gpt2"]    .variant[data-model="gpt2"],
-html[data-model="dit"]     .variant[data-model="dit"] { display: block; }
+html[data-model="dit"]     .variant[data-model="dit"],
+html[data-model="meanflow"] .variant[data-model="meanflow"] { display: block; }
 
 .variant { animation: variant-in 0.18s ease-out; }
 @keyframes variant-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }

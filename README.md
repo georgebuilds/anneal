@@ -60,6 +60,7 @@ anneal train llama          # char-level Llama-style decoder (RMSNorm, GQA + RoP
 anneal train vit            # vision transformer on a synthetic 32x32 RGB classification task
 anneal train diffusion      # tiny DDPM denoiser on a synthetic dataset
 anneal train dit            # Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10
+anneal train meanflow       # MeanFlow one-step generative model (forward-mode JVP) on CIFAR-10
 anneal run resnet9          # ResNet-9 on CIFAR-10, forward pass (downloads the dataset on first run)
 anneal train gpt2           # fine-tune GPT-2-small (HuggingFace weights) on tinyshakespeare
 anneal gpt2 sample "Hello"  # forward GPT-2-small from HuggingFace weights, sample text
@@ -138,7 +139,7 @@ x   := tensor.NewSymbolicShape(a, []shape.Sint{
 tensor.RealizeWithBinding(seq.Bind(64), y)
 ```
 
-For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), `llama.go` (char-level Llama-style decoder: RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings), `vit.go` (vision transformer on a synthetic image-classification task), `resnet9.go` (ResNet-9 on CIFAR-10: real 3x3 convolutions, residual blocks, BatchNorm; forward realizes end to end and every submodule is FD-tested, full-network training is gated on a WGSL codegen scaling issue), `diffusion.go` (tiny DDPM denoiser on a synthetic dataset), `dit.go` (Diffusion Transformer: adaLN-zero conditioning, classifier-free guidance, epsilon-prediction on CIFAR-10), `gpt2_finetune.go` (tied-weight GPT-2 fine-tune: stable cross-entropy, AdamW, LR warmup, JIT'd train step), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
+For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), `llama.go` (char-level Llama-style decoder: RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings), `vit.go` (vision transformer on a synthetic image-classification task), `resnet9.go` (ResNet-9 on CIFAR-10: real 3x3 convolutions, residual blocks, BatchNorm; forward realizes end to end and every submodule is FD-tested, full-network training is gated on a WGSL codegen scaling issue), `diffusion.go` (tiny DDPM denoiser on a synthetic dataset), `dit.go` (Diffusion Transformer: adaLN-zero conditioning, classifier-free guidance, epsilon-prediction on CIFAR-10), `meanflow.go` (MeanFlow one-step generative model on the DiT backbone: average-velocity training whose total-time-derivative term is computed as a forward-mode JVP, the first use of forward-mode autodiff in the compiler for a real objective), `gpt2_finetune.go` (tied-weight GPT-2 fine-tune: stable cross-entropy, AdamW, LR warmup, JIT'd train step), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
 
 ## Project layout
 
