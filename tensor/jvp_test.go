@@ -104,10 +104,88 @@ func TestJVPUnknownOpErrors(t *testing.T) {
 	x.SetData([]float32{1, 2, 3, 4})
 	v := tensor.NewLeaf(a, []int64{4}, uop.Dtypes.Float32, "cpu")
 	v.SetData([]float32{1, 1, 1, 1})
-	// Sum-reduce has no JVP rule yet (next slice); JVP must return an error.
-	out := x.Sum(nil, false)
+	// Pad has no JVP rule yet (next slice); JVP must error rather than silently
+	// produce a wrong (zero) tangent.
+	out := x.Pad([][2]int64{{1, 1}})
 	if _, err := tensor.JVP(out, []*tensor.Tensor{x}, []*tensor.Tensor{v}); err == nil {
-		t.Fatal("expected JVP to error on an op with no forward-mode rule (reduce)")
+		t.Fatal("expected JVP to error on an op with no forward-mode rule (pad)")
+	}
+}
+
+// TestJVPReduceMatmulWhere FD-checks the S2 rules on the CPU interpreter:
+// matmul (which lowers to Mul + sum-reduce), explicit sum-reduce, where (as a
+// relu), and max-reduce. Inputs are chosen so no element sits on the relu kink
+// (h != 0) or a max tie, where the true derivative is undefined.
+func TestJVPReduceMatmulWhere(t *testing.T) {
+	dev, err := cpu.Open()
+	if err != nil {
+		t.Fatalf("cpu.Open: %v", err)
+	}
+	prev := tensor.DefaultExecutor
+	tensor.DefaultExecutor = dev
+	t.Cleanup(func() { tensor.DefaultExecutor = prev })
+
+	a := uop.NewArena(1 << 22)
+	const M, K, N = 2, 3, 4
+	xd := []float32{0.5, -0.3, 1.2, 0.8, -1.1, 0.4} // [M,K]
+	vd := []float32{0.2, 0.7, -0.5, 0.1, 0.9, -0.3} // tangent [M,K]
+	wd := []float32{
+		0.10, -0.20, 0.30, -0.10,
+		0.40, 0.20, -0.30, 0.15,
+		-0.25, 0.35, 0.10, -0.40,
+	} // [K,N]
+
+	leaf := func(sh []int64, data []float32) *tensor.Tensor {
+		x := tensor.NewLeaf(a, sh, uop.Dtypes.Float32, "cpu")
+		x.SetData(append([]float32{}, data...))
+		return x
+	}
+	W := leaf([]int64{K, N}, wd) // constant w.r.t. JVP (not seeded)
+
+	// f(x) = sum(relu(x @ W), axis=1) + max(x, axis=1)
+	f := func(x *tensor.Tensor) *tensor.Tensor {
+		h := x.Matmul(W) // [M,N]
+		z := tensor.FullSints(a, h.ShapeSints(), 0, h.DType(), "cpu")
+		relu := tensor.Where(h.CmpLt(z), z, h) // [M,N]
+		s := relu.Sum([]int{1}, false)         // [M]
+		mx := x.Max([]int{1}, false)           // [M]
+		return s.Add(mx)
+	}
+
+	x := leaf([]int64{M, K}, xd)
+	out := f(x)
+	v := leaf([]int64{M, K}, vd)
+
+	jt, err := tensor.JVP(out, []*tensor.Tensor{x}, []*tensor.Tensor{v})
+	if err != nil {
+		t.Fatalf("JVP: %v", err)
+	}
+	if err := tensor.Realize(jt); err != nil {
+		t.Fatalf("realize JVP: %v", err)
+	}
+	got := jt.Data()
+
+	eps := float32(1e-3)
+	xp := make([]float32, len(xd))
+	xm := make([]float32, len(xd))
+	for i := range xd {
+		xp[i] = xd[i] + eps*vd[i]
+		xm[i] = xd[i] - eps*vd[i]
+	}
+	fp := f(leaf([]int64{M, K}, xp))
+	fm := f(leaf([]int64{M, K}, xm))
+	if err := tensor.Realize(fp, fm); err != nil {
+		t.Fatalf("realize FD: %v", err)
+	}
+	fpd, fmd := fp.Data(), fm.Data()
+	if len(got) != len(fpd) {
+		t.Fatalf("length mismatch: jvp=%d fd=%d", len(got), len(fpd))
+	}
+	for i := range got {
+		fd := (fpd[i] - fmd[i]) / (2 * eps)
+		if d := math.Abs(float64(got[i] - fd)); d > 2e-2 {
+			t.Fatalf("jvp[%d]=%v fd=%v (|diff|=%v)", i, got[i], fd, d)
+		}
 	}
 }
 
@@ -190,6 +268,11 @@ func TestJVPRuleCoverage(t *testing.T) {
 	nonNil("div-constRHS", x.Div(k(x, 3)), x, v)
 	x, v = mk()
 	nonNil("div-constLHS", k(x, 3).Div(x), x, v)
+
+	// where with a constant false-branch exercises the nil-tangent path of the
+	// third source.
+	x, v = mk()
+	nonNil("where-constFalse", tensor.Where(x.CmpLt(k(x, 1)), x, k(x, 0)), x, v)
 
 	// A non-float intermediate (an int cast) carries no tangent: the only path to
 	// the output runs through it, so the tangent is zero. Exercises the non-float
