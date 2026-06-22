@@ -116,6 +116,64 @@ func TestJVPUnknownOpErrors(t *testing.T) {
 // max/min (the softmax and SiLU clamps on the DiT path), shrink (the modulation
 // and QKV splits), and pad (the patch-embed conv). Constants are chosen so no
 // element ties its compare operand, where the true derivative is undefined.
+// TestKeepdimReduceGradientFD FD-checks the reverse-mode gradient through a
+// keepdim reduce that feeds another reduce (the pattern that exposed the
+// shapeOfNode keepdim bug), realized on the CPU interpreter.
+func TestKeepdimReduceGradientFD(t *testing.T) {
+	dev, err := cpu.Open()
+	if err != nil {
+		t.Fatalf("cpu.Open: %v", err)
+	}
+	prev := tensor.DefaultExecutor
+	tensor.DefaultExecutor = dev
+	t.Cleanup(func() { tensor.DefaultExecutor = prev })
+
+	a := uop.NewArena(1 << 22)
+	const B, K = 2, 4
+	xd := []float32{0.5, -0.3, 1.2, 0.8, -1.1, 0.4, 0.2, -0.7} // [B,K]
+
+	leaf := func(data []float32) *tensor.Tensor {
+		x := tensor.NewLeaf(a, []int64{B, K}, uop.Dtypes.Float32, "cpu")
+		x.SetData(append([]float32{}, data...))
+		return x
+	}
+	// f(x) = mean_all( (mean_k(x, keepdim=true))^2 ): keepdim reduce -> square -> reduce.
+	f := func(x *tensor.Tensor) *tensor.Tensor {
+		m := x.Mean([]int{1}, true) // [B,1] keepdim
+		return m.Mul(m).Mean(nil, false)
+	}
+
+	x := leaf(xd)
+	grads := tensor.Backward(f(x), []*tensor.Tensor{x})
+	g := grads[x]
+	if g == nil {
+		t.Fatal("no gradient for x")
+	}
+	if err := tensor.Realize(g); err != nil {
+		t.Fatalf("realize grad: %v", err)
+	}
+	got := g.Data()
+
+	eps := float32(1e-3)
+	fval := func(data []float32) float32 {
+		l := f(leaf(data))
+		if err := tensor.Realize(l); err != nil {
+			t.Fatalf("realize fd: %v", err)
+		}
+		return l.Data()[0]
+	}
+	for i := range xd {
+		xp := append([]float32{}, xd...)
+		xp[i] += eps
+		xm := append([]float32{}, xd...)
+		xm[i] -= eps
+		fd := (fval(xp) - fval(xm)) / (2 * eps)
+		if d := math.Abs(float64(got[i] - fd)); d > 1e-2 {
+			t.Fatalf("grad[%d]=%v fd=%v (|diff|=%v)", i, got[i], fd, d)
+		}
+	}
+}
+
 func TestJVPMinMaxShrinkPad(t *testing.T) {
 	dev, err := cpu.Open()
 	if err != nil {

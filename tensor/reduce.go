@@ -33,20 +33,36 @@ func (t *Tensor) reduce(op uop.Op, axes []int, keepdim bool) *Tensor {
 	}
 	sort.Ints(normAxes)
 
-	// Compute output Sint shape (preserves symbolic dims on non-reduced axes).
-	outSints := make([]shape.Sint, 0, rank)
+	// The OpReduceAxis node always DROPS the reduced axes (keepdim=false
+	// semantics). keepdim=true is implemented as that dropped reduce plus an
+	// explicit Reshape that adds the size-1 dims back. Reason: a reduce node
+	// carries no keepdim flag, so the UOp-level shape derivation (gradient.go and
+	// the scheduler shapeOfNode/index.go) reconstructs the output by dropping the
+	// reduced axes. Emitting a keepdim=true reduce directly desynced those passes
+	// (they saw the dropped shape while the ShapeTracker claimed the kept shape),
+	// which crashed the backward shape rule and the scheduler. Decomposing here
+	// keeps the IR uniform, matching the long-standing pattern in nn/attention.go.
+	droppedSints := make([]shape.Sint, 0, rank)
 	for i, s := range sints {
-		isReduced := seen[i]
-		if !isReduced {
-			outSints = append(outSints, s)
-		} else if keepdim {
-			outSints = append(outSints, shape.Const(1))
+		if !seen[i] {
+			droppedSints = append(droppedSints, s)
 		}
 	}
 
 	arg := uop.ReduceArg{Op: op, Axes: normAxes}
 	node := t.arena().New(uop.OpReduceAxis, t.dtype, []uop.UOp{t.node}, arg, nil)
-	return fromNode(node, shape.NewShapeTrackerSints(outSints), t.dtype, t.device)
+	result := fromNode(node, shape.NewShapeTrackerSints(droppedSints), t.dtype, t.device)
+	if !keepdim {
+		return result
+	}
+
+	// keepdim: add the reduced axes back as size-1 dims via an explicit reshape.
+	keepSints := make([]shape.Sint, rank)
+	copy(keepSints, sints)
+	for _, ax := range normAxes {
+		keepSints[ax] = shape.Const(1)
+	}
+	return result.ReshapeSints(keepSints)
 }
 
 // Sum reduces along axes, optionally keeping dimensions.
