@@ -194,22 +194,26 @@ func TestResNet9TrainStep(t *testing.T) {
 	// avoids needing a softmax/cross-entropy implementation here.
 	loss := logits.Mul(logits).Sum(nil, false)
 	grads := tensor.Backward(loss, paramTensors(m.Params()))
-	if err := tensor.Realize(loss); err != nil {
-		t.Fatalf("Realize loss: %v", err)
-	}
-	if math.IsNaN(float64(loss.Data()[0])) || math.IsInf(float64(loss.Data()[0]), 0) {
-		t.Fatalf("loss non-finite: %v", loss.Data()[0])
-	}
 
-	// Every param should have a gradient that realizes cleanly.
+	// Realize the loss and every gradient in ONE pass. Realizing each gradient in
+	// its own Realize call re-schedules the shared backward graph each time
+	// (separate sinks do not reuse a prior call's schedule), which is what made
+	// this step take minutes; batching keeps the whole backward as one schedule.
+	// Every param must still have a gradient (checked while collecting).
+	toRealize := make([]*tensor.Tensor, 0, len(m.Params())+1)
+	toRealize = append(toRealize, loss)
 	for i, p := range m.Params() {
 		g, ok := grads[p.T]
 		if !ok {
 			t.Fatalf("Param[%d] %q: no gradient returned", i, p.Name)
 		}
-		if err := tensor.Realize(g); err != nil {
-			t.Fatalf("Param[%d] %q: Realize grad: %v", i, p.Name, err)
-		}
+		toRealize = append(toRealize, g)
+	}
+	if err := tensor.Realize(toRealize...); err != nil {
+		t.Fatalf("Realize loss + gradients: %v", err)
+	}
+	if math.IsNaN(float64(loss.Data()[0])) || math.IsInf(float64(loss.Data()[0]), 0) {
+		t.Fatalf("loss non-finite: %v", loss.Data()[0])
 	}
 
 	// PostStep should mutate RunningMean on every BN.
