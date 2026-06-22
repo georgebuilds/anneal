@@ -82,13 +82,20 @@ func TestResNet9Backward_WGSLCompiles(t *testing.T) {
 	// The pre-Slice hoist only considered (innerReachable ∩ outerReachable),
 	// so sibling-only shares were missed; the generalised color-count hoist
 	// in codegen/lower.go now lifts these to kernel-top.
+	// Realize every parameter gradient in ONE pass. A separate Realize per grad
+	// re-schedules and re-compiles the shared backward graph each time (a
+	// multi-minute step); batching compiles the whole backward once. A single
+	// Realize still compiles every grad's WGSL, so the sibling-reduce regression
+	// this test guards is still exercised across all conv-backward kernels.
+	allGrads := make([]*tensor.Tensor, 0, len(leaves))
 	for i, leaf := range leaves {
 		g, ok := grads[leaf]
 		if !ok {
 			t.Fatalf("Param[%d]: no gradient", i)
 		}
-		if err := tensor.Realize(g); err != nil {
-			t.Fatalf("Param[%d]: Realize grad failed (sibling-reduce WGSL regression): %v", i, err)
-		}
+		allGrads = append(allGrads, g)
+	}
+	if err := tensor.Realize(allGrads...); err != nil {
+		t.Fatalf("Realize grads failed (sibling-reduce WGSL regression): %v", err)
 	}
 }
