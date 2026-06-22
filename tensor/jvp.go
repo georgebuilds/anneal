@@ -225,5 +225,50 @@ func buildJVP() map[uop.Op]JVPRule {
 		return tanOf(0).Permute(perm)
 	}
 
+	// ── Reduce (linear for SUM; arg-extremum routing for MAX/MIN) ─────────────
+	// Matmul lowers to Mul + Sum (reduce.go), so the SUM rule plus the pointwise
+	// and movement rules give matmul (and softmax, layernorm, attention) a JVP for
+	// free; no dedicated matmul rule is needed.
+	m[uop.OpReduceAxis] = func(u uop.UOp, nodeT *Tensor, tanOf func(int) *Tensor, sc map[uint32][]shape.Sint, dev string) *Tensor {
+		ra := u.Arg().(uop.ReduceArg)
+		outSints := sc[u.Index()]
+		t := tanOf(0)
+		switch ra.Op {
+		case uop.OpAdd:
+			// d(sum x) = sum(dx) over the same axes.
+			return t.Sum(ra.Axes, true).ReshapeSints(outSints)
+		case uop.OpMax, uop.OpMin:
+			// d(max/min x) routes the input tangent through the arg-extremum
+			// positions, splitting ties equally (mirrors the reverse-mode mask).
+			srcSints := sc[u.Src(0).Index()]
+			keepSints := make([]shape.Sint, len(srcSints))
+			copy(keepSints, srcSints)
+			for _, ax := range ra.Axes {
+				keepSints[ax] = shape.Const(1)
+			}
+			nodeExp := nodeT.ReshapeSints(keepSints).ExpandSints(srcSints)
+			maskF := jvpSrc(u, 0, sc, dev).CmpEq(nodeExp).Cast(u.DType())
+			tieCount := maskF.Sum(ra.Axes, true)
+			return t.Mul(maskF).Sum(ra.Axes, true).Div(tieCount).ReshapeSints(outSints)
+		}
+		// Only Add/Max/Min reduces are produced by the tensor API.
+		return nil
+	}
+
+	// ── Select ────────────────────────────────────────────────────────────────
+	// d(where(cond, a, b)) = where(cond, da, db); the boolean cond has no tangent.
+	m[uop.OpWhere] = func(u uop.UOp, nodeT *Tensor, tanOf func(int) *Tensor, sc map[uint32][]shape.Sint, dev string) *Tensor {
+		cond := jvpSrc(u, 0, sc, dev)
+		z := FullSints(u.Arena(), sc[u.Index()], 0.0, u.DType(), dev)
+		tA, tB := tanOf(1), tanOf(2)
+		if tA == nil {
+			tA = z
+		}
+		if tB == nil {
+			tB = z
+		}
+		return Where(cond, tA, tB)
+	}
+
 	return m
 }
