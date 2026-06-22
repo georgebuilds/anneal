@@ -2,13 +2,19 @@ package examples
 
 import (
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"time"
 
 	resnet9data "github.com/georgebuilds/anneal/examples/resnet9"
 	"github.com/georgebuilds/anneal/tensor"
 	"github.com/georgebuilds/anneal/tensor/nn"
+	"github.com/georgebuilds/anneal/tensor/safetensors"
 	"github.com/georgebuilds/anneal/uop"
 )
 
@@ -220,6 +226,19 @@ func runDiT(
 	params := model.Params()
 	opt := nn.NewAdam(params, lr)
 
+	// Resume from a checkpoint if present (restores p.Value before the loop; the
+	// per-step p.Load(a) then seeds each fresh arena from the restored master).
+	ckpt := ditCheckpointPath()
+	if _, statErr := os.Stat(ckpt); statErr == nil {
+		if err := safetensors.Load(ckpt, ditParamMap(params)); err != nil {
+			if cfg.LogText != nil {
+				cfg.LogText(fmt.Sprintf("dit: checkpoint at %s ignored (%v)\n", ckpt, err))
+			}
+		} else if cfg.LogText != nil {
+			cfg.LogText(fmt.Sprintf("dit: resumed from checkpoint %s\n", ckpt))
+		}
+	}
+
 	sampleRNG := rand.New(rand.NewSource(seed + 1))
 	stepRNG := rand.New(rand.NewSource(seed + 2))
 
@@ -290,6 +309,12 @@ func runDiT(
 		}
 		opt.Step(grads)
 
+		if cfg.LogEvery > 0 && step%cfg.LogEvery == 0 {
+			if err := safetensors.Save(ckpt, ditParamMap(params)); err != nil && cfg.LogText != nil {
+				cfg.LogText(fmt.Sprintf("dit: checkpoint save failed at step %d: %v\n", step, err))
+			}
+		}
+
 		if cfg.OnStep != nil {
 			cfg.OnStep(step)
 		}
@@ -300,13 +325,23 @@ func runDiT(
 	}
 
 	elapsed := time.Since(start)
+	// Always persist a final checkpoint so a completed run is resumable.
+	if err := safetensors.Save(ckpt, ditParamMap(params)); err != nil && cfg.LogText != nil {
+		cfg.LogText(fmt.Sprintf("dit: final checkpoint save failed: %v\n", err))
+	}
 	if cfg.LogText != nil {
 		cfg.LogText(fmt.Sprintf("dit: training complete in %s (%d steps)\n", elapsed.Round(time.Millisecond), cfg.Steps))
-		stats, err := ditSampleSmoke(model, params, batch, dc, betas, alphas, alphaBars,
+		stats, samples, err := ditSampleSmoke(model, params, batch, dc, betas, alphas, alphaBars,
 			rand.New(rand.NewSource(seed+3)), device)
 		if err == nil {
 			cfg.LogText(fmt.Sprintf("dit: CFG sample mean=%+.4f var=%+.4f (guidance=%.1f, %d reverse steps)\n",
 				stats.mean, stats.variance, ditGuidance, ditSampleSteps))
+			dir := ditSampleDir()
+			if n, perr := ditSavePNGs(samples, batch, dc.inCh, dc.imageH, dc.imageW, dir); perr == nil {
+				cfg.LogText(fmt.Sprintf("dit: wrote %d sample PNG(s) to %s\n", n, dir))
+			} else {
+				cfg.LogText(fmt.Sprintf("dit: PNG export failed: %v\n", perr))
+			}
 		}
 	}
 	return nil
@@ -436,7 +471,7 @@ func ditSampleSmoke(
 	betas, alphas, alphaBars []float32,
 	rng *rand.Rand,
 	device string,
-) (ditSampleStats, error) {
+) (ditSampleStats, []float32, error) {
 	C, H, W := dc.inCh, dc.imageH, dc.imageW
 	perSample := C * H * W
 	cols := dc.numClasses + 1
@@ -488,11 +523,11 @@ func ditSampleSmoke(
 
 		epsCond, err := predEps(condOH)
 		if err != nil {
-			return ditSampleStats{}, fmt.Errorf("dit sample step %d (cond): %w", step, err)
+			return ditSampleStats{}, nil, fmt.Errorf("dit sample step %d (cond): %w", step, err)
 		}
 		epsUncond, err := predEps(uncondOH)
 		if err != nil {
-			return ditSampleStats{}, fmt.Errorf("dit sample step %d (uncond): %w", step, err)
+			return ditSampleStats{}, nil, fmt.Errorf("dit sample step %d (uncond): %w", step, err)
 		}
 
 		alphaT := alphas[tIdx]
@@ -509,12 +544,103 @@ func ditSampleSmoke(
 	for _, v := range x {
 		fv := float64(v)
 		if math.IsNaN(fv) || math.IsInf(fv, 0) {
-			return ditSampleStats{}, fmt.Errorf("non-finite sample value")
+			return ditSampleStats{}, nil, fmt.Errorf("non-finite sample value")
 		}
 		sum += fv
 		sq += fv * fv
 	}
 	n := float64(len(x))
 	mean := sum / n
-	return ditSampleStats{mean: float32(mean), variance: float32(sq/n - mean*mean)}, nil
+	return ditSampleStats{mean: float32(mean), variance: float32(sq/n - mean*mean)}, x, nil
+}
+
+// ── Checkpointing + PNG sample export ─────────────────────────────────────────
+
+// ditCacheDir resolves the anneal cache subtree (honoring ANNEAL_CACHE_DIR),
+// creating it if needed. Falls back to the working directory on error.
+func ditCacheDir() string {
+	dir := os.Getenv("ANNEAL_CACHE_DIR")
+	if dir == "" {
+		uc, err := os.UserCacheDir()
+		if err != nil {
+			return "."
+		}
+		dir = filepath.Join(uc, "anneal", "v1")
+	}
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// ditCheckpointPath is where DiT weights are saved/resumed.
+func ditCheckpointPath() string { return filepath.Join(ditCacheDir(), "dit-checkpoint.safetensors") }
+
+// ditSampleDir is where generated sample PNGs are written.
+func ditSampleDir() string {
+	dir := filepath.Join(ditCacheDir(), "dit-samples")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// ditParamMap builds the {key -> Parameter} map for safetensors save/load. Keys
+// are positional so save and load agree regardless of per-parameter Name.
+func ditParamMap(params []*nn.Parameter) map[string]*nn.Parameter {
+	m := make(map[string]*nn.Parameter, len(params))
+	for i, p := range params {
+		m[fmt.Sprintf("p%04d", i)] = p
+	}
+	return m
+}
+
+// CIFAR-10 per-channel normalization (mirrors the data loader) so samples, which
+// live in normalized space, can be denormalized to viewable [0,1] pixels.
+var ditCifarMean = [3]float32{0.4914, 0.4822, 0.4465}
+var ditCifarStd = [3]float32{0.2470, 0.2435, 0.2616}
+
+// ditSavePNGs denormalizes CIFAR-space samples [B,3,H,W] to RGB, clamps to
+// [0,1], and writes one PNG per image into dir. Returns the number written.
+func ditSavePNGs(samples []float32, B, C, H, W int64, dir string) (int, error) {
+	if C != 3 {
+		return 0, fmt.Errorf("dit: ditSavePNGs expects 3 channels, got %d", C)
+	}
+	if int64(len(samples)) != B*C*H*W {
+		return 0, fmt.Errorf("dit: ditSavePNGs sample length %d != B*C*H*W=%d", len(samples), B*C*H*W)
+	}
+	plane := H * W
+	clamp := func(v float32) uint8 {
+		if v < 0 {
+			v = 0
+		}
+		if v > 1 {
+			v = 1
+		}
+		return uint8(v*255 + 0.5)
+	}
+	count := 0
+	for b := int64(0); b < B; b++ {
+		img := image.NewNRGBA(image.Rect(0, 0, int(W), int(H)))
+		base := b * C * plane
+		for y := int64(0); y < H; y++ {
+			for x := int64(0); x < W; x++ {
+				off := y*W + x
+				r := samples[base+0*plane+off]*ditCifarStd[0] + ditCifarMean[0]
+				g := samples[base+1*plane+off]*ditCifarStd[1] + ditCifarMean[1]
+				bl := samples[base+2*plane+off]*ditCifarStd[2] + ditCifarMean[2]
+				img.SetNRGBA(int(x), int(y), color.NRGBA{R: clamp(r), G: clamp(g), B: clamp(bl), A: 255})
+			}
+		}
+		path := filepath.Join(dir, fmt.Sprintf("sample_%02d.png", b))
+		f, err := os.Create(path)
+		if err != nil {
+			return count, fmt.Errorf("dit: create %s: %w", path, err)
+		}
+		if err := png.Encode(f, img); err != nil {
+			_ = f.Close()
+			return count, fmt.Errorf("dit: encode %s: %w", path, err)
+		}
+		if err := f.Close(); err != nil {
+			return count, fmt.Errorf("dit: close %s: %w", path, err)
+		}
+		count++
+	}
+	return count, nil
 }
