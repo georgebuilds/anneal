@@ -208,8 +208,8 @@
                     --muted: #5c4e3f;
                     --faint: #9a8f85;
                     --bg-glass: rgba(251, 248, 243, 0.88);
-                    --teal-tx: #0078a0; /* WCAG AA on #FBF8F3 */
-                    --ember-tx: #c03a00;
+                    --teal-tx: #006d92; /* WCAG AA on #FBF8F3 and #EDE8E0 */
+                    --ember-tx: #b83700;
                     --gold-tx: #8b5e10;
                 }
             }
@@ -221,8 +221,8 @@
                 --muted: #5c4e3f;
                 --faint: #9a8f85;
                 --bg-glass: rgba(251, 248, 243, 0.88);
-                --teal-tx: #0078a0;
-                --ember-tx: #c03a00;
+                --teal-tx: #006d92;
+                --ember-tx: #b83700;
                 --gold-tx: #8b5e10;
             }
 
@@ -1059,6 +1059,135 @@
                     font-size: 0.75rem;
                 }
             }
+
+            /* ─── Hero CTA ──────────────────────────────────────────────── */
+            .hero-cta {
+                margin-top: 1.75rem;
+                display: inline-flex;
+                gap: 1rem 1.25rem;
+                align-items: center;
+                flex-wrap: wrap;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.5s ease 0.74s;
+            }
+            .hero-cta.visible {
+                opacity: 1;
+            }
+            .cta-btn {
+                display: inline-flex;
+                align-items: center;
+                font-family: var(--mono);
+                font-size: 0.85rem;
+                font-weight: 700;
+                letter-spacing: 0.01em;
+                padding: 0.62rem 1.25rem;
+                border-radius: 6px;
+                text-decoration: none;
+                cursor: pointer;
+                border: 1px solid var(--teal);
+                color: #0a0807;
+                background: var(--teal);
+                transition:
+                    transform 0.15s ease,
+                    box-shadow 0.2s ease,
+                    filter 0.2s ease;
+            }
+            .cta-btn::after {
+                content: " \2192";
+            }
+            .cta-btn:hover,
+            .cta-btn:focus-visible {
+                transform: translateY(-1px);
+                box-shadow: 0 8px 22px rgba(0, 173, 216, 0.28);
+                filter: brightness(1.06);
+            }
+            .cta-link {
+                font-size: 0.82rem;
+                color: var(--muted);
+                text-decoration: none;
+                border-bottom: 1px dotted var(--faint);
+                transition:
+                    color 0.2s ease,
+                    border-color 0.2s ease;
+            }
+            .cta-link:hover,
+            .cta-link:focus-visible {
+                color: var(--text);
+                border-bottom-color: var(--muted);
+            }
+
+            /* ─── Learn section ─────────────────────────────────────────── */
+            .learn-path {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.6rem;
+                margin: 1.75rem 0 2.25rem;
+            }
+            .learn-chip {
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                flex: 1 1 130px;
+                background: var(--surface);
+                border: 1px solid var(--faint);
+                border-radius: 8px;
+                padding: 0.7rem 0.85rem;
+                text-decoration: none;
+                color: inherit;
+                transition:
+                    border-color 0.18s ease,
+                    transform 0.18s ease;
+            }
+            .learn-chip:hover,
+            .learn-chip:focus-visible {
+                border-color: var(--teal);
+                transform: translateY(-2px);
+            }
+            .learn-chip .lc-name {
+                font-size: 0.82rem;
+                font-weight: 700;
+                color: var(--text);
+            }
+            .learn-chip .pips {
+                display: inline-flex;
+                gap: 3px;
+                flex-shrink: 0;
+            }
+            .learn-chip .pip {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: var(--faint);
+            }
+            .learn-chip .pips[data-level="1"] .pip:nth-child(1) {
+                background: var(--teal);
+            }
+            .learn-chip .pips[data-level="2"] .pip:nth-child(-n + 2) {
+                background: var(--gold);
+            }
+            .learn-chip .pips[data-level="3"] .pip {
+                background: var(--ember);
+            }
+            .learn-more {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex: 1 1 110px;
+                border: 1px dashed var(--faint);
+                border-radius: 8px;
+                padding: 0.7rem 0.85rem;
+                font-size: 0.72rem;
+                color: var(--gold-tx);
+                text-align: center;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .learn-chip:hover,
+                .learn-chip:focus-visible,
+                .cta-btn:hover {
+                    transform: none;
+                }
+            }
         </style>
     </head>
     <body>
@@ -1082,6 +1211,7 @@
                 <span class="proj-name">anneal</span>
             </div>
             <nav aria-label="site navigation">
+                <a href="tutorial/" data-i18n="nav.learn">learn</a>
                 <a href="#architecture" class="nav-anchor" data-i18n="nav.how"
                     >how it works</a
                 >
@@ -1218,8 +1348,69 @@
                     id="js-copy-live"
                 ></span>
 
+                <div class="hero-cta" id="js-cta">
+                    <a class="cta-btn" href="tutorial/" data-i18n="hero.cta"
+                        >Start the course</a
+                    >
+                    <a class="cta-link" href="#learn" data-i18n="hero.cta2"
+                        >see what you'll build</a
+                    >
+                </div>
             </div>
             <!-- /.hero -->
+
+            <div class="divider" role="separator" aria-hidden="true"></div>
+
+            <!-- Learn -->
+            <section id="learn" aria-labelledby="learn-heading">
+                <p class="sec-label" data-i18n="learn.label">learn</p>
+                <h2
+                    class="sec-heading"
+                    id="learn-heading"
+                    data-i18n="learn.heading"
+                >
+                    Learn how ML actually compiles, by running one.
+                </h2>
+                <p class="sec-body" data-i18n="learn.body">
+                    anneal doubles as a hands-on course. Pick a model, train it
+                    end to end on your own GPU with no Python and no CUDA, then
+                    open up the compiler and read the GPU kernels it wrote. You
+                    learn the network and the machine underneath it at the same
+                    time, because here they are the same thing.
+                </p>
+                <nav class="learn-path" aria-label="learning path">
+                    <a class="learn-chip" href="tutorial/#model=mlp" aria-label="MLP lesson (intro)">
+                        <span class="pips" data-level="1" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">MLP</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=conv" aria-label="ConvNet lesson (intro)">
+                        <span class="pips" data-level="1" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">ConvNet</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=nanogpt" aria-label="nanoGPT lesson (core)">
+                        <span class="pips" data-level="2" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">nanoGPT</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=llama" aria-label="Llama lesson (core)">
+                        <span class="pips" data-level="2" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">Llama</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=vit" aria-label="ViT lesson (core)">
+                        <span class="pips" data-level="2" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">ViT</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=resnet9" aria-label="ResNet-9 lesson (deep)">
+                        <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">ResNet-9</span>
+                    </a>
+                    <a class="learn-chip" href="tutorial/#model=gpt2" aria-label="GPT-2 lesson (deep)">
+                        <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                        <span class="lc-name">GPT-2</span>
+                    </a>
+                    <span class="learn-more" data-i18n="learn.more">more soon</span>
+                </nav>
+                <a class="cta-btn" href="tutorial/" data-i18n="learn.cta">Start the course</a>
+            </section>
 
             <div class="divider" role="separator" aria-hidden="true"></div>
 
@@ -1453,7 +1644,7 @@
                                     <code>anneal train mlp</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.train">
-                                    training loop with the live TUI (mlp / conv / dynmlp)
+                                    training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2)
                                 </td>
                             </tr>
                             <tr>
@@ -1656,7 +1847,7 @@
                 <span class="proj-name" style="font-size: inherit">anneal</span>
             </div>
             <div class="footer-right">
-                <span class="v-badge" data-i18n="footer.v">v0.1.16 · agpl-3.0</span>
+                <span class="v-badge" data-i18n="footer.v">v0.1.17 · agpl-3.0</span>
                 <a
                     href="https://github.com/georgebuilds/anneal"
                     target="_blank"
@@ -1764,7 +1955,7 @@
                         "cli.col.cmd": "command",
                         "cli.col.desc": "description",
                         "cli.run": "realize and execute a registered example graph",
-                        "cli.train": "training loop with the live TUI (mlp / conv / dynmlp)",
+                        "cli.train": "training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2)",
                         "cli.viz":
                             "launch the graph visualizer in-browser (WASM)",
                         "cli.web":
@@ -1793,7 +1984,17 @@
                         "phil.go.h": "Written in Go",
                         "phil.go.b":
                             "Strict typing. <code>gofmt</code> clean. The WASM build of the compiler frontend is the same binary as the CLI, so the visualizer and the trainer are always in sync, by construction.",
-                        "footer.v": "v0.1.16 · agpl-3.0",
+                        "nav.learn": "learn",
+                        "hero.cta": "Start the course",
+                        "hero.cta2": "see what you'll build",
+                        "learn.label": "learn",
+                        "learn.heading":
+                            "Learn how ML actually compiles, by running one.",
+                        "learn.body":
+                            "anneal doubles as a hands-on course. Pick a model, train it end to end on your own GPU with no Python and no CUDA, then open up the compiler and read the GPU kernels it wrote. You learn the network and the machine underneath it at the same time, because here they are the same thing.",
+                        "learn.more": "more soon",
+                        "learn.cta": "Start the course",
+                        "footer.v": "v0.1.17 · agpl-3.0",
                     },
                     es: {
                         skip: "saltar al contenido principal",
@@ -1857,7 +2058,7 @@
                         "cli.col.desc": "descripción",
                         "cli.run": "materializar y ejecutar un grafo de ejemplo registrado",
                         "cli.train":
-                            "bucle de entrenamiento con la TUI en vivo (mlp / conv / dynmlp)",
+                            "bucle de entrenamiento con la TUI en vivo (mlp, conv, nanogpt, llama, vit, gpt2)",
                         "cli.viz":
                             "lanzar el visualizador de grafos en el navegador (WASM)",
                         "cli.web":
@@ -1889,7 +2090,25 @@
                         "phil.go.h": "Escrito en Go",
                         "phil.go.b":
                             "Tipado estricto. Limpio con <code>gofmt</code>. La compilación WASM del frontend del compilador es el mismo binario que la CLI, por lo que el visualizador y el entrenador están siempre sincronizados, por construcción.",
-                        "footer.v": "v0.1.16 · agpl-3.0",
+                        "card.rwt.tag": "motor de reescritura",
+                        "card.rwt.title": "Un controlador de punto fijo iterativo",
+                        "card.rwt.body":
+                            "El motor de reescritura llega al punto fijo de forma iterativa, no recursiva, así que los grafos profundos que agotan la pila en el controlador recursivo original compilan sin problemas aquí. Las reglas son patrones .upat compilados a funciones de coincidencia en tiempo de compilación. Sin reflexión en la ruta crítica.",
+                        "card.iop.tag": "interoperabilidad",
+                        "card.iop.title": "Trae tus propios pesos",
+                        "card.iop.body":
+                            "Lee y escribe safetensors y .npy/.npz de forma bidireccional, en Go puro. Carga un checkpoint, entrénalo o ejecútalo, y expórtalo de vuelta. Toda la pila es zero-CGO: sin toolchain de C en el build, y se ejecuta hoy en Metal a través de WebGPU.",
+                        "nav.learn": "aprende",
+                        "hero.cta": "Empieza el curso",
+                        "hero.cta2": "mira qué construirás",
+                        "learn.label": "aprende",
+                        "learn.heading":
+                            "Aprende cómo compila el ML de verdad, ejecutando uno.",
+                        "learn.body":
+                            "anneal es además un curso práctico. Elige un modelo, entrénalo de principio a fin en tu propia GPU sin Python ni CUDA, y luego abre el compilador y lee los kernels de GPU que escribió. Aprendes la red y la máquina que hay debajo al mismo tiempo, porque aquí son lo mismo.",
+                        "learn.more": "más pronto",
+                        "learn.cta": "Empieza el curso",
+                        "footer.v": "v0.1.17 · agpl-3.0",
                     },
                 };
 
@@ -2111,6 +2330,7 @@
                     "js-subhead",
                     "js-secondary",
                     "js-install",
+                    "js-cta",
                 ].forEach(function (id) {
                     document.getElementById(id).classList.add("visible");
                 });
