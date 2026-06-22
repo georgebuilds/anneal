@@ -10,14 +10,20 @@ package examples
 // example. The full CIFAR-10 convergence run is S4.
 
 import (
+	"fmt"
+	"image/png"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/georgebuilds/anneal/backend/webgpu"
 	"github.com/georgebuilds/anneal/tensor"
+	"github.com/georgebuilds/anneal/tensor/safetensors"
+	"github.com/georgebuilds/anneal/uop"
 )
 
 // requireGPUForDiTTest mirrors the per-test GPU bootstrap used by the other
@@ -81,6 +87,10 @@ func TestRunDiTFewStepsSmoke(t *testing.T) {
 		t.Skip("short mode: skipping GPU DiT smoke")
 	}
 	requireGPUForDiTTest(t)
+	// Isolate checkpoint + PNG side-effects to a temp cache dir (synthCIFAR10
+	// bypasses the asset loader, so this only redirects ditCacheDir output).
+	cacheDir := t.TempDir()
+	t.Setenv("ANNEAL_CACHE_DIR", cacheDir)
 
 	ds := synthCIFAR10(4, rand.New(rand.NewSource(7)))
 	dc := ditConfig{
@@ -120,6 +130,14 @@ func TestRunDiTFewStepsSmoke(t *testing.T) {
 	if !strings.Contains(captured.String(), "CFG sample mean=") {
 		t.Errorf("LogText did not receive CFG sample line; got %q", captured.String())
 	}
+	// PART A: a completed run writes a resumable checkpoint and sample PNGs.
+	if _, err := os.Stat(filepath.Join(cacheDir, "dit-checkpoint.safetensors")); err != nil {
+		t.Errorf("expected a checkpoint file under %s: %v", cacheDir, err)
+	}
+	pngs, _ := filepath.Glob(filepath.Join(cacheDir, "dit-samples", "*.png"))
+	if len(pngs) == 0 {
+		t.Errorf("expected sample PNGs under %s/dit-samples", cacheDir)
+	}
 }
 
 // TestRunDiTDefaultDimsGPU verifies the PRODUCTION config (ditDefaultConfig:
@@ -145,6 +163,76 @@ func TestRunDiTDefaultDimsGPU(t *testing.T) {
 	for i, l := range losses {
 		if math.IsNaN(float64(l)) || math.IsInf(float64(l), 0) || l < 0 {
 			t.Fatalf("loss[%d] invalid: %v", i, l)
+		}
+	}
+}
+
+// ── PART A: PNG export + checkpoint (host-only, no GPU) ───────────────────────
+
+func TestDitSavePNGs(t *testing.T) {
+	dir := t.TempDir()
+	const B, C, H, W = int64(2), int64(3), int64(4), int64(4)
+	samples := make([]float32, B*C*H*W)
+	for i := range samples {
+		samples[i] = float32(i%7)*0.1 - 0.3 // spans below/above the [0,1] clamp
+	}
+	n, err := ditSavePNGs(samples, B, C, H, W, dir)
+	if err != nil {
+		t.Fatalf("ditSavePNGs: %v", err)
+	}
+	if n != int(B) {
+		t.Fatalf("wrote %d PNGs, want %d", n, B)
+	}
+	for b := int64(0); b < B; b++ {
+		f, err := os.Open(filepath.Join(dir, fmt.Sprintf("sample_%02d.png", b)))
+		if err != nil {
+			t.Fatalf("open png %d: %v", b, err)
+		}
+		im, err := png.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatalf("decode png %d: %v", b, err)
+		}
+		if im.Bounds().Dx() != int(W) || im.Bounds().Dy() != int(H) {
+			t.Fatalf("png %d size %v, want %dx%d", b, im.Bounds(), W, H)
+		}
+	}
+}
+
+func TestDitCheckpointRoundTrip(t *testing.T) {
+	dc := ditConfig{
+		imageH: 32, imageW: 32, patch: 8, inCh: 3,
+		embedDim: 32, condDim: 32, timeEmbedDim: 32, numClasses: 10,
+		nLayer: 1, nHead: 2, T: 20,
+		betaStart: 1e-4, betaEnd: 0.02, adamLR: 1e-3, initScale: 0.02, cfgDropProb: 0.1,
+	}
+	a := uop.NewArena(1 << 20)
+	m := newDitModel(a, dc, "cpu")
+	rng := rand.New(rand.NewSource(5))
+	for _, p := range m.Params() {
+		for i := range p.Value {
+			p.Value[i] = float32(rng.NormFloat64())
+		}
+	}
+	path := filepath.Join(t.TempDir(), "ckpt.safetensors")
+	if err := safetensors.Save(path, ditParamMap(m.Params())); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	a2 := uop.NewArena(1 << 20)
+	m2 := newDitModel(a2, dc, "cpu")
+	if err := safetensors.Load(path, ditParamMap(m2.Params())); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	p1, p2 := m.Params(), m2.Params()
+	if len(p1) != len(p2) {
+		t.Fatalf("param count mismatch: %d vs %d", len(p1), len(p2))
+	}
+	for i := range p1 {
+		for j := range p1[i].Value {
+			if p1[i].Value[j] != p2[i].Value[j] {
+				t.Fatalf("param %d[%d] mismatch after round-trip: %v vs %v", i, j, p1[i].Value[j], p2[i].Value[j])
+			}
 		}
 	}
 }
