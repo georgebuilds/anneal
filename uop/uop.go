@@ -3,6 +3,7 @@ package uop
 import (
 	"fmt"
 	"math"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -33,7 +34,16 @@ type Arena struct {
 	provenance []Phase              // parallel to nodes; set once at first construction
 	phase      Phase                // current build phase; new allocations inherit this
 	Ext        any                  // arena-scoped extension slot; GC'd with the arena
+
+	// realizeID is a process-unique, monotonic id (never reused, even after this
+	// arena is GC'd) used to scope the executor's stateful realize buffer cache.
+	// realizeGen bumps whenever a leaf's data changes (SetData/Load), so a cache
+	// keyed by (realizeID, realizeGen) is invalidated on any input mutation.
+	realizeID  uint64
+	realizeGen uint64
 }
+
+var arenaIDCounter atomic.Uint64
 
 // uopNode is the stored, immutable representation of one UOp.
 type uopNode struct {
@@ -51,8 +61,23 @@ func NewArena(capacity int) *Arena {
 		cache:      make(map[uint64][]uint32, capacity),
 		leaves:     make(map[uint32][]float32),
 		provenance: make([]Phase, 0, capacity),
+		realizeID:  arenaIDCounter.Add(1),
 	}
 }
+
+// RealizeID is a process-unique id for this arena, used to scope the executor's
+// stateful realize buffer cache (never reused, so a fresh arena always
+// invalidates a prior arena's cache).
+func (a *Arena) RealizeID() uint64 { return a.realizeID }
+
+// RealizeGen is the current input-data generation; it bumps on every leaf
+// SetData/Load so a cache keyed by (RealizeID, RealizeGen) is invalidated when
+// any input changes within the arena's lifetime.
+func (a *Arena) RealizeGen() uint64 { return a.realizeGen }
+
+// BumpRealizeGen records that a leaf's data changed, invalidating any cached
+// realize buffers for this arena.
+func (a *Arena) BumpRealizeGen() { a.realizeGen++ }
 
 // Reset discards all UOp nodes and clears the intern cache.
 // Every UOp handle previously issued by this arena becomes invalid after Reset -
