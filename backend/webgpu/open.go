@@ -55,6 +55,22 @@ type Device struct {
 	// jobs delivers closures to the GPU-owner goroutine. Closed by Close, which
 	// terminates the owner goroutine (and thereby its locked OS thread).
 	jobs chan gpuJob
+
+	// ── Stateful realize cache (opt-in, set up by BeginRealizeScope) ──────────
+	// When realizeOn is set for a Run, intermediate (slotted) buffers are
+	// allocated persistently (one per node, NO slot reuse) and cached by node
+	// UOpIdx in realizeCache, so a later Run in the same scope reuses them and
+	// skips their producer kernels. The cache is scoped by (realizeScopeID,
+	// realizeScopeGen): a change frees the whole cache. All fields below are
+	// touched only on the GPU-owner goroutine except realizeOn / pendingScope*,
+	// which BeginRealizeScope sets just before the Run that consumes them (the
+	// jobs-channel send to the owner goroutine is the happens-before barrier).
+	realizeOn       bool
+	pendingScopeID  uint64
+	pendingScopeGen uint64
+	realizeScopeID  uint64
+	realizeScopeGen uint64
+	realizeCache    map[uint32]*deviceBuffer
 }
 
 // gpuJob is a unit of Metal-touching work handed to the GPU-owner goroutine.
@@ -147,6 +163,7 @@ func Open() (*Device, error) {
 // Close releases all GPU resources and terminates the GPU-owner goroutine.
 func (d *Device) Close() {
 	_ = d.onGPU(func() error {
+		d.freeRealizeCacheLocked()
 		if d.compiler != nil {
 			d.compiler.releaseAll()
 		}

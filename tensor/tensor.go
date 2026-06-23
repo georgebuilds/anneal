@@ -66,6 +66,9 @@ func (t *Tensor) SetData(d []float32) {
 		t.data = quantized
 	}
 	t.node.Arena().SetLeaf(t.node.Index(), t.data)
+	// A leaf's data changed: invalidate the executor's stateful realize cache for
+	// this arena (cache entries are tagged with RealizeGen).
+	t.node.Arena().BumpRealizeGen()
 }
 
 // IsRealized reports whether this tensor has concrete data.

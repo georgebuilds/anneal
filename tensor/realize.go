@@ -2,6 +2,7 @@ package tensor
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/georgebuilds/anneal/backend"
 	"github.com/georgebuilds/anneal/codegen"
@@ -15,6 +16,22 @@ import (
 //	dev, err := webgpu.Open()
 //	tensor.DefaultExecutor = dev
 var DefaultExecutor backend.Executor
+
+// statefulRealize gates the executor's per-scope buffer cache (see
+// backend.StatefulExecutor). When enabled, realizing several outputs of a shared
+// graph in separate Realize calls reuses cached intermediates instead of
+// re-executing the shared subgraph each time. Off by default while it proves out;
+// set ANNEAL_STATEFUL_REALIZE=1 to enable.
+var statefulRealize = os.Getenv("ANNEAL_STATEFUL_REALIZE") != ""
+
+// SetStatefulRealize toggles the per-scope realize buffer cache at runtime and
+// returns the prior setting. Production reads ANNEAL_STATEFUL_REALIZE once at
+// startup; this exists for tests (and callers that want explicit control).
+func SetStatefulRealize(on bool) bool {
+	prev := statefulRealize
+	statefulRealize = on
+	return prev
+}
 
 // Realize executes the computation graphs rooted at each tensor, materialising
 // concrete float32 data. Leaf tensors must have data attached via SetData()
@@ -71,7 +88,13 @@ func Realize(tensors ...*Tensor) error {
 	// the original BUFFER nodes, not renamed).
 	inputs := leafInputs(tensors)
 
-	// Execute.
+	// Execute. With stateful realize on, arm the executor's per-scope buffer
+	// cache so a shared subgraph realized across separate calls runs once.
+	if statefulRealize {
+		if se, ok := DefaultExecutor.(backend.StatefulExecutor); ok {
+			se.BeginRealizeScope(a.RealizeID(), a.RealizeGen())
+		}
+	}
 	outputs, err := DefaultExecutor.Run(items, inputs)
 	if err != nil {
 		return fmt.Errorf("tensor: realize: %w", err)
