@@ -35,3 +35,14 @@ type Benchmarker interface {
 type SymbolicExecutor interface {
 	RunSymbolic(items []schedule.ExecItem, inputs map[uint32][]float32, binding map[string]int64) (map[uint32][]float32, error)
 }
+
+// StatefulExecutor is an optional interface for backends that keep a per-scope
+// buffer cache across Run calls. The realize layer calls BeginRealizeScope just
+// before Run, scoped by (scopeID, scopeGen) = (arena RealizeID, RealizeGen).
+// Within a scope the executor reuses cached intermediate buffers and skips their
+// producer kernels, so realizing several outputs of a shared graph in separate
+// Run calls executes the shared part once. A scope or generation change frees the
+// cache, so a leaf data change (which bumps RealizeGen) never serves stale data.
+type StatefulExecutor interface {
+	BeginRealizeScope(scopeID, scopeGen uint64)
+}

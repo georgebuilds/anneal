@@ -75,6 +75,15 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 		progs[i] = p
 	}
 
+	// ── Stateful realize: set up the scope cache (frees on scope change) ──
+	// prebuilt = nodes already computed by a prior Run in this scope; their
+	// producer kernels are skipped below. realizeOn is one-shot per Run.
+	var prebuilt map[uint32]bool
+	if d.realizeOn {
+		prebuilt = d.beginScopeLocked()
+	}
+	defer func() { d.realizeOn = false }()
+
 	// ── Allocate GPU buffers ─────────────────────────────────────────────
 	alloc := newAllocator(d)
 	defer alloc.Reset() // dedup'd batch release after final readback
@@ -92,6 +101,9 @@ func (d *Device) runLocked(items []schedule.ExecItem, inputs map[uint32][]float3
 
 	// ── Execute kernels in schedule order ───────────────────────────────
 	for i, item := range items {
+		if prebuilt[item.Bufs[0].UOpIdx] {
+			continue // already computed in a prior Run this scope; cached buffer reused
+		}
 		args, derr := buildDispatchArgs(item, item.WorkgroupCount, gpuBufs, nil)
 		if derr != nil {
 			return nil, fmt.Errorf("webgpu: kernel %d: %w", i, derr)
@@ -301,32 +313,57 @@ func (d *Device) allocateBuffers(items []schedule.ExecItem, alloc *allocator, ec
 
 	gpuBufs := make(map[uint32]backend.DeviceBuffer, len(items)*2)
 
-	// Phase A: slot-shared intermediates.
-	slotMaxElems := make(map[int]int64)
-	for _, item := range items {
-		out := item.Bufs[0]
-		if out.Slot >= 0 {
-			if n := ec.elems(out, item); n > slotMaxElems[out.Slot] {
-				slotMaxElems[out.Slot] = n
+	// Phase A: intermediates.
+	if d.realizeOn {
+		// Stateful realize: one persistent cached buffer per intermediate node, NO
+		// slot reuse (so no slot-aliasing hazard). Reuse buffers cached by a prior
+		// Run in this scope; allocate + cache the rest. The run loop skips the
+		// producer kernels of already-cached nodes.
+		for _, item := range items {
+			out := item.Bufs[0]
+			if out.Slot < 0 {
+				continue
 			}
-		}
-	}
-	for slot, maxElems := range slotMaxElems {
-		label := fmt.Sprintf("%sslot%d", labelPrefix, slot)
-		buf, err := alloc.AllocSlot(slot, maxElems, nil, label)
-		if err != nil {
-			return nil, fmt.Errorf("webgpu: alloc slot %d: %w", slot, err)
-		}
-		_ = buf
-	}
-	for _, item := range items {
-		out := item.Bufs[0]
-		if out.Slot >= 0 {
-			buf, err := alloc.AllocSlot(out.Slot, 0, nil, "")
+			if cached, ok := d.realizeCache[out.UOpIdx]; ok {
+				gpuBufs[out.UOpIdx] = cached
+				continue
+			}
+			n := ec.elems(out, item)
+			db, err := d.allocCachedIntermediateLocked(n, out.DType, fmt.Sprintf("%scache%d", labelPrefix, out.UOpIdx))
 			if err != nil {
-				return nil, fmt.Errorf("webgpu: lookup slot %d: %w", out.Slot, err)
+				return nil, err
 			}
-			gpuBufs[out.UOpIdx] = buf
+			d.realizeCache[out.UOpIdx] = db
+			gpuBufs[out.UOpIdx] = db
+		}
+	} else {
+		// Stateless: slot-shared intermediates (memory reuse within this Run).
+		slotMaxElems := make(map[int]int64)
+		for _, item := range items {
+			out := item.Bufs[0]
+			if out.Slot >= 0 {
+				if n := ec.elems(out, item); n > slotMaxElems[out.Slot] {
+					slotMaxElems[out.Slot] = n
+				}
+			}
+		}
+		for slot, maxElems := range slotMaxElems {
+			label := fmt.Sprintf("%sslot%d", labelPrefix, slot)
+			buf, err := alloc.AllocSlot(slot, maxElems, nil, label)
+			if err != nil {
+				return nil, fmt.Errorf("webgpu: alloc slot %d: %w", slot, err)
+			}
+			_ = buf
+		}
+		for _, item := range items {
+			out := item.Bufs[0]
+			if out.Slot >= 0 {
+				buf, err := alloc.AllocSlot(out.Slot, 0, nil, "")
+				if err != nil {
+					return nil, fmt.Errorf("webgpu: lookup slot %d: %w", out.Slot, err)
+				}
+				gpuBufs[out.UOpIdx] = buf
+			}
 		}
 	}
 
