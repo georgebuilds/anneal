@@ -238,9 +238,10 @@ func bertFDGradCheck(t *testing.T, device string) {
 	}
 	grads := tensor.Backward(loss, leaves)
 	// Realize each grad separately (one Realize per leaf). Batching all grads
-	// into a single variadic Realize tripped the assignOutputs structural-key
-	// ordering footgun (a [seqLen,nEmbd] PosEmb grad came back empty); the
-	// per-grad loop is the pattern every other example/test uses.
+	// into a single variadic Realize is not proven to attribute every output
+	// buffer to the right leaf for a shared backward graph with same-shape and
+	// scatter-add grads (a [seqLen,nEmbd] PosEmb grad came back empty when
+	// batched); the per-grad loop is the pattern every other example/test uses.
 	for _, leaf := range leaves {
 		if g, ok := grads[leaf]; ok {
 			if err := tensor.Realize(g); err != nil {
