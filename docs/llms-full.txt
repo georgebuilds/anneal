@@ -33,6 +33,19 @@ same way: `anneal train <model>`. Useful flags: `--steps=N`, `--batch=N`,
   multi-head attention with learned absolute positions, a SwiGLU feed-forward
   instead of a GELU MLP, and tied input/output embeddings. It is a small
   architecture demo of the modern primitive stack, not a trained chat model.
+- `moe`: a char-level GPT whose per-block feed-forward is replaced by a router
+  plus several expert FFNs. The router emits a softmax over the experts, every
+  expert runs on every token, and their outputs are combined by the router gates
+  (soft, dense routing); a load-balance auxiliary loss keeps the router from
+  collapsing onto a single expert. The only change from nanoGPT is the block
+  feed-forward: a teaching version of sparse Mixture-of-Experts. Trained on
+  tinyshakespeare; first run fetches the corpus and prints a generated sample.
+- `bert`: a char-level BERT encoder trained from scratch on tinyshakespeare with
+  masked language modeling: a random subset of input tokens is replaced by a
+  [MASK] sentinel and the model predicts them from context on both sides. Where
+  nanoGPT and Llama are causal decoders, this is encoder-only and bidirectional
+  (attention is unmasked). The first run fetches the corpus and prints a
+  masked-token reconstruction at the end.
 - `vit`: a tiny Vision Transformer (32x32 RGB, patch 4, 64-dim embedding, 2
   encoder blocks, 4 heads, mean-pool classification head) on a synthetic 10-class
   image dataset. No asset downloads.

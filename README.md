@@ -57,6 +57,8 @@ anneal doctor               # check your environment can reach a WebGPU device
 anneal train mlp            # train the MLP with a live TUI dashboard (also: conv, dynmlp --batch=N)
 anneal train nanogpt        # char-level transformer trained end to end on Shakespeare
 anneal train llama          # char-level Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU) on Shakespeare
+anneal train moe            # Mixture-of-Experts LM (router + expert FFNs, soft routing) on Shakespeare
+anneal train bert           # BERT encoder (bidirectional attention + masked-LM) on Shakespeare
 anneal train vit            # vision transformer on a synthetic 32x32 RGB classification task
 anneal train diffusion      # tiny DDPM denoiser on a synthetic dataset
 anneal train dit            # Diffusion Transformer (adaLN-zero, classifier-free guidance) on CIFAR-10
@@ -139,7 +141,7 @@ x   := tensor.NewSymbolicShape(a, []shape.Sint{
 tensor.RealizeWithBinding(seq.Bind(64), y)
 ```
 
-For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), `llama.go` (char-level Llama-style decoder: RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings), `vit.go` (vision transformer on a synthetic image-classification task), `resnet9.go` (ResNet-9 on CIFAR-10: real 3x3 convolutions, residual blocks, BatchNorm; forward realizes end to end and every submodule is FD-tested, full-network training is gated on a WGSL codegen scaling issue), `diffusion.go` (tiny DDPM denoiser on a synthetic dataset), `dit.go` (Diffusion Transformer: adaLN-zero conditioning, classifier-free guidance, epsilon-prediction on CIFAR-10), `meanflow.go` (MeanFlow one-step generative model on the DiT backbone: average-velocity training whose total-time-derivative term is computed as a forward-mode JVP, the first use of forward-mode autodiff in the compiler for a real objective), `gpt2_finetune.go` (tied-weight GPT-2 fine-tune: stable cross-entropy, AdamW, LR warmup, JIT'd train step), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
+For runnable, end-to-end code, including parameter setup, the training loop, optimizer steps, and generation, see [`examples/`](examples): `mlp.go`, `conv.go`, `dynmlp.go`, `nanogpt.go` (char-level transformer training), `llama.go` (char-level Llama-style decoder: RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings), `moe.go` (Mixture-of-Experts LM: a char-level GPT whose per-block feed-forward is a router plus several expert FFNs combined by soft gating, with a load-balance auxiliary loss; trains on tinyshakespeare), `bert.go` (BERT encoder: a bidirectional transformer trained with masked language modeling, the encoder-only counterpart to the causal decoders; trains on tinyshakespeare), `vit.go` (vision transformer on a synthetic image-classification task), `resnet9.go` (ResNet-9 on CIFAR-10: real 3x3 convolutions, residual blocks, BatchNorm; forward realizes end to end and every submodule is FD-tested, full-network training is gated on a WGSL codegen scaling issue), `diffusion.go` (tiny DDPM denoiser on a synthetic dataset), `dit.go` (Diffusion Transformer: adaLN-zero conditioning, classifier-free guidance, epsilon-prediction on CIFAR-10), `meanflow.go` (MeanFlow one-step generative model on the DiT backbone: average-velocity training whose total-time-derivative term is computed as a forward-mode JVP, the first use of forward-mode autodiff in the compiler for a real objective), `gpt2_finetune.go` (tied-weight GPT-2 fine-tune: stable cross-entropy, AdamW, LR warmup, JIT'd train step), and `gpt2/` (HF safetensors load + BPE + autoregressive sample). Those are the canonical reference for the current API surface.
 
 ## Project layout
 
@@ -159,7 +161,7 @@ viz/         the WASM visualizer
 web/         studio.html / studio.css / studio.js / worker.js, embedded into the CLI binary; A11Y.md is the binding per-view a11y checklist
 onnx/        ONNX importer; onnxpb/ holds the pure-Go protobuf bindings;
              testdata/ holds the 234-case ONNX 1.17.0 conformance corpus
-examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, llama.go, vit.go, resnet9.go, diffusion.go, dit.go, meanflow.go, gpt2_finetune.go, gpt2/
+examples/    mlp.go, conv.go, dynmlp.go, nanogpt.go, llama.go, moe.go, bert.go, vit.go, resnet9.go, diffusion.go, dit.go, meanflow.go, gpt2_finetune.go, gpt2/
 internal/
   assets/    SHA-pinned downloader for Shakespeare corpus and HF GPT-2 weights
   bundle/    on-disk run bundle format (manifest.json + schedule.json + kernels/ + loss.csv etc.)
