@@ -262,12 +262,13 @@ func runBERT(
 		}
 		grads := tensor.Backward(loss, leaves)
 
-		// Realize each grad (one Realize per leaf), exactly as llama / nanogpt /
-		// vit do. A single batched variadic Realize over all grads trips the
-		// assignOutputs structural-key ordering footgun: BERT's untied head and
-		// token embedding gradients share the [vocab, nEmbd] shape, so batching
-		// can map a buffer to the wrong leaf (or leave one empty). Per-grad
-		// realize keeps each output's sink isolated.
+		// Realize each grad on its own (one Realize per leaf), exactly as llama /
+		// nanogpt / vit do. Batching several same-shape grad outputs of one shared
+		// backward graph into a single variadic Realize is not proven to attribute
+		// each output buffer to the right leaf: BERT has an untied head and token
+		// embedding both shaped [vocab, nEmbd] plus a scatter-add embedding grad,
+		// and batching empirically left a PosEmb grad empty. A single-output
+		// Realize has no attribution ambiguity, so per-grad realize is correct.
 		for _, p := range params {
 			gr, ok := grads[p.T]
 			if !ok {
