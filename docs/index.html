@@ -1317,7 +1317,7 @@
                     data-i18n="hero.subhead"
                     style="margin-bottom: 0.55rem"
                 >
-                    It compiles neural networks into GPU code, with reverse-mode autodiff built in.
+                    It compiles neural networks into GPU code, with reverse- and forward-mode autodiff built in.
                 </p>
                 <p
                     class="disambig"
@@ -1507,14 +1507,14 @@
                             runtime
                         </div>
                         <div class="card-title" data-i18n="card.rt.title">
-                            Symbolic shapes, JIT, f16/bf16 support
+                            Symbolic shapes, JIT, f16/bf16/fp8 support
                         </div>
                         <p class="card-body" data-i18n="card.rt.body">
                             Symbolic shapes: a kernel compiles once and runs at
                             any batch size, and the seam extends to split/merge
                             a symbolic axis, symbolic pad/shrink amounts, and
                             multi-dim symbolic dispatch. f16 support (narrowing
-                            uses IEEE 754 RTNE) and bf16 storage-only enable
+                            uses IEEE 754 RTNE) and bf16/fp8 storage enable
                             low-precision workflows. <code>tensor.JIT</code>
                             captures the execution plan; the scheduler is
                             memoized on a structural key. Kernel autotuning via
@@ -1644,7 +1644,7 @@
                                     <code>anneal train mlp</code>
                                 </td>
                                 <td class="cli-desc" data-i18n="cli.train">
-                                    training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2)
+                                    training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2, dit, bert, moe, and more)
                                 </td>
                             </tr>
                             <tr>
@@ -1847,7 +1847,7 @@
                 <span class="proj-name" style="font-size: inherit">anneal</span>
             </div>
             <div class="footer-right">
-                <span class="v-badge" data-i18n="footer.v">v0.1.17 · agpl-3.0</span>
+                <span class="v-badge" data-i18n="footer.v">v0.2.1 · agpl-3.0</span>
                 <a
                     href="https://github.com/georgebuilds/anneal"
                     target="_blank"
@@ -1899,7 +1899,7 @@
                         "hero.headline":
                             "Anneal is a machine learning compiler written in Go.",
                         "hero.subhead":
-                            "It compiles neural networks into GPU code, with reverse-mode autodiff built in.",
+                            "It compiles neural networks into GPU code, with reverse- and forward-mode autodiff built in.",
                         "hero.secondary":
                             "Autodiff is a compiler pass over the same graph as the forward computation, so it fuses forward and backward work into the same GPU kernels.",
                         "install.copy": "copy",
@@ -1927,9 +1927,9 @@
                             "The rangeify scheduler sees forward and backward together. It can fuse across that boundary, collapsing both into a single WGSL kernel that a backend-aware scheduler would never produce.",
                         "card.rt.tag": "runtime",
                         "card.rt.title":
-                            "Symbolic shapes, JIT, f16/bf16 support",
+                            "Symbolic shapes, JIT, f16/bf16/fp8 support",
                         "card.rt.body":
-                            "Symbolic shapes: a kernel compiles once and runs at any batch size, and the seam extends to split/merge a symbolic axis, symbolic pad/shrink amounts, and multi-dim symbolic dispatch. f16 support (narrowing uses IEEE 754 RTNE) and bf16 storage-only enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key. Kernel autotuning via BEAM search finds the best opt sequence per kernel and caches results to disk (ANNEAL_BEAM=1 to search; default is zero-overhead cache lookup).",
+                            "Symbolic shapes: a kernel compiles once and runs at any batch size, and the seam extends to split/merge a symbolic axis, symbolic pad/shrink amounts, and multi-dim symbolic dispatch. f16 support (narrowing uses IEEE 754 RTNE) and bf16/fp8 storage enable low-precision workflows. tensor.JIT captures the execution plan; the scheduler is memoized on a structural key. Kernel autotuning via BEAM search finds the best opt sequence per kernel and caches results to disk (ANNEAL_BEAM=1 to search; default is zero-overhead cache lookup).",
                         "card.rwt.tag": "rewrite engine",
                         "card.rwt.title": "An iterative fixpoint driver",
                         "card.rwt.body":
@@ -1955,7 +1955,7 @@
                         "cli.col.cmd": "command",
                         "cli.col.desc": "description",
                         "cli.run": "realize and execute a registered example graph",
-                        "cli.train": "training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2)",
+                        "cli.train": "training loop with the live TUI (mlp, conv, nanogpt, llama, vit, gpt2, dit, bert, moe, and more)",
                         "cli.viz":
                             "launch the graph visualizer in-browser (WASM)",
                         "cli.web":
@@ -1994,7 +1994,7 @@
                             "anneal doubles as a hands-on course. Pick a model, train it end to end on your own GPU with no Python and no CUDA, then open up the compiler and read the GPU kernels it wrote. You learn the network and the machine underneath it at the same time, because here they are the same thing.",
                         "learn.more": "more soon",
                         "learn.cta": "Start the course",
-                        "footer.v": "v0.1.17 · agpl-3.0",
+                        "footer.v": "v0.2.1 · agpl-3.0",
                     },
                     es: {
                         skip: "saltar al contenido principal",
@@ -2009,7 +2009,7 @@
                         "hero.headline":
                             "Anneal es un compilador de machine learning escrito en Go.",
                         "hero.subhead":
-                            "Compila redes neuronales a código GPU, con autodiff de modo inverso incorporado.",
+                            "Compila redes neuronales a código GPU, con autodiff de modo inverso y directo incorporado.",
                         "hero.secondary":
                             "El autodiff es una pasada de compilador sobre el mismo grafo que la computación directa, por lo que fusiona el trabajo directo e inverso en los mismos kernels GPU.",
                         "install.copy": "copiar",
@@ -2037,9 +2037,9 @@
                             "El planificador rangeify ve hacia adelante y hacia atrás juntos. Puede fusionar a través de ese límite, colapsando ambos en un único kernel WGSL que un planificador orientado al backend nunca produciría.",
                         "card.rt.tag": "tiempo de ejecución",
                         "card.rt.title":
-                            "Formas simbólicas, JIT, soporte f16/bf16",
+                            "Formas simbólicas, JIT, soporte f16/bf16/fp8",
                         "card.rt.body":
-                            "Formas simbólicas: un kernel se compila una vez y se ejecuta con cualquier tamaño de batch, y la unión se extiende a dividir/fusionar un eje simbólico, cantidades de pad/shrink simbólicas, y dispatch simbólico multidimensional. El soporte para f16 (con redondeo al par más cercano IEEE 754) y bf16 (solo almacenamiento) permite flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
+                            "Formas simbólicas: un kernel se compila una vez y se ejecuta con cualquier tamaño de batch, y la unión se extiende a dividir/fusionar un eje simbólico, cantidades de pad/shrink simbólicas, y dispatch simbólico multidimensional. El soporte para f16 (con redondeo al par más cercano IEEE 754) y el almacenamiento bf16/fp8 permiten flujos de baja precisión. <code>tensor.JIT</code> captura el plan de ejecución; el planificador está memoizado. El autotuning de kernels mediante búsqueda BEAM encuentra la mejor secuencia de optimizaciones por kernel y almacena los resultados en disco (ANNEAL_BEAM=1 para buscar; por defecto es una consulta de caché de coste cero).",
                         "card.onnx.tag": "importación onnx",
                         "card.onnx.title": "ONNX entra, UOps salen",
                         "card.onnx.body":
@@ -2058,7 +2058,7 @@
                         "cli.col.desc": "descripción",
                         "cli.run": "materializar y ejecutar un grafo de ejemplo registrado",
                         "cli.train":
-                            "bucle de entrenamiento con la TUI en vivo (mlp, conv, nanogpt, llama, vit, gpt2)",
+                            "bucle de entrenamiento con la TUI en vivo (mlp, conv, nanogpt, llama, vit, gpt2, dit, bert, moe, y más)",
                         "cli.viz":
                             "lanzar el visualizador de grafos en el navegador (WASM)",
                         "cli.web":
@@ -2108,7 +2108,7 @@
                             "anneal es además un curso práctico. Elige un modelo, entrénalo de principio a fin en tu propia GPU sin Python ni CUDA, y luego abre el compilador y lee los kernels de GPU que escribió. Aprendes la red y la máquina que hay debajo al mismo tiempo, porque aquí son lo mismo.",
                         "learn.more": "más pronto",
                         "learn.cta": "Empieza el curso",
-                        "footer.v": "v0.1.17 · agpl-3.0",
+                        "footer.v": "v0.2.1 · agpl-3.0",
                     },
                 };
 

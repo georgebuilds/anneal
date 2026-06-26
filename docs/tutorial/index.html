@@ -34,7 +34,7 @@
         <title>Learn to train ML models from scratch in Go, on your GPU · anneal</title>
         <meta
             name="description"
-            content="A hands-on course: train neural networks from scratch in pure Go on a real GPU, then look inside the compiler that built the kernels. MLP, ConvNet, nanoGPT, a Llama-style decoder, ViT, ResNet-9, and GPT-2. No Python, no CUDA."
+            content="A hands-on course: train neural networks from scratch in pure Go on a real GPU, then look inside the compiler that built the kernels. MLP, ConvNet, nanoGPT, a Llama-style decoder, BERT, ViT, ResNet-9, GPT-2, mixture-of-experts, and diffusion transformers (DiT, MeanFlow). No Python, no CUDA."
         />
         <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
         <link rel="canonical" href="https://georgebuilds.github.io/anneal/tutorial/" />
@@ -89,7 +89,7 @@
                 "@type": "LearningResource",
                 "name": "anneal: learn to train ML models from scratch in Go",
                 "headline": "Learn to train ML models from scratch in Go, on your GPU",
-                "description": "A hands-on course: train neural networks from scratch in pure Go on a real GPU, then look inside the compiler that built the kernels. MLP, ConvNet, nanoGPT, a Llama-style decoder, ViT, ResNet-9, and GPT-2. No Python, no CUDA.",
+                "description": "A hands-on course: train neural networks from scratch in pure Go on a real GPU, then look inside the compiler that built the kernels. MLP, ConvNet, nanoGPT, a Llama-style decoder, BERT, ViT, ResNet-9, GPT-2, mixture-of-experts, and diffusion transformers (DiT, MeanFlow). No Python, no CUDA.",
                 "url": "https://georgebuilds.github.io/anneal/tutorial/",
                 "inLanguage": "en",
                 "learningResourceType": ["Tutorial", "Course"],
@@ -98,10 +98,12 @@
                 "teaches": [
                     "Training neural networks",
                     "ML compilers",
-                    "Automatic differentiation",
+                    "Automatic differentiation (reverse and forward mode)",
                     "Graph rewriting and kernel fusion",
                     "WebGPU and WGSL",
                     "Transformers (attention, RoPE, GQA, SwiGLU)",
+                    "Diffusion models and transformers (DDPM, DiT, MeanFlow)",
+                    "Mixture-of-experts routing",
                     "Go programming"
                 ],
                 "license": "https://opensource.org/license/agpl-3-0",
@@ -154,7 +156,7 @@
                 "@context": "https://schema.org",
                 "@type": "HowTo",
                 "name": "How to train a machine learning model from scratch in Go on your GPU",
-                "description": "Install anneal, verify your GPU, train a neural network (MLP, ConvNet, nanoGPT, a Llama-style decoder, ViT, ResNet-9, or GPT-2) end to end, then inspect the compiler that built it. No Python, no CUDA.",
+                "description": "Install anneal, verify your GPU, train a neural network (MLP, ConvNet, nanoGPT, a Llama-style decoder, BERT, ViT, ResNet-9, GPT-2, a mixture-of-experts LM, or a diffusion transformer such as DiT or MeanFlow) end to end, then inspect the compiler that built it. No Python, no CUDA.",
                 "inLanguage": "en",
                 "totalTime": "PT20M",
                 "image": "https://georgebuilds.github.io/anneal/og-image.png",
@@ -547,7 +549,7 @@
                     <p class="step-label"><span class="num">01</span><span>setup</span></p>
                     <h2 class="step-heading">What you need: a Go toolchain, a WebGPU adapter, a little disk.</h2>
                     <p class="intent">
-                        anneal is zero-CGO and ships as a single static Go binary. You need Go 1.22 or newer (verify with <code>go version</code>), a WebGPU adapter on your platform (matrix below), and, for the models that train on real data, a network connection on first run so anneal can fetch the corpus or weights into its asset cache. The card below is tailored to the model you picked.
+                        anneal is zero-CGO and ships as a single static Go binary. You need Go 1.26.3 or newer (verify with <code>go version</code>), a WebGPU adapter on your platform (matrix below), and, for the models that train on real data, a network connection on first run so anneal can fetch the corpus or weights into its asset cache. The card below is tailored to the model you picked.
                     </p>
 
                     <div class="variant" data-model="mlp">
@@ -627,10 +629,10 @@
                         </div>
                         <div class="term-body">
                             <div><span class="t-p">$</span> <span class="t-cmd">go install github.com/georgebuilds/anneal/cmd/anneal@latest</span></div>
-                            <span class="t-out">go: downloading github.com/georgebuilds/anneal v0.1.17</span>
+                            <span class="t-out">go: downloading github.com/georgebuilds/anneal v0.2.1</span>
                             <span class="t-gap"></span>
                             <div><span class="t-p">$</span> <span class="t-cmd">anneal --version</span></div>
-                            <span class="t-out">anneal v0.1.17 (commit c8792a2, go1.22)</span>
+                            <span class="t-out">anneal v0.2.1 (commit e2bfee1, go1.26.3)</span>
                         </div>
                     </div>
 

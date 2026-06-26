@@ -30,7 +30,7 @@ Most autodiff libraries record a tape and replay it. anneal doesn't.
 - **Gradients are a rewrite pass.** `Backward()` doesn't build closures; it injects gradient `UOp`s into the *same* graph as the forward pass. The scheduler then fuses kernels across the forward/backward boundary, an optimization that's structurally impossible with a tape.
 - **Movement ops are range arithmetic, not copies.** reshape, permute, expand, pad, shrink, and flip never move data. They become index math (the *rangeify* model), and the only thing that ever materializes a buffer is the scheduler.
 - **It runs in the browser.** The same compiler builds to WASM and powers the [live visualizer](https://georgebuilds.github.io/anneal/visualizer-demo/), which runs the *real* compiler, not a mock.
-- **It imports ONNX, zero-CGO.** `onnx.Import(bytes, arena, device)` parses ONNX 1.17 models via pure-Go protobuf bindings and lowers them onto the same UOp arena as everything else. About 100 op handlers cover the Stage-1 CNN core and the Stage-2 transformer core; symbolic `dim_param` axes ride through as anneal `Variable`s. See [Importing ONNX](#importing-onnx).
+- **It imports ONNX, zero-CGO.** `onnx.Import(bytes, arena, device)` parses ONNX 1.17 models via pure-Go protobuf bindings and lowers them onto the same UOp arena as everything else. About 45 op handlers cover the Stage-1 CNN core and the Stage-2 transformer core; symbolic `dim_param` axes ride through as anneal `Variable`s. See [Importing ONNX](#importing-onnx).
 - **It has a local browser studio.** `anneal web` serves a single-binary studio at `:3001` with eight deep-linkable views (visualize, kernels, explain, train, generate, history, doctor, plus the home pane). Zero telemetry, zero accounts, model bytes never leave your machine. See [`anneal web`](#anneal-web).
 
 In the visualizer (and throughout the project) color encodes architecture:
@@ -153,9 +153,10 @@ schedule/    rangeify, realize-map, bufferize, kernel split
 codegen/     UOp tree → linear instrs → WGSL; opt.go (Opt seam, four kernel transforms), beam.go (BEAM autotuning)
 backend/     Renderer/Compiler/Allocator/Program/DeviceBuffer interfaces; webgpu/ first
 tensor/      Tensor API, ops, autodiff (gradient.go), realize
-  nn/        Linear, Conv2d, MaxPool2D, Embedding, LayerNorm, CausalSelfAttention,
-             SelfAttention (non-causal), MLP, Block, GPT, PatchEmbed, ViTBlock, ViT,
-             activations, SGD, Adam, Parameter
+  nn/        Linear, Conv2d, BatchNorm2d, MaxPool2D, Embedding, LayerNorm, RMSNorm,
+             CausalSelfAttention, SelfAttention (non-causal), GQAttention, RoPE, KVCache,
+             SwiGLU, MLP, Block, GPT, LlamaBlock, Llama, PatchEmbed, ViTBlock, ViT,
+             DiTBlock, DiT, BERT, DDPMDenoiser, ResNet9, activations, SGD, Adam, AdamW, Parameter
 cmd/anneal/  the CLI (includes `anneal web` and its SSE handlers)
 viz/         the WASM visualizer
 web/         studio.html / studio.css / studio.js / worker.js, embedded into the CLI binary; A11Y.md is the binding per-view a11y checklist
@@ -189,7 +190,7 @@ The line between shipped capabilities and deferred ones is intentional, not acci
 | Multi-device | ⛔ Deferred |
 | Image dtypes | ✅ `Dtypes.ImageFloat32` (storage-layout sibling of `Float32`; WGSL binding is `array<vec4<f32>>`; vec4 slot dispatch - one thread per output slot - makes any output row stride bit-exact; symbolic image kernels keep the legacy aligned-stride constraint) |
 | BEAM autotuning | ✅ Env-gated (ANNEAL_BEAM=1 to search); persistent disk cache |
-| ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~100 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone |
+| ONNX import | ✅ `onnx.Import(bytes, arena, device)`, ~45 op handlers, zero-CGO; Strategy A bit-exact gate + Strategy B onnxruntime cross-check; 174/234 conformance pass, 0 fail; `WithStructureOnly()` for WASM dropzone |
 | `anneal web` (local studio) | ✅ Single binary, 8 deep-linkable views, WASM/native split, zero telemetry, WCAG 2.x AA |
 | Run bundle persistence | ✅ `~/.cache/anneal/runs/<ts>-<model>-<6hex>/`; CLI default OFF (`--bundle` / `ANNEAL_BUNDLE=1`), web default ON (`?bundle=0` disables) |
 

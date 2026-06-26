@@ -6,13 +6,13 @@ anneal is an open-source project by georgebuilds. It is NOT a simulated-annealin
 
 ## Key claims
 
-- Autodiff is a compiler pass, not a runtime hook. Per-op gradient rules are dispatched through a ruleset (`map[uop.Op]→GradRule`) over the same UOp IR as the forward graph, drift-checked against the curated `explain` documentation. The output is a uniform, fusible backward graph, not a runtime tape.
+- Autodiff is a compiler pass, not a runtime hook. Per-op gradient rules are dispatched through a ruleset (`map[uop.Op]→GradRule`) over the same UOp IR as the forward graph, drift-checked against the curated `explain` documentation. The output is a uniform, fusible backward graph, not a runtime tape. Reverse-mode (`tensor.Backward`) is the training default; forward-mode autodiff (`tensor.JVP`, a Jacobian-vector product) is also shipped as the same kind of compiler pass (the tangent graph is just more UOps on the same arena) and powers the exact-MeanFlow objective's directional time-derivative.
 - The scheduler (rangeify) sees forward and backward together and can fuse across that boundary.
 - UOps are immutable, interned, and arena-allocated. Structural equality is identity equality.
 - No reflection in the rewrite hot path. This is a hard invariant.
 - `anneal viz` runs the actual compiler frontend compiled to WebAssembly and renders the real UOp graph in-browser. Not a mock. JSON output identifies which gradient rule produced each backward node.
 - `anneal web` is a single-binary local browser studio with eight deep-linkable views. Zero telemetry, zero accounts, model bytes never leave the machine. Every view that compiles runs as WASM in a Web Worker; every view that executes streams over SSE from a native handler.
-- ONNX import is shipped via `onnx.Import(bytes, arena, device)`. Zero-CGO (pure-Go protobuf bindings, committed in-tree). About 100 op handlers cover Stage-1 CNN and Stage-2 transformer cores. Symbolic `dim_param` axes ride through as anneal `Variable`s. `WithStructureOnly()` opt skips initializer payloads for visualization.
+- ONNX import is shipped via `onnx.Import(bytes, arena, device)`. Zero-CGO (pure-Go protobuf bindings, committed in-tree). About 45 op handlers cover Stage-1 CNN and Stage-2 transformer cores. Symbolic `dim_param` axes ride through as anneal `Variable`s. `WithStructureOnly()` opt skips initializer payloads for visualization.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Color is never the sole carrier of meaning: forward = solid line + teal, backwar
 ## CLI
 
 - `anneal run mlp` - realize and execute a registered example graph
-- `anneal train mlp`: training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, llama, moe, bert, vit, gpt2, diffusion, dit, meanflow; use `--batch=N` with dynmlp for dynamic batch). ResNet-9 is `anneal run resnet9` (forward realizes; full-network training is gated on a WGSL codegen scaling issue)
+- `anneal train mlp`: training loop with the live TUI (models: mlp, conv, dynmlp, nanogpt, llama, moe, bert, vit, resnet9, gpt2, diffusion, dit, meanflow; use `--batch=N` with dynmlp for dynamic batch). ResNet-9 also trains end to end via `anneal train resnet9` (forward + backward + Adam on CIFAR-10) at a small default batch, since the scalar-WGSL codegen ceiling caps batch size; `anneal run resnet9` realizes the forward graph
 - `anneal train nanogpt`: char-level transformer trained end to end on tinyshakespeare; first run fetches the corpus, prints a generated sample at the end
 - `anneal train llama`: char-level Llama-style decoder trained from scratch on tinyshakespeare; the modern-decoder level-up over nanoGPT (RMSNorm instead of LayerNorm, grouped-query attention with RoPE instead of vanilla multi-head attention plus learned absolute positions, SwiGLU feed-forward instead of a GELU MLP, tied embeddings); first run fetches the corpus, prints a generated sample at the end. A small architecture demo, not a trained chat model
 - `anneal train moe`: a small GPT whose per-block feed-forward is replaced by a router plus several expert FFNs, combined by soft (dense) gating with a load-balance auxiliary loss; a teaching version of sparse Mixture-of-Experts. The only change from nanoGPT is the block feed-forward; trained from scratch on tinyshakespeare, first run fetches the corpus and prints a generated sample at the end
@@ -67,9 +67,11 @@ The step-by-step tutorial (https://georgebuilds.github.io/anneal/tutorial/) is t
   - `conv`: a small ConvNet.
   - `nanogpt`: a char-level GPT transformer on tinyshakespeare.
   - `llama`: a char-level Llama-style decoder (RMSNorm, grouped-query attention with RoPE, SwiGLU, tied embeddings); the modern-decoder level-up over nanoGPT.
+  - `bert`: a char-level BERT encoder trained with masked language modeling; encoder-only and bidirectional, the contrast to the causal nanoGPT/Llama decoders.
   - `vit`: a tiny Vision Transformer on a synthetic image dataset.
   - `resnet9`: ResNet-9 on CIFAR-10.
   - `gpt2`: fine-tune GPT-2-small from HuggingFace weights.
+  - `moe`: a small GPT whose per-block feed-forward is a router plus several expert FFNs (soft routing with a load-balance loss); a teaching version of sparse Mixture-of-Experts.
   - `dit`: a class-conditional Diffusion Transformer (adaLN-zero, classifier-free guidance) trained with epsilon-prediction on CIFAR-10.
   - `meanflow`: a MeanFlow one-step generative model on the DiT backbone; its average-velocity objective uses a forward-mode JVP for the total time-derivative (the first use of forward-mode autodiff in the compiler for a real objective).
 - Explore the compiler (#tour): inspect the generated WGSL kernels (`anneal kernels <model>`) and the forward/backward UOp graph (`anneal graph <model>`, `anneal viz`).
@@ -80,6 +82,6 @@ Full tutorial text for ingestion: https://georgebuilds.github.io/anneal/llms-ful
 ## Links
 
 - Homepage: https://georgebuilds.github.io/anneal/
-- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step guide to training ML models from scratch in Go on a real GPU. Install anneal, verify your GPU with `anneal doctor`, then train MLP, ConvNet, nanoGPT, a Llama-style decoder, ViT, ResNet-9, or fine-tune GPT-2-small; covers WebGPU prereqs, the asset download cache, the BPE tokenizer, and a compiler-level walkthrough.
+- Tutorial: https://georgebuilds.github.io/anneal/tutorial/ : Step-by-step guide to training ML models from scratch in Go on a real GPU. Install anneal, verify your GPU with `anneal doctor`, then train MLP, ConvNet, nanoGPT, a Llama-style decoder, BERT, ViT, ResNet-9, MoE, a Diffusion Transformer (DiT), and MeanFlow, or fine-tune GPT-2-small; covers WebGPU prereqs, the asset download cache, the BPE tokenizer, and a compiler-level walkthrough.
 - Visualizer demo: https://georgebuilds.github.io/anneal/visualizer-demo/ : Static UOp graph visualizer for the MLP model. Forward / backward / fused-kernel coloring; a scrubbable timeline through compiler passes; a rules sub-timeline on the gradient and scheduled stages that animates backward nodes appearing in reverse-topological order per BackwardWithTrace's GradTrace, with SVG tooltips naming the gradient rule and firing seq on each backward node.
 - Source: https://github.com/georgebuilds/anneal

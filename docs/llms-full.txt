@@ -55,6 +55,15 @@ same way: `anneal train <model>`. Useful flags: `--steps=N`, `--batch=N`,
   run). Tied embedding/LM-head gradient, numerically stable cross-entropy,
   global-norm gradient clip, AdamW with LR warmup, and a JIT-replayed train step
   (about 40s/step on an Apple M3). The held-out eval loss converges.
+- `diffusion`: a tiny DDPM denoiser (a constant-resolution conv stack with a
+  sinusoidal time embedding) trained on a synthetic 8x8 dataset. The smallest
+  diffusion example; no asset downloads.
+- `dit`: a class-conditional Diffusion Transformer (adaLN-zero conditioning,
+  classifier-free guidance) trained with epsilon-prediction on CIFAR-10.
+- `meanflow`: a MeanFlow one-step generative model on the DiT backbone. Its
+  average-velocity objective uses a forward-mode JVP (Jacobian-vector product)
+  for the total time-derivative: the first use of forward-mode autodiff in the
+  compiler for a real training objective.
 
 ## Requirements
 
@@ -117,7 +126,10 @@ anneal is a compiler, so you can look inside what it built for any model:
 
 - Autodiff is a compiler pass, not a runtime tape. Per-op gradient rules are
   dispatched through a ruleset over the same immutable UOp IR as the forward
-  graph, producing a uniform, fusible backward graph.
+  graph, producing a uniform, fusible backward graph. This reverse-mode pass
+  (`tensor.Backward`) is the training default; forward-mode autodiff
+  (`tensor.JVP`, a Jacobian-vector product) is also available as a compiler pass
+  and powers the MeanFlow example's average-velocity objective.
 - The rangeify scheduler sees forward and backward together and fuses across that
   boundary; schedules are memoized on a structural key.
 - `tensor.JIT` captures the scheduling plan on the first step and replays
