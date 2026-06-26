@@ -140,7 +140,8 @@ func (p *PatchEmbed) Params() []*Parameter {
 // through NewCausalSelfAttention at NewBlock time; rather than thread a
 // causal/non-causal flag through the existing constructor, we author a
 // parallel block that constructs a non-causal attention via NewSelfAttention.
-// The struct is intentionally unexported because ViT is the only consumer.
+// The struct is exported because it is the shared encoder block for every
+// non-causal transformer in the repo (ViT and BERT both stack ViTBlock).
 type ViTBlock struct {
 	LN1  *LayerNorm
 	Attn *CausalSelfAttention // built via NewSelfAttention; mask is all-ones
