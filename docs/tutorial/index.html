@@ -16,7 +16,7 @@
                     t = window.matchMedia("(prefers-color-scheme:light)").matches ? "light" : "dark";
                 document.documentElement.setAttribute("data-theme", t);
 
-                var VALID = { mlp: 1, conv: 1, nanogpt: 1, llama: 1, vit: 1, resnet9: 1, gpt2: 1, dit: 1, meanflow: 1 };
+                var VALID = { mlp: 1, conv: 1, nanogpt: 1, llama: 1, bert: 1, vit: 1, resnet9: 1, gpt2: 1, moe: 1, dit: 1, meanflow: 1 };
                 var m = null;
                 var hash = (window.location.hash || "").replace(/^#/, "");
                 var fromHash = (hash.match(/(?:^|[&;])model=([a-z0-9]+)/) || [])[1];
@@ -129,11 +129,13 @@
                     { "@type": "ListItem", "position": 2, "name": "ConvNet: movement ops as free index math", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=conv" },
                     { "@type": "ListItem", "position": 3, "name": "nanoGPT: a char-level transformer on Shakespeare", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=nanogpt" },
                     { "@type": "ListItem", "position": 4, "name": "Llama-style decoder: RMSNorm, RoPE, GQA, SwiGLU", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=llama" },
-                    { "@type": "ListItem", "position": 5, "name": "ViT: a vision transformer on RGB patches", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=vit" },
-                    { "@type": "ListItem", "position": 6, "name": "ResNet-9: real convolutions, residuals, BatchNorm", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=resnet9" },
-                    { "@type": "ListItem", "position": 7, "name": "GPT-2-small: run and fine-tune the real weights", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=gpt2" },
-                    { "@type": "ListItem", "position": 8, "name": "DiT: a Diffusion Transformer with adaLN-zero and classifier-free guidance", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=dit" },
-                    { "@type": "ListItem", "position": 9, "name": "MeanFlow: a one-step generative model trained with a forward-mode JVP", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=meanflow" }
+                    { "@type": "ListItem", "position": 5, "name": "BERT: a bidirectional encoder trained with masked language modeling", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=bert" },
+                    { "@type": "ListItem", "position": 6, "name": "ViT: a vision transformer on RGB patches", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=vit" },
+                    { "@type": "ListItem", "position": 7, "name": "ResNet-9: real convolutions, residuals, BatchNorm", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=resnet9" },
+                    { "@type": "ListItem", "position": 8, "name": "GPT-2-small: run and fine-tune the real weights", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=gpt2" },
+                    { "@type": "ListItem", "position": 9, "name": "MoE: a mixture-of-experts language model with soft routing", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=moe" },
+                    { "@type": "ListItem", "position": 10, "name": "DiT: a Diffusion Transformer with adaLN-zero and classifier-free guidance", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=dit" },
+                    { "@type": "ListItem", "position": 11, "name": "MeanFlow: a one-step generative model trained with a forward-mode JVP", "url": "https://georgebuilds.github.io/anneal/tutorial/#model=meanflow" }
                 ]
             }
         </script>
@@ -219,15 +221,17 @@
             <div class="modelbar-inner">
                 <span class="modelbar-label"><span class="pick-arrow">&gt;</span>pick a model</span>
                 <div class="modeltabs" role="tablist" aria-label="model variants" id="js-modeltabs">
-                    <button role="tab" id="tab-mlp" data-model="mlp" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">mlp <span class="tab-cost">(seconds)</span></button>
-                    <button role="tab" id="tab-conv" data-model="conv" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">conv <span class="tab-cost">(seconds)</span></button>
-                    <button role="tab" id="tab-nanogpt" data-model="nanogpt" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">nanogpt <span class="tab-cost">(minutes)</span></button>
-                    <button role="tab" id="tab-llama" data-model="llama" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">llama <span class="tab-cost">(minutes)</span></button>
-                    <button role="tab" id="tab-vit" data-model="vit" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">vit <span class="tab-cost">(seconds)</span></button>
-                    <button role="tab" id="tab-resnet9" data-model="resnet9" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">resnet-9 <span class="tab-cost">(CIFAR-10, ~170 MB)</span></button>
-                    <button role="tab" id="tab-gpt2" data-model="gpt2" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">gpt-2 <span class="tab-cost">(~550 MB)</span></button>
-                    <button role="tab" id="tab-dit" data-model="dit" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">dit <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
-                    <button role="tab" id="tab-meanflow" data-model="meanflow" aria-selected="false" aria-controls="prereqs install sanity train tour more" tabindex="-1">meanflow <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
+                    <button role="tab" id="tab-mlp" data-model="mlp" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">mlp <span class="tab-cost">(seconds)</span></button>
+                    <button role="tab" id="tab-conv" data-model="conv" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">conv <span class="tab-cost">(seconds)</span></button>
+                    <button role="tab" id="tab-nanogpt" data-model="nanogpt" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">nanogpt <span class="tab-cost">(minutes)</span></button>
+                    <button role="tab" id="tab-llama" data-model="llama" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">llama <span class="tab-cost">(minutes)</span></button>
+                    <button role="tab" id="tab-bert" data-model="bert" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">bert <span class="tab-cost">(minutes)</span></button>
+                    <button role="tab" id="tab-vit" data-model="vit" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">vit <span class="tab-cost">(seconds)</span></button>
+                    <button role="tab" id="tab-resnet9" data-model="resnet9" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">resnet-9 <span class="tab-cost">(CIFAR-10, ~170 MB)</span></button>
+                    <button role="tab" id="tab-gpt2" data-model="gpt2" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">gpt-2 <span class="tab-cost">(~550 MB)</span></button>
+                    <button role="tab" id="tab-moe" data-model="moe" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">moe <span class="tab-cost">(minutes)</span></button>
+                    <button role="tab" id="tab-dit" data-model="dit" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">dit <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
+                    <button role="tab" id="tab-meanflow" data-model="meanflow" aria-selected="false" aria-controls="prereqs install sanity train tour more about" tabindex="-1">meanflow <span class="tab-cost">(CIFAR-10, ~160 MB)</span></button>
                 </div>
                 <span class="sr-only" id="js-modelannounce" role="status" aria-live="polite"></span>
             </div>
@@ -239,6 +243,7 @@
                 <ol id="js-rail">
                     <li><a href="#start"><span class="num">·</span><span>start here</span></a></li>
                     <li><a href="#lessons"><span class="num">·</span><span>pick a lesson</span></a></li>
+                    <li><a href="#about"><span class="num">·</span><span>about the model</span></a></li>
                     <li aria-hidden="true"><div class="rail-sep"></div></li>
                     <li><a href="#prereqs"><span class="num">01</span><span>setup</span></a></li>
                     <li><a href="#install"><span class="num">02</span><span>install</span></a></li>
@@ -259,6 +264,7 @@
                     <ol>
                         <li><a href="#start">start here</a></li>
                         <li><a href="#lessons">pick a lesson</a></li>
+                        <li><a href="#about">about the model</a></li>
                         <li><a href="#prereqs">01. setup</a></li>
                         <li><a href="#install">02. install</a></li>
                         <li><a href="#sanity">03. check gpu</a></li>
@@ -365,6 +371,21 @@
                             <span class="lesson-go">start lesson &#8594;</span>
                         </a>
 
+                        <a class="lesson-card" data-model="bert" href="#prereqs" aria-label="BERT lesson">
+                            <div class="lesson-top">
+                                <span class="pips" data-level="2" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                                <span class="lesson-level">core</span>
+                            </div>
+                            <div class="lesson-name">BERT</div>
+                            <p class="lesson-what">A bidirectional encoder trained by masked language modeling on Shakespeare.</p>
+                            <ul class="lesson-learn">
+                                <li>non-causal attention reads left and right</li>
+                                <li>masked-LM loss on hidden tokens</li>
+                            </ul>
+                            <div class="lesson-meta"><span class="m"><b>time</b> minutes</span><span class="m"><b>data</b> ~1 MB</span></div>
+                            <span class="lesson-go">start lesson &#8594;</span>
+                        </a>
+
                         <a class="lesson-card" data-model="vit" href="#prereqs" aria-label="ViT lesson">
                             <div class="lesson-top">
                                 <span class="pips" data-level="2" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
@@ -410,6 +431,21 @@
                             <span class="lesson-go">start lesson &#8594;</span>
                         </a>
 
+                        <a class="lesson-card" data-model="moe" href="#prereqs" aria-label="MoE lesson">
+                            <div class="lesson-top">
+                                <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
+                                <span class="lesson-level">deep</span>
+                            </div>
+                            <div class="lesson-name">MoE</div>
+                            <p class="lesson-what">A small GPT whose feedforward is a mixture of expert networks with a router.</p>
+                            <ul class="lesson-learn">
+                                <li>soft routing over expert FFNs</li>
+                                <li>a load-balance auxiliary loss</li>
+                            </ul>
+                            <div class="lesson-meta"><span class="m"><b>time</b> minutes</span><span class="m"><b>data</b> ~1 MB</span></div>
+                            <span class="lesson-go">start lesson &#8594;</span>
+                        </a>
+
                         <a class="lesson-card" data-model="dit" href="#prereqs" aria-label="DiT lesson">
                             <div class="lesson-top">
                                 <span class="pips" data-level="3" aria-hidden="true"><span class="pip"></span><span class="pip"></span><span class="pip"></span></span>
@@ -452,6 +488,60 @@
                     </div>
                 </section>
 
+                <!-- ─── About this network ─────────────────────────────── -->
+                <section class="lessons" id="about" aria-labelledby="about-h">
+                    <p class="sec-eyebrow">about this network</p>
+                    <h2 id="about-h">What you are about to train.</h2>
+                    <p class="lessons-sub">
+                        This is the architecture, in plain terms, before you build it. It tracks the model you picked above: switch the picker and this description re-adapts to whichever network is selected.
+                    </p>
+
+                    <div class="variant" data-model="mlp">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">MLP</h3>
+                        <p class="intent" style="margin-bottom: 0">The multilayer perceptron is the foundational feedforward network: layers of fully-connected units, where every input connects to every output, stacked with a nonlinear activation between them. The key is that nonlinearity (a simple function like ReLU, which clips negative values to zero): without it, stacked linear layers would collapse into a single linear map, but with it the network can bend and fold its input to fit almost any continuous function. This is the universal approximation property, and it makes the MLP the "hello world" of deep learning. Picture each layer reshaping the data until the classes pull apart.</p>
+                    </div>
+                    <div class="variant" data-model="conv">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">ConvNet</h3>
+                        <p class="intent" style="margin-bottom: 0">A convolutional network processes grid-shaped data such as images using filters: small kernels of weights that slide across the input, computing a local response at every position. Its key idea is weight sharing: because the same kernel scans the whole image, a feature learned in one spot is detected everywhere, and the layer uses far fewer parameters than a fully-connected one of equal reach. This matches the nature of images, where nearby pixels relate and a pattern can appear at any location, and it is what first made image recognition practical at scale. An edge detector stays useful no matter where the edge falls.</p>
+                    </div>
+                    <div class="variant" data-model="nanogpt">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">nanoGPT</h3>
+                        <p class="intent" style="margin-bottom: 0">nanoGPT is a small decoder-only GPT, a causal transformer that reads a stream of text and learns to predict the next token (here, the next character) from everything that came before it. The key mechanism is masked self-attention: at each position the model weighs earlier tokens to decide what matters, but a causal mask hides every future token so prediction never peeks ahead. This is the same recipe behind modern chat models, stripped to its teaching essentials by Andrej Karpathy. The intuition is simple: train on enough text and "what comes next?" gradually turns into spelling, grammar, and style, one character at a time.</p>
+                    </div>
+                    <div class="variant" data-model="llama">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">Llama-style decoder</h3>
+                        <p class="intent" style="margin-bottom: 0">The Llama-style decoder is a decoder-only language model that keeps GPT's next-token objective but updates almost every component around it. RMSNorm normalizes activations by their root-mean-square for cheaper, steadier training; rotary position embeddings (RoPE) encode order by rotating the query and key vectors by an angle that grows with position; grouped-query attention lets several attention heads share one set of key/value vectors to save memory; and SwiGLU, a gated feedforward layer, replaces the plain one. Input and output embeddings are tied, sharing a single weight matrix. None of these change what the model does; together they are the 2023-onward refinement that made large decoders cheaper to train and run.</p>
+                    </div>
+                    <div class="variant" data-model="bert">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">BERT</h3>
+                        <p class="intent" style="margin-bottom: 0">BERT is an encoder-only transformer, meaning it is built to read and represent text rather than generate it. It trains by masked language modeling: some tokens are randomly hidden, and the model must recover each one using context from both sides at once, left and right. That bidirectional view is the contrast with GPT, which only ever looks leftward. BERT's 2018 release showed that a single model pretrained this way could be fine-tuned to top many language-understanding tasks (classification, question answering, tagging), making transfer learning the default for NLP. The intuition is fill-in-the-blank: to guess a missing word well, you have to understand the whole sentence.</p>
+                    </div>
+                    <div class="variant" data-model="vit">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">ViT</h3>
+                        <p class="intent" style="margin-bottom: 0">The Vision Transformer brings the transformer, an architecture built for text, to images. It cuts an image into a grid of fixed-size patches, treats each patch as a token (the way a word is a token in language), embeds it as a vector, and feeds the sequence through a standard transformer encoder. The engine there is self-attention: every patch can look directly at every other patch and weigh how much each one matters, rather than building up context through local steps. Its lesson is that, given enough training data, attention can stand in for convolution in vision. In effect, the model reads a picture as a sentence of patches.</p>
+                    </div>
+                    <div class="variant" data-model="resnet9">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">ResNet-9</h3>
+                        <p class="intent" style="margin-bottom: 0">ResNet-9 is a compact, nine-layer convolutional network built from residual blocks. Its defining idea is the residual, or skip, connection: a block adds its own input back to its output, so it learns only the change to apply rather than a full transformation. This matters because the skip gives gradients (the error signals used in training) a direct path backward, which keeps deep networks from stalling. Residual connections (He and colleagues, 2015) made networks of hundreds of layers trainable. This nine-layer recipe, from David Page, is a well-known fast way to train a CIFAR-10 image classifier, and the skip acts as a shortcut the gradient can always take home.</p>
+                    </div>
+                    <div class="variant" data-model="gpt2">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">GPT-2-small</h3>
+                        <p class="intent" style="margin-bottom: 0">This network is GPT-2-small, the 124-million-parameter version of OpenAI's 2019 model, but instead of training it from scratch you begin from the released pretrained weights and keep training on new text. That move is called fine-tuning, an instance of transfer learning: a model first learns general structure from a large corpus, then adapts to a smaller, specific task. It matters because pretraining is expensive and data-hungry, while most real problems are neither. The intuition is that the model already knows English grammar and broad facts; fine-tuning only nudges those existing weights toward the vocabulary, tone, and patterns of your dataset.</p>
+                    </div>
+                    <div class="variant" data-model="moe">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">MoE</h3>
+                        <p class="intent" style="margin-bottom: 0">A Mixture of Experts (MoE) replaces the single feedforward network inside a transformer block with many parallel "expert" networks plus a small router that decides which experts handle each token. The point is to grow the total parameter count, and so the model's capacity, while keeping the compute spent on any one token roughly fixed. Large models do this with sparse routing: each token is sent to only its top few experts. A teaching version can instead softly weight all experts by the router's scores, which is simpler and still shows the core idea. The intuition is specialization: over training, different experts come to handle different kinds of tokens.</p>
+                    </div>
+                    <div class="variant" data-model="dit">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">DiT</h3>
+                        <p class="intent" style="margin-bottom: 0">DiT is a diffusion model whose denoiser is a transformer instead of the convolutional U-Net of earlier diffusion models. The noisy image is cut into small patches, each treated as a token (a unit in a sequence) like words in a sentence, and the transformer attends across all patches at once. The noise level and the class being generated enter through adaptive layer normalization (adaLN): that conditioning rescales and shifts the activations inside each block. It matters because diffusion inherits the transformer's clean scaling, where adding parameters and compute reliably improves samples. DiT (Peebles and Xie, 2022) is the backbone behind many recent image and video generators.</p>
+                    </div>
+                    <div class="variant" data-model="meanflow">
+                        <h3 class="lesson-name" style="margin-bottom: 0.4rem">MeanFlow</h3>
+                        <p class="intent" style="margin-bottom: 0">MeanFlow (Geng and colleagues, 2025) is a generative model built to turn noise into a sample in a single step. Flow-based models learn a velocity field, a rule for how to move a point from noise toward data, which you normally follow through many small updates along a curved path. MeanFlow instead learns the average velocity over the whole trip, so one evaluation gives the straight-shot displacement from noise directly to a sample. The cost is a more involved training objective that ties this average to the instantaneous velocity. It matters because sampling drops from many network passes to one, the main bottleneck in diffusion-style generation.</p>
+                    </div>
+                </section>
+
                 <!-- ─── 01. Setup ──────────────────────────────────────── -->
                 <section class="step" id="prereqs">
                     <p class="step-label"><span class="num">01</span><span>setup</span></p>
@@ -472,6 +562,9 @@
                     <div class="variant" data-model="llama">
                         <div class="compare"><span class="tag">disk / network for Llama</span> About 1 MB for the Tiny Shakespeare corpus on first run (the same corpus nanoGPT uses), cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.</div>
                     </div>
+                    <div class="variant" data-model="bert">
+                        <div class="compare"><span class="tag">disk / network for BERT</span> About 1 MB for the Tiny Shakespeare corpus on first run (the same corpus nanoGPT uses), cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.</div>
+                    </div>
                     <div class="variant" data-model="vit">
                         <div class="compare"><span class="tag">disk / network for ViT</span> None beyond the Go install. The Vision Transformer trains on a synthetic class-conditional 32 by 32 RGB dataset generated in-process; no downloads, no cache writes.</div>
                     </div>
@@ -480,6 +573,9 @@
                     </div>
                     <div class="variant" data-model="gpt2">
                         <div class="compare"><span class="tag">disk / network for GPT-2</span> About 550 MB on first run: <code>model.safetensors</code> (~548 MB), <code>vocab.json</code> (~1 MB), and <code>merges.txt</code> (~445 KB), SHA-pinned and atomically written to <code>$ANNEAL_CACHE_DIR</code>. Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
+                    </div>
+                    <div class="variant" data-model="moe">
+                        <div class="compare"><span class="tag">disk / network for MoE</span> About 1 MB for the Tiny Shakespeare corpus on first run (the same corpus nanoGPT uses), cached in <code>$ANNEAL_CACHE_DIR</code> (defaults to <code>$XDG_CACHE_HOME/anneal</code>). Subsequent runs are offline.</div>
                     </div>
                     <div class="variant" data-model="dit">
                         <div class="compare"><span class="tag">disk / network for DiT</span> About 160 MB on first run: the CIFAR-10 binary distribution is fetched into <code>$ANNEAL_CACHE_DIR</code>, SHA-pinned and atomically written (the same dataset ResNet-9 uses). Subsequent runs are offline; set <code>ANNEAL_OFFLINE=1</code> to fail closed when the cache is cold.</div>
@@ -599,6 +695,20 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="bert">
+                        <div class="terminal" role="region" aria-label="list models (bert highlighted)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  conv      conv2d(1 to 4, 3x3) + relu + shrink + flatten + linear</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  llama     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
+                                <span class="t-out">  <span class="t-fwd">bert</span>      BERT encoder (bidirectional attention + masked-LM); trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="variant" data-model="vit">
                         <div class="terminal" role="region" aria-label="list models (vit highlighted)">
                             <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button></div>
@@ -637,6 +747,20 @@
                                 <span class="t-out">subcommands:</span>
                                 <span class="t-out">  <span class="t-fwd">sample &lt;prompt&gt;</span>   sample text from GPT-2-small (HuggingFace weights)</span>
                                 <span class="t-out">run 'anneal gpt2 sample --help' for sample-specific flags.</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="moe">
+                        <div class="terminal" role="region" aria-label="list models (moe highlighted)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train" aria-label="copy list models command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train</span></div>
+                                <span class="t-out">available models:</span>
+                                <span class="t-out">  nanogpt   char-level transformer; trains on tinyshakespeare</span>
+                                <span class="t-out">  llama     Llama-style decoder (RMSNorm, GQA + RoPE, SwiGLU); trains on tinyshakespeare</span>
+                                <span class="t-out">  bert      BERT encoder (bidirectional attention + masked-LM); trains on tinyshakespeare</span>
+                                <span class="t-out">  <span class="t-fwd">moe</span>       Mixture-of-Experts LM (router + expert FFNs, soft routing + load-balance loss); trains on tinyshakespeare</span>
+                                <span class="t-out">  vit       vision transformer (patch embed + 2-block encoder + mean-pool head)</span>
                             </div>
                         </div>
                     </div>
@@ -685,9 +809,11 @@
                     <div class="variant" data-model="conv"><p class="intent" style="margin-top:0">For ConvNet, the only line that matters is <code>status: ok</code>. Any backend works; the network is small enough to fit anywhere.</p></div>
                     <div class="variant" data-model="nanogpt"><p class="intent" style="margin-top:0">For nanoGPT, you want <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is small; the wall-time in step 04 is dominated by kernel compile and dispatch, not buffer pressure.</p></div>
                     <div class="variant" data-model="llama"><p class="intent" style="margin-top:0">For Llama, you want <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is the same size as nanoGPT; the wall-time in step 04 is dominated by kernel compile and dispatch, not buffer pressure.</p></div>
+                    <div class="variant" data-model="bert"><p class="intent" style="margin-top:0">For BERT, you want <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is the same size as nanoGPT; the wall-time in step 04 is dominated by kernel compile and dispatch, not buffer pressure.</p></div>
                     <div class="variant" data-model="vit"><p class="intent" style="margin-top:0">For ViT, the only line that matters is <code>status: ok</code>. Any backend works; the model fits in any device's buffer limits (about 80K parameters total, dominated by the patch projection and two encoder blocks).</p></div>
                     <div class="variant" data-model="resnet9"><p class="intent" style="margin-top:0">For ResNet-9, check that <code>max buffer size</code> comfortably exceeds the largest activation: at the canonical 64/128/256/512 channels, the layer3 stage produces a [B, 512, 4, 4] tensor (32 KB per sample, 1 MB at B=32). The whole model and its activations fit easily on any discrete GPU; the binding constraint at present is the WGSL codegen on very-deep backward graphs, not buffer pressure.</p></div>
                     <div class="variant" data-model="gpt2"><p class="intent" style="margin-top:0">For GPT-2, check that <code>max buffer size</code> is comfortably above the largest single weight tensor (the FP32 embedding is about 154 MB). On Apple Silicon and most discrete GPUs this is automatic; on low-end integrated GPUs it can be the binding constraint.</p></div>
+                    <div class="variant" data-model="moe"><p class="intent" style="margin-top:0">For MoE, you want <code>status: ok</code> and a reasonable <code>max buffer size</code> (anything in the GB range is fine). The model is the same size as nanoGPT with several parallel expert FFNs; the wall-time in step 04 is dominated by kernel compile and dispatch, not buffer pressure.</p></div>
                     <div class="variant" data-model="dit"><p class="intent" style="margin-top:0">For DiT, you want <code>status: ok</code> on a real adapter: training runs on the GPU only. The diffusion backward pass does not yet realize on the pure-Go CPU interpreter (a known backend limitation), so <code>--device=cpu</code> covers the forward path but not <code>anneal train dit</code>. The binding constraint is the WGSL backward surface, not buffer size.</p></div>
                     <div class="variant" data-model="meanflow"><p class="intent" style="margin-top:0">For MeanFlow, you want <code>status: ok</code> on a real adapter: training runs on the GPU only. It reuses the DiT backbone (whose backward does not yet realize on the pure-Go CPU interpreter), and the continuous-time embedding adds a <code>Sin</code> the CPU path does not realize either, so <code>anneal train meanflow</code> is GPU-only. The binding constraint is the WGSL surface, not buffer size.</p></div>
 
@@ -881,6 +1007,36 @@
                         <p class="intent" style="margin-top: 1rem">Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same forward / backward / fused-kernel pipeline on the modern-decoder primitive stack.</p>
                     </div>
 
+                    <div class="variant" data-model="bert">
+                        <h3 class="step-heading">BERT: a bidirectional encoder trained by masked language modeling.</h3>
+                        <p class="intent">
+                            <code>anneal train bert</code> downloads the Tiny Shakespeare corpus (about 1 MB, cached on first run, the same corpus nanoGPT uses), constructs a tiny but BERT-shaped encoder (2 pre-LN encoder blocks, 2 heads, embedding 64, block size 32, vocab about 65 from the corpus plus one [MASK] row), trains it with Adam, then recovers the hidden tokens of a masked sample. What is architecturally new versus nanoGPT: attention is non-causal, so every token reads context from both sides at once, left and right, instead of only the tokens before it; and the objective is masked language modeling, where a fraction of the input tokens (15% here) are replaced with a [MASK] symbol and the model must restore the originals, so the loss is scored only on the hidden positions. Forward and backward fuse into the same WGSL kernels through the rangeify scheduler exactly as they do for nanoGPT.
+                        </p>
+                        <div class="terminal" role="region" aria-label="BERT training">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train bert --steps=2000" aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train bert --steps=2000</span></div>
+                                <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
+                                <span class="t-out">model bert-char vocab=65 layers=2 heads=2 dmodel=64 block=32 mask=15%</span>
+                                <span class="t-out">device webgpu &middot; apple m3 max</span>
+                                <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.19</span></span>
+                                <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.41</span></span>
+                                <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.66</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> bidirectional attention + masked-LM head <span class="t-bwd">backward</span> &#8594; <span class="t-fsd">fused</span> WGSL kernels</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">masked reconstruction:</span>
+                                <span class="t-out">in:   ROMEO: but [MASK], what light through yonder [MASK] breaks</span>
+                                <span class="t-out"><span class="t-fwd">pred: ROMEO: but soft, what light through yonder window breaks</span></span>
+                            </div>
+                        </div>
+                        <div class="concept">
+                            <div class="c-label">the idea</div>
+                            <div class="c-body"><p>The single change that separates BERT from nanoGPT is the attention mask. nanoGPT applies a causal mask, so position i can attend only to positions up to i; BERT uses an all-ones mask, so every position attends to the whole sequence at once. That bidirectional view is why BERT trains by masked language modeling rather than next-token prediction: if the model could already see the token to its right, predicting it would be trivial, so instead you hide a fraction of the tokens and score only the recovered ones. The intuition is fill-in-the-blank: to guess a missing word well, you have to read the whole sentence.</p></div>
+                            <p class="c-deeper"><b>paper:</b> Devlin et&nbsp;al., "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding" (2018). <b>source:</b> <a href="https://github.com/georgebuilds/anneal/blob/main/tensor/nn/bert.go">tensor/nn/bert.go</a>, <a href="https://github.com/georgebuilds/anneal/blob/main/examples/bert.go">examples/bert.go</a>.</p>
+                        </div>
+                        <p class="intent" style="margin-top: 1rem">Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the same forward / backward / fused-kernel pipeline on a bidirectional encoder.</p>
+                    </div>
+
                     <div class="variant" data-model="vit">
                         <h3 class="step-heading">ViT: a vision transformer on RGB patches.</h3>
                         <p class="intent">
@@ -967,6 +1123,36 @@
                             </div>
                         </details>
                         <p class="intent" style="margin-top: 1rem">Want to see the same compiler train a model from scratch? Switch the picker to <em>nanoGPT</em> for the training counterpart, or <em>MLP</em> for the fastest end-to-end demo.</p>
+                    </div>
+
+                    <div class="variant" data-model="moe">
+                        <h3 class="step-heading">MoE: a small GPT with a mixture-of-experts feedforward.</h3>
+                        <p class="intent">
+                            <code>anneal train moe</code> downloads the Tiny Shakespeare corpus (about 1 MB, cached on first run, the same corpus nanoGPT uses), constructs a small char-level GPT whose feedforward block is replaced by a mixture of experts (2 layers, 2 heads, embedding 64, block size 32, vocab about 65, four parallel expert MLPs and a learned router), trains it with Adam, then prints a Shakespeare-flavored sample. What is architecturally new versus nanoGPT: each block's single MLP becomes a set of parallel expert MLPs plus a small router that scores the experts per token; this teaching version softly weights all experts by the router scores (every expert runs on every token) rather than the hard top-k routing production models use. A load-balance auxiliary loss is added to the language-modeling loss so the router spreads tokens across experts instead of collapsing onto one. Forward and backward fuse into the same WGSL kernels through the rangeify scheduler exactly as they do for nanoGPT.
+                        </p>
+                        <div class="terminal" role="region" aria-label="MoE training">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal train moe --steps=2000" aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal train moe --steps=2000</span></div>
+                                <span class="t-out">fetch shakespeare.txt (~1 MiB) <span class="t-fsd">cached</span></span>
+                                <span class="t-out">model moe-char vocab=65 layers=2 heads=2 experts=4 dmodel=64 block=32</span>
+                                <span class="t-out">device webgpu &middot; apple m3 max</span>
+                                <span class="t-out">step <span class="t-dim">0001</span> loss <span class="t-fwd">4.21</span> <span class="t-dim">(lm 4.18 + bal 0.03)</span></span>
+                                <span class="t-out">step <span class="t-dim">0500</span> loss <span class="t-fwd">2.36</span></span>
+                                <span class="t-out">step <span class="t-dim">2000</span> loss <span class="t-fwd">1.51</span></span>
+                                <span class="t-out"><span class="t-fwd">forward</span> router + 4 expert ffns + gated combine <span class="t-bwd">backward</span> &#8594; <span class="t-fsd">fused</span> WGSL kernels</span>
+                                <span class="t-gap"></span>
+                                <span class="t-out">sample:</span>
+                                <span class="t-out"><span class="t-fwd">ROMEO: and the world that we have seen the night,</span></span>
+                                <span class="t-out"><span class="t-fwd">and the heart of the heavens of the king.</span></span>
+                            </div>
+                        </div>
+                        <div class="concept">
+                            <div class="c-label">the idea</div>
+                            <div class="c-body"><p>A mixture of experts grows a model's parameter count without growing the compute spent on any one token. In a transformer block the single feedforward network becomes many parallel expert networks plus a small router that scores them; production models route each token to only its top few experts (sparse routing), so most experts stay idle per token and the cost barely moves while capacity climbs. This teaching version instead softly weights every expert by the router's scores, which is simpler to differentiate and still shows the core idea. A load-balance auxiliary loss nudges the router to use all experts, since otherwise it tends to collapse onto a favourite. The intuition is specialization: over training, different experts come to handle different kinds of tokens.</p></div>
+                            <p class="c-deeper"><b>papers:</b> Shazeer et&nbsp;al., "Outrageously Large Neural Networks" (2017); Switch Transformer (Fedus et&nbsp;al., 2021). <b>source:</b> <a href="https://github.com/georgebuilds/anneal/blob/main/examples/moe.go">examples/moe.go</a>.</p>
+                        </div>
+                        <p class="intent" style="margin-top: 1rem">Curious how it compiles? <a class="inline" href="../visualizer-demo/">Open the visualizer</a> to step through the router, the parallel expert FFNs, and the gated-combine forward / backward / fused-kernel pipeline.</p>
                     </div>
 
                     <div class="variant" data-model="dit">
@@ -1102,6 +1288,22 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="bert">
+                        <div class="terminal" role="region" aria-label="compiler inspection for BERT">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal explain softmax" aria-label="copy explain command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain softmax</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: max-shift + exp + reduce-sum + divide; one fused reduce, non-causal.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: softmax times (grad minus weighted-sum), folded into the same reduce.</span>
+                                <span class="t-out">rules fired: softmax.fuse-max-shift, exp.lift-mul</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels bert</span></div>
+                                <span class="t-out">kernel 0/N embed.lookup    <span class="t-dim">// gather over wte + positional add</span></span>
+                                <span class="t-out">kernel K/N attn.qkv+score  <span class="t-dim">// fused: qkv proj + scaled dot + softmax (no mask)</span></span>
+                                <span class="t-out">kernel N-1 mlm.head+loss   <span class="t-dim">// fused: layernorm + lm-head matmul + masked cross-entropy</span></span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="variant" data-model="vit">
                         <div class="terminal" role="region" aria-label="compiler inspection for ViT">
                             <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal explain reshape" aria-label="copy explain command">copy</button></div>
@@ -1147,6 +1349,22 @@
                                 <span class="t-out">kernel 0/N embed.lookup    <span class="t-dim">// gather over wte + positional add</span></span>
                                 <span class="t-out">kernel 7/N attn.qkv+score  <span class="t-dim">// fused: qkv proj + scaled dot + mask</span></span>
                                 <span class="t-out">kernel N-1 lm_head.logits  <span class="t-dim">// fused: layernorm + final matmul</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="variant" data-model="moe">
+                        <div class="terminal" role="region" aria-label="compiler inspection for MoE">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy="anneal kernels moe" aria-label="copy kernels command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal explain softmax</span></div>
+                                <span class="t-out"><span class="t-fwd">forward</span>: the router is a small linear, then a softmax over the experts.</span>
+                                <span class="t-out"><span class="t-bwd">backward</span>: gradient flows into every expert, each weighted by its router score.</span>
+                                <span class="t-out">rules fired: softmax.fuse-max-shift, matmul.lift-permute</span>
+                                <span class="t-gap"></span>
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal kernels moe</span></div>
+                                <span class="t-out">kernel 0/N router.softmax   <span class="t-dim">// fused: linear + softmax over experts</span></span>
+                                <span class="t-out">kernel K/N experts.ffn      <span class="t-dim">// fused: parallel expert matmuls + gelu</span></span>
+                                <span class="t-out">kernel N-1 combine+balance  <span class="t-dim">// fused: gate-weighted sum + load-balance aux loss</span></span>
                             </div>
                         </div>
                     </div>
@@ -1254,6 +1472,18 @@
                             </div>
                         </div>
                     </div>
+                    <div class="variant" data-model="bert">
+                        <div class="crossref"><strong>Compare against nanoGPT.</strong> Switch the picker to <em>nanoGPT</em> to see the causal counterpart: the same char-level corpus and the same encoder blocks, but with a causal mask and a next-token objective instead of bidirectional attention and masked language modeling. Side by side, the mask is the whole difference.</div>
+                        <div class="crossref"><strong>Sample from GPT-2-small.</strong> The encoder blocks you just trained share their attention, MLP, and LayerNorm modules with the real GPT-2-small checkpoint. Same compiler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.</div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
+                    </div>
                     <div class="variant" data-model="vit">
                         <div class="crossref"><strong>Sample from GPT-2-small.</strong> The transformer stack you just trained on images shares its attention, MLP, and LayerNorm modules with the real GPT-2-small checkpoint. Same compiler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.</div>
                         <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
@@ -1289,6 +1519,18 @@
                             </div>
                         </div>
                         <div class="crossref"><strong>Or the modern decoder.</strong> Switch the picker to <em>Llama</em> to train the 2024-era primitive stack (RMSNorm, RoPE, GQA, SwiGLU, tied weights) from scratch on the same dataset.</div>
+                    </div>
+                    <div class="variant" data-model="moe">
+                        <div class="crossref"><strong>Compare against nanoGPT.</strong> Switch the picker to <em>nanoGPT</em> to see the dense counterpart: the same char-level corpus and the same blocks, but with a single feedforward network in place of the router and parallel experts. Side by side, the mixture-of-experts swap is the whole difference.</div>
+                        <div class="crossref"><strong>Sample from GPT-2-small.</strong> The GPT backbone you just trained shares its attention, MLP, and LayerNorm modules with the real GPT-2-small checkpoint. Same compiler, same WGSL codegen, bigger weights, byte-level agreement with HuggingFace on the logits.</div>
+                        <div class="terminal" role="region" aria-label="GPT-2 sample (cross-reference)">
+                            <div class="term-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><button class="term-copy" data-copy='anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy' aria-label="copy command">copy</button></div>
+                            <div class="term-body">
+                                <div><span class="t-p">$</span> <span class="t-cmd">anneal gpt2 sample "Hello, world" --max-tokens=10 --greedy</span></div>
+                                <span class="t-out">fetch model.safetensors (548 MiB) <span class="t-fsd">sha ok</span></span>
+                                <span class="t-out"><span class="t-fwd">Hello, world. I'm sorry, but I'm</span></span>
+                            </div>
+                        </div>
                     </div>
                     <div class="variant" data-model="dit">
                         <div class="crossref"><strong>Compare the transformer.</strong> Switch the picker to <em>ViT</em>: DiT reuses the same patch embedding and non-causal encoder blocks, conditioned on the diffusion timestep and class instead of producing a classification.</div>

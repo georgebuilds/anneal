@@ -235,11 +235,14 @@ html[data-model="mlp"]     .variant[data-model="mlp"],
 html[data-model="conv"]    .variant[data-model="conv"],
 html[data-model="nanogpt"] .variant[data-model="nanogpt"],
 html[data-model="llama"]   .variant[data-model="llama"],
+html[data-model="bert"]    .variant[data-model="bert"],
 html[data-model="vit"]     .variant[data-model="vit"],
 html[data-model="resnet9"] .variant[data-model="resnet9"],
 html[data-model="gpt2"]    .variant[data-model="gpt2"],
+html[data-model="moe"]     .variant[data-model="moe"],
 html[data-model="dit"]     .variant[data-model="dit"],
-html[data-model="meanflow"] .variant[data-model="meanflow"] { display: block; }
+html[data-model="meanflow"] .variant[data-model="meanflow"],
+html[data-model="about"]   .variant[data-model="about"] { display: block; }
 
 .variant { animation: variant-in 0.18s ease-out; }
 @keyframes variant-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }

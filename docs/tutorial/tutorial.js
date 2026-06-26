@@ -25,9 +25,11 @@
         { id: "conv",    label: "ConvNet" },
         { id: "nanogpt", label: "nanoGPT" },
         { id: "llama",   label: "Llama" },
+        { id: "bert",    label: "BERT" },
         { id: "vit",     label: "ViT" },
         { id: "resnet9", label: "ResNet-9" },
         { id: "gpt2",    label: "GPT-2-small" },
+        { id: "moe",     label: "MoE" },
         { id: "dit",     label: "DiT" },
         { id: "meanflow", label: "MeanFlow" }
     ];
